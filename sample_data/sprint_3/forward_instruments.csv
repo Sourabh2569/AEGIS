@@ -1,0 +1,3 @@
+aegis_instrument_id,isin,company_legal_name,current_symbol,sector,cluster,trading_status,mapping_confidence_score
+AEGIS-IN-000001,INE000A01001,Aegis Alpha Ltd,ALPHA,Financials,FINANCIALS,ACTIVE,0.99
+AEGIS-IN-000002,INE000A01002,Aegis Beta Ltd,BETA,Technology,EXPORT_ORIENTED,ACTIVE,0.99

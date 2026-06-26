@@ -1,0 +1,6 @@
+{
+  "risk_profile_version": "AEGIS_CONSERVATIVE_V0",
+  "minimum_cash_weight": "0.20",
+  "maximum_gross_equity_exposure": "0.80",
+  "maximum_single_position_weight": "0.10"
+}

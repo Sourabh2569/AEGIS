@@ -1,0 +1,1 @@
+from aegis.research_registry.service import ResearchRegistryService

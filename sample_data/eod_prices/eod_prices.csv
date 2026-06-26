@@ -1,0 +1,2 @@
+aegis_instrument_id,trade_date,open,high,low,close,volume,event_time,available_time,ingested_time
+AEGIS-IN-000001,2026-06-25,2910.0,2942.5,2894.0,2931.2,3912500,2026-06-25T15:30:00+05:30,2026-06-25T18:00:00+05:30,2026-06-25T18:05:00+05:30

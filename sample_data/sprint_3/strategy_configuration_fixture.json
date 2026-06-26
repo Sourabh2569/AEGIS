@@ -1,0 +1,6 @@
+{
+  "strategy_id": "EqualWeightUniverseBenchmarkStrategyV0",
+  "strategy_version_id": "EqualWeightUniverseBenchmarkStrategyV0:V0",
+  "paper_classification": "PAPER_TRADING_ONLY",
+  "human_approval_required": true
+}

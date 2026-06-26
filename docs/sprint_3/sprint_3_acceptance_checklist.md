@@ -1,0 +1,21 @@
+# Sprint 3 Acceptance Checklist
+
+- Paper portfolio creation: partial pass.
+- Strategy admission/freeze/activation: partial pass.
+- Forward data readiness: partial pass.
+- Human approval required: pass in scaffold.
+- Approval expiry: pass in scaffold.
+- Simulated execution: partial pass.
+- T+1 settlement behavior: partial pass.
+- Reconciliation freeze: pass in scaffold.
+- Kill switch blocking: pass in scaffold.
+- Drift assessment: partial pass.
+- Evidence package: partial pass.
+- SQLite-backed paper persistence adapter: partial pass.
+- Queue-backed session jobs: partial pass.
+- Exchange-calendar governed execution dates: pass in fixture path.
+- Corporate-action review and freeze workflow: partial pass.
+- API integration tests: added; execution depends on FastAPI/httpx test environment.
+- Dashboard runtime contract test: added; execution depends on Node/npm environment.
+- Full CI/tooling: fail in current local environment.
+- Broker/live exclusion: pass.

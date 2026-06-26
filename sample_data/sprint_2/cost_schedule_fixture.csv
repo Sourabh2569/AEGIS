@@ -1,0 +1,2 @@
+version,brokerage_bps_buy,brokerage_bps_sell,other_bps_buy,other_bps_sell,verification_status
+FIXTURE_COST_SCHEDULE_V0,5,5,2,2,APPROVED_FIXTURE

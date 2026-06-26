@@ -1,0 +1,2 @@
+aegis_instrument_id,isin,company_legal_name,security_type,current_symbol,primary_exchange,listing_date,trading_status,sector,industry,mapping_confidence_score
+AEGIS-IN-000001,INE000A01000,AEGIS Test Equity Limited,EQUITY,AEGISTEST,NSE,2020-01-01,ACTIVE,Financials,Capital Markets,0.99

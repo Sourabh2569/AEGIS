@@ -1,0 +1,2 @@
+aegis_instrument_id,action_type,announcement_time,record_date,ex_date,effective_date,ratio_or_amount,currency,source_reference
+AEGIS-IN-000001,CASH_DIVIDEND,2026-06-01T12:00:00+05:30,2026-06-15,2026-06-14,2026-06-20,10.0,INR,mock://corporate_actions/reliance-dividend
