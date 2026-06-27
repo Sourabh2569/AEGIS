@@ -1,3 +1,4 @@
+from aegis.research_activation.evidence_review import ResearchEvidenceReviewGate
 from aegis.research_activation.service import (
     ActualResearchEligibilityGuard,
     ActualHistoricalResearchEligibilityService,
@@ -10,4 +11,5 @@ __all__ = [
     "ActualHistoricalResearchEligibilityService",
     "FixtureIsolationGuard",
     "HistoricalResearchActivationService",
+    "ResearchEvidenceReviewGate",
 ]

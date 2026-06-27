@@ -38,3 +38,23 @@ def test_research_activation_attempt_records_blocked_manifest() -> None:
     assert manifests
     assert manifests[-1]["paper_trading_ready"] is False
     assert manifests[-1]["live_trading_ready"] is False
+
+
+def test_baseline_evidence_review_api_runs_all_three_strategies() -> None:
+    client = TestClient(app)
+
+    payload = client.get("/api/v1/research/actual-data/evidence-reviews/baselines").json()
+
+    assert payload["ranking_allowed"] is False
+    assert payload["paper_trading_activated"] is False
+    assert payload["live_execution_activated"] is False
+    assert payload["final_state"] == "ALL_BASELINES_RESEARCH_ONLY_NEEDS_FIXES"
+    assert [review["strategy_version"] for review in payload["reviews"]] == [
+        "BuyAndHoldBenchmarkStrategyV0",
+        "EqualWeightUniverseBenchmarkStrategyV0",
+        "TrendFollowingBaselineStrategyV0",
+    ]
+    assert all(
+        review["final_classification"] == "RESEARCH_ONLY_NEEDS_FIXES"
+        for review in payload["reviews"]
+    )

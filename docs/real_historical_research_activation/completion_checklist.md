@@ -9,6 +9,7 @@
 - [x] Actual feature-run API surface added.
 - [x] Baseline experiment API surface added.
 - [x] Actual research background job names and local fail-closed runner added.
+- [x] Evidence review gate run against all three baseline strategies.
 - [x] Dashboard Research Lab blocked state added.
 - [x] Unit and integration tests added.
 - [ ] Actual provider configured.

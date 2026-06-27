@@ -49,6 +49,7 @@ from aegis.paper_trading.services import (
     all_readiness_green,
 )
 from aegis.research_registry.sprint2 import RESEARCH_LABELS
+from aegis.research_activation.evidence_review import ResearchEvidenceReviewGate
 from aegis.research_activation.service import HistoricalResearchActivationService
 from aegis.risk.engine import KillSwitchType, RiskProfileVersion
 
@@ -197,6 +198,10 @@ def research_activation_service() -> HistoricalResearchActivationService:
     return HistoricalResearchActivationService(
         settings=settings, repository=repo, licenses=licenses
     )
+
+
+def research_evidence_review_gate() -> ResearchEvidenceReviewGate:
+    return ResearchEvidenceReviewGate(research_activation_service())
 
 
 def actual_research_blocked_detail() -> dict[str, Any]:
@@ -480,6 +485,19 @@ def actual_data_feature_readiness() -> dict[str, Any]:
         "same_close_execution_allowed": False,
         "reason_codes": readiness["reason_codes"],
     }
+
+
+@app.get("/api/v1/research/actual-data/evidence-reviews/baselines")
+def actual_data_baseline_evidence_reviews() -> dict[str, Any]:
+    return jsonable(research_evidence_review_gate().review_all_baselines())
+
+
+@app.get("/api/v1/research/actual-data/evidence-reviews/{strategy_version}")
+def actual_data_strategy_evidence_review(strategy_version: str) -> dict[str, Any]:
+    try:
+        return jsonable(research_evidence_review_gate().review_baseline_strategy(strategy_version))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": str(exc)}) from exc
 
 
 @app.get("/api/v1/providers")

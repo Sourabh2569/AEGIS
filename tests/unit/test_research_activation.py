@@ -14,6 +14,7 @@ from aegis.research_activation.jobs import (
     ActualResearchJobRunner,
     ActualResearchJobType,
 )
+from aegis.research_activation.evidence_review import ResearchEvidenceReviewGate
 from aegis.research_activation.service import HistoricalResearchActivationService
 
 
@@ -160,3 +161,29 @@ def test_actual_research_job_runner_is_idempotent_and_fail_closed() -> None:
     assert completed.status == "BLOCKED"
     assert completed.result["paper_trading_activated"] is False
     assert completed.result["live_execution_activated"] is False
+
+
+def test_evidence_review_gate_runs_all_three_baselines_fail_closed() -> None:
+    repository = InMemoryRepository()
+    repository.dataset_versions["dataset-version-1"] = dataset_version(
+        raw_snapshot_hash="fixture-hash"
+    )
+    repository.dataset_origins["dataset-version-1"] = "FIXTURE_DATA"
+    gate = ResearchEvidenceReviewGate(service(repository))
+
+    result = gate.review_all_baselines()
+
+    assert result["ranking_allowed"] is False
+    assert result["paper_trading_activated"] is False
+    assert [review["strategy_version"] for review in result["reviews"]] == [
+        "BuyAndHoldBenchmarkStrategyV0",
+        "EqualWeightUniverseBenchmarkStrategyV0",
+        "TrendFollowingBaselineStrategyV0",
+    ]
+    assert {review["final_classification"] for review in result["reviews"]} == {
+        "RESEARCH_ONLY_NEEDS_FIXES"
+    }
+    assert all(
+        "NO_ACTUAL_EVIDENCE_PACKAGE" in review["critical_issues_found"]
+        for review in result["reviews"]
+    )

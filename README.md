@@ -163,6 +163,7 @@ curl http://localhost:8000/api/v1/research/actual-data/blockers
 curl http://localhost:8000/api/v1/research/actual-data/universe-readiness
 curl http://localhost:8000/api/v1/research/actual-data/benchmark-readiness
 curl http://localhost:8000/api/v1/research/actual-data/feature-readiness
+curl http://localhost:8000/api/v1/research/actual-data/evidence-reviews/baselines
 ```
 
 Actual feature computation, baseline experiment creation, manifest freezing, backtest execution, and evidence inspection:

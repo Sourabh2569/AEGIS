@@ -9,6 +9,7 @@ Covered locally:
 - RED validation and missing lineage block activation.
 - Actual research mutation endpoints fail closed when readiness is blocked.
 - Actual research background jobs are idempotent and fail closed when readiness is blocked.
+- Evidence review gate returns `RESEARCH_ONLY_NEEDS_FIXES` for all three baseline strategies when no actual evidence package exists.
 
 Deferred until provider data exists:
 
