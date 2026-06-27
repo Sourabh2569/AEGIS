@@ -1,0 +1,2 @@
+aegis_instrument_id,isin,company_legal_name,security_type,current_symbol,primary_exchange,exchange_instrument_code,provider_instrument_token,listing_date,trading_status,sector,industry,currency,lot_size,tick_size,liquidity_classification,mapping_confidence_score
+AEGIS-IN-000001,INE002A01018,Reliance Industries Limited,EQUITY,RELIANCE,NSE,RELIANCE,1001,1995-01-01,ACTIVE,Energy,Oil Gas and Consumable Fuels,INR,1,0.05,LARGE_CAP,0.99

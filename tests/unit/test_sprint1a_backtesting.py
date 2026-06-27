@@ -8,7 +8,12 @@ import pytest
 
 from aegis.audit.service import AuditLog
 from aegis.backtesting.accounting import gross_notional, weighted_average_cost_basis
-from aegis.backtesting.domain import BacktestRunStatus, OrderSide, SimulatedOrderStatus, SPRINT_1A_LABELS
+from aegis.backtesting.domain import (
+    BacktestRunStatus,
+    OrderSide,
+    SimulatedOrderStatus,
+    SPRINT_1A_LABELS,
+)
 from aegis.backtesting.engine import BacktestService
 from aegis.backtesting.execution import reject_same_close_execution
 from aegis.backtesting.fixtures import load_calendar, load_market_data
@@ -76,7 +81,9 @@ def service_setup(market_file: str = "valid_eod_prices.csv"):
     audit = AuditLog()
     service = BacktestService(repo, audit)
     calendar = load_calendar(ROOT / "sample_data/backtesting/market_calendar.csv")
-    market_data = load_market_data(ROOT / f"sample_data/backtesting/{market_file}", "dataset-version-1")
+    market_data = load_market_data(
+        ROOT / f"sample_data/backtesting/{market_file}", "dataset-version-1"
+    )
     service.attach_calendar_for_intent_creation(calendar)
     run = service.create_run(
         name="Scenario",
@@ -210,7 +217,9 @@ def test_missing_next_open_rejects_order() -> None:
         calendar=calendar,
         market_data=market_data,
     )
-    assert repo.orders[run.backtest_run_id][-1].rejection_reason_nullable == "NEXT_OPEN_PRICE_MISSING"
+    assert (
+        repo.orders[run.backtest_run_id][-1].rejection_reason_nullable == "NEXT_OPEN_PRICE_MISSING"
+    )
 
 
 def test_oversell_rejected() -> None:
@@ -267,7 +276,10 @@ def test_duplicate_start_is_idempotent() -> None:
         market_data=market_data,
     )
     assert first.backtest_run_id == second.backtest_run_id
-    assert len([e for e in repo.events[run.backtest_run_id] if e.event_type == "BACKTEST_STARTED"]) == 1
+    assert (
+        len([e for e in repo.events[run.backtest_run_id] if e.event_type == "BACKTEST_STARTED"])
+        == 1
+    )
 
 
 def test_reconciliation_failure_injection_fails_closed() -> None:

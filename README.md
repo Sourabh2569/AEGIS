@@ -43,6 +43,85 @@ NOT_BROKER_CONNECTED
 PAPER_RESULTS_DO_NOT_GUARANTEE_LIVE_PERFORMANCE
 ```
 
+## Data Activation Sprint
+
+The Data Activation Sprint makes AEGIS ready for governed market-data activation:
+
+```text
+DATA-LIVE OR PROVIDER-SETUP-REQUIRED
+NOT MONEY-LIVE
+READ-ONLY
+NO REAL CAPITAL DEPLOYED
+BROKER ORDER ACCESS DISABLED
+LIVE EXECUTION LOCKED
+PAPER TRADING USE OF ACTUAL DATA DISABLED
+```
+
+No actual provider has been selected or configured in this repository. Without backend provider configuration and approved source rights, the API and dashboard report `Provider setup required` and keep fixtures clearly labelled as fixture data.
+
+Required provider settings are backend-only and secrets are redacted:
+
+```bash
+DATA_SOURCE_MODE=LIVE_READONLY
+MARKET_DATA_ENABLED=true
+MARKET_DATA_PROVIDER_NAME=
+MARKET_DATA_PROVIDER_ENVIRONMENT=
+MARKET_DATA_PROVIDER_BASE_URL=
+MARKET_DATA_PROVIDER_CLIENT_ID=
+MARKET_DATA_PROVIDER_CLIENT_SECRET=
+MARKET_DATA_PROVIDER_API_KEY=
+MARKET_DATA_PROVIDER_REDIRECT_URI=
+MARKET_DATA_EOD_ENABLED=true
+MARKET_DATA_QUOTES_ENABLED=false
+MARKET_DATA_CORPORATE_ACTIONS_ENABLED=true
+MARKET_DATA_CALENDAR_ENABLED=true
+MARKET_DATA_BENCHMARK_ENABLED=true
+BROKER_ORDER_ACCESS=false
+LIVE_BROKER_CONNECTION_ENABLED=false
+LIVE_EXECUTION_ENABLED=false
+PAPER_TRADING_USE_LIVE_DATA=false
+```
+
+Provider activation flow:
+
+1. Record approved provider rights and retention policy.
+2. Configure provider secrets only in backend environment variables.
+3. Verify read-only connection:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/providers/{provider_id}/verify-read-only-connection \
+  -H 'X-AEGIS-Role: DATA_STEWARD'
+```
+
+4. Run instrument sync:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ingestions/instruments/run \
+  -H 'X-AEGIS-Role: DATA_STEWARD'
+```
+
+5. Run market calendar and historical EOD ingestion:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ingestions/market-calendar/run \
+  -H 'X-AEGIS-Role: DATA_STEWARD'
+curl -X POST http://localhost:8000/api/v1/ingestions/eod/run \
+  -H 'X-AEGIS-Role: DATA_STEWARD'
+```
+
+6. Inspect truth, lineage, validation, and blockers:
+
+```bash
+curl http://localhost:8000/api/v1/system/data-truth-summary
+curl http://localhost:8000/api/v1/system/provider-readiness
+curl http://localhost:8000/api/v1/system/data-blockers
+curl http://localhost:8000/api/v1/dataset-versions/{dataset_version_id}/lineage
+curl http://localhost:8000/api/v1/dataset-versions/{dataset_version_id}/quality
+curl http://localhost:8000/api/v1/instrument-mapping-exceptions
+```
+
+To revert to fixture mode, remove provider credentials and keep `BROKER_ORDER_ACCESS=false`, `LIVE_EXECUTION_ENABLED=false`, and `PAPER_TRADING_USE_LIVE_DATA=false`.
+
 ## Local Setup
 
 ```bash

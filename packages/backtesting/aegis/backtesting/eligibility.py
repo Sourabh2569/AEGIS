@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from aegis.backtesting.domain import BacktestRun, SimulationClassification
 from aegis.backtesting.repositories import MarketDataReader, TradingCalendarReader
-from aegis.domain.models import DatasetVersion, Instrument, ProviderLicense, ProviderLicenseStatus, ValidationStatus
+from aegis.domain.models import (
+    DatasetVersion,
+    Instrument,
+    ProviderLicense,
+    ProviderLicenseStatus,
+    ValidationStatus,
+)
 from aegis.shared.errors import EligibilityError
 
 

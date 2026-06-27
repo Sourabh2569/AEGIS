@@ -30,7 +30,9 @@ class StrategyContract:
     def rank_candidates(self, candidates: list[Candidate]) -> list[Candidate]:
         raise NotImplementedError
 
-    def propose_target_weights(self, ranked: list[Candidate], maximum_position_count: int) -> dict[str, Decimal]:
+    def propose_target_weights(
+        self, ranked: list[Candidate], maximum_position_count: int
+    ) -> dict[str, Decimal]:
         raise NotImplementedError
 
     def get_strategy_metadata(self) -> dict[str, Any]:
@@ -49,7 +51,9 @@ class BuyAndHoldBenchmarkStrategyV0(StrategyContract):
         self.validate_inputs(candidates)
         return sorted(candidates, key=lambda item: item.instrument_id)[:1]
 
-    def propose_target_weights(self, ranked: list[Candidate], maximum_position_count: int) -> dict[str, Decimal]:
+    def propose_target_weights(
+        self, ranked: list[Candidate], maximum_position_count: int
+    ) -> dict[str, Decimal]:
         return {ranked[0].instrument_id: Decimal("0.80")}
 
 
@@ -60,7 +64,9 @@ class EqualWeightUniverseBenchmarkStrategyV0(StrategyContract):
         self.validate_inputs(candidates)
         return sorted(candidates, key=lambda item: item.instrument_id)
 
-    def propose_target_weights(self, ranked: list[Candidate], maximum_position_count: int) -> dict[str, Decimal]:
+    def propose_target_weights(
+        self, ranked: list[Candidate], maximum_position_count: int
+    ) -> dict[str, Decimal]:
         selected = ranked[:maximum_position_count]
         if not selected:
             return {}
@@ -87,10 +93,16 @@ class TrendFollowingBaselineStrategyV0(StrategyContract):
         ]
         return sorted(
             eligible,
-            key=lambda item: (-(item.momentum_60 or Decimal("0")), -(item.price_to_sma_200 or Decimal("0")), item.instrument_id),
+            key=lambda item: (
+                -(item.momentum_60 or Decimal("0")),
+                -(item.price_to_sma_200 or Decimal("0")),
+                item.instrument_id,
+            ),
         )
 
-    def propose_target_weights(self, ranked: list[Candidate], maximum_position_count: int) -> dict[str, Decimal]:
+    def propose_target_weights(
+        self, ranked: list[Candidate], maximum_position_count: int
+    ) -> dict[str, Decimal]:
         selected = ranked[:maximum_position_count]
         if not selected:
             return {}

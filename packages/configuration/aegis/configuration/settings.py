@@ -24,6 +24,21 @@ class Settings:
     live_execution_enabled: bool = False
     broker_order_access: bool = False
     data_source_mode: str = "LIVE_READONLY"
+    market_data_enabled: bool = True
+    market_data_provider_name: str = ""
+    market_data_provider_environment: str = ""
+    market_data_provider_base_url: str = ""
+    market_data_provider_client_id: str = ""
+    market_data_provider_client_secret: str = ""
+    market_data_provider_api_key: str = ""
+    market_data_provider_redirect_uri: str = ""
+    market_data_eod_enabled: bool = True
+    market_data_quotes_enabled: bool = False
+    market_data_corporate_actions_enabled: bool = True
+    market_data_calendar_enabled: bool = True
+    market_data_benchmark_enabled: bool = True
+    live_broker_connection_enabled: bool = False
+    paper_trading_use_live_data: bool = False
     paper_trading_enabled: bool = False
     human_approval_required: bool = True
 
@@ -42,6 +57,27 @@ class Settings:
             live_execution_enabled=_as_bool(os.getenv("LIVE_EXECUTION_ENABLED"), False),
             broker_order_access=_as_bool(os.getenv("BROKER_ORDER_ACCESS"), False),
             data_source_mode=os.getenv("DATA_SOURCE_MODE", "LIVE_READONLY"),
+            market_data_enabled=_as_bool(os.getenv("MARKET_DATA_ENABLED"), True),
+            market_data_provider_name=os.getenv("MARKET_DATA_PROVIDER_NAME", ""),
+            market_data_provider_environment=os.getenv("MARKET_DATA_PROVIDER_ENVIRONMENT", ""),
+            market_data_provider_base_url=os.getenv("MARKET_DATA_PROVIDER_BASE_URL", ""),
+            market_data_provider_client_id=os.getenv("MARKET_DATA_PROVIDER_CLIENT_ID", ""),
+            market_data_provider_client_secret=os.getenv("MARKET_DATA_PROVIDER_CLIENT_SECRET", ""),
+            market_data_provider_api_key=os.getenv("MARKET_DATA_PROVIDER_API_KEY", ""),
+            market_data_provider_redirect_uri=os.getenv("MARKET_DATA_PROVIDER_REDIRECT_URI", ""),
+            market_data_eod_enabled=_as_bool(os.getenv("MARKET_DATA_EOD_ENABLED"), True),
+            market_data_quotes_enabled=_as_bool(os.getenv("MARKET_DATA_QUOTES_ENABLED"), False),
+            market_data_corporate_actions_enabled=_as_bool(
+                os.getenv("MARKET_DATA_CORPORATE_ACTIONS_ENABLED"), True
+            ),
+            market_data_calendar_enabled=_as_bool(os.getenv("MARKET_DATA_CALENDAR_ENABLED"), True),
+            market_data_benchmark_enabled=_as_bool(
+                os.getenv("MARKET_DATA_BENCHMARK_ENABLED"), True
+            ),
+            live_broker_connection_enabled=_as_bool(
+                os.getenv("LIVE_BROKER_CONNECTION_ENABLED"), False
+            ),
+            paper_trading_use_live_data=_as_bool(os.getenv("PAPER_TRADING_USE_LIVE_DATA"), False),
             paper_trading_enabled=_as_bool(os.getenv("PAPER_TRADING_ENABLED"), False),
             human_approval_required=_as_bool(os.getenv("HUMAN_APPROVAL_REQUIRED"), True),
         )
@@ -66,15 +102,40 @@ class Settings:
             if missing:
                 raise ValueError(f"Missing required configuration: {', '.join(missing)}")
         if self.live_execution_enabled:
-            raise ValueError("LIVE_EXECUTION_ENABLED must remain false in Sprint 0.")
+            raise ValueError("LIVE_EXECUTION_ENABLED must remain false.")
         if self.broker_order_access:
-            raise ValueError("BROKER_ORDER_ACCESS must remain false for read-only market data mode.")
-        if self.data_source_mode not in {"LOCAL_FIXTURE", "LIVE_READONLY"}:
+            raise ValueError(
+                "BROKER_ORDER_ACCESS must remain false for read-only market data mode."
+            )
+        if self.live_broker_connection_enabled:
+            raise ValueError("LIVE_BROKER_CONNECTION_ENABLED must remain false.")
+        if self.paper_trading_use_live_data:
+            raise ValueError("PAPER_TRADING_USE_LIVE_DATA must remain false for Data Activation.")
+        if self.data_source_mode not in {
+            "FIXTURE",
+            "LOCAL_FIXTURE",
+            "CSV_IMPORT",
+            "LIVE_READONLY",
+            "DISABLED",
+            "BLOCKED",
+        }:
             raise ValueError(f"Unsupported DATA_SOURCE_MODE: {self.data_source_mode}")
         if self.paper_trading_enabled:
-            raise ValueError("PAPER_TRADING_ENABLED must remain false in Sprint 0.")
+            raise ValueError("PAPER_TRADING_ENABLED must remain false.")
         if not self.human_approval_required:
-            raise ValueError("HUMAN_APPROVAL_REQUIRED must remain true in Sprint 0.")
+            raise ValueError("HUMAN_APPROVAL_REQUIRED must remain true.")
+
+    def market_data_provider_configured(self) -> bool:
+        if not self.market_data_enabled:
+            return False
+        return bool(
+            self.market_data_provider_name
+            and self.market_data_provider_environment
+            and (
+                self.market_data_provider_api_key
+                or (self.market_data_provider_client_id and self.market_data_provider_client_secret)
+            )
+        )
 
     def redacted(self) -> dict[str, str | bool]:
         return {
@@ -90,6 +151,24 @@ class Settings:
             "live_execution_enabled": self.live_execution_enabled,
             "broker_order_access": self.broker_order_access,
             "data_source_mode": self.data_source_mode,
+            "market_data_enabled": self.market_data_enabled,
+            "market_data_provider_name": self.market_data_provider_name or "",
+            "market_data_provider_environment": self.market_data_provider_environment or "",
+            "market_data_provider_base_url": self.market_data_provider_base_url or "",
+            "market_data_provider_client_id": "***" if self.market_data_provider_client_id else "",
+            "market_data_provider_client_secret": "***"
+            if self.market_data_provider_client_secret
+            else "",
+            "market_data_provider_api_key": "***" if self.market_data_provider_api_key else "",
+            "market_data_provider_redirect_uri": self.market_data_provider_redirect_uri or "",
+            "market_data_provider_configured": self.market_data_provider_configured(),
+            "market_data_eod_enabled": self.market_data_eod_enabled,
+            "market_data_quotes_enabled": self.market_data_quotes_enabled,
+            "market_data_corporate_actions_enabled": self.market_data_corporate_actions_enabled,
+            "market_data_calendar_enabled": self.market_data_calendar_enabled,
+            "market_data_benchmark_enabled": self.market_data_benchmark_enabled,
+            "live_broker_connection_enabled": self.live_broker_connection_enabled,
+            "paper_trading_use_live_data": self.paper_trading_use_live_data,
             "paper_trading_enabled": self.paper_trading_enabled,
             "human_approval_required": self.human_approval_required,
         }

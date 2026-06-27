@@ -12,11 +12,15 @@ from aegis.paper_trading.services import PaperTradingCalendarService, PaperTradi
 def main() -> None:
     paper_store_path = Path("work/paper_trading.sqlite")
     paper_store_path.parent.mkdir(parents=True, exist_ok=True)
-    calendar = PaperTradingCalendarService.from_csv(Path("sample_data/sprint_3/forward_market_calendar.csv"))
+    calendar = PaperTradingCalendarService.from_csv(
+        Path("sample_data/sprint_3/forward_market_calendar.csv")
+    )
     repository = SqlitePaperTradingRepository(paper_store_path)
     orchestrator = PaperTradingOrchestrator(repository, AuditLog(), calendar=calendar)
     queue = SqlitePaperSessionQueue(Path("work/paper_session_queue.sqlite"))
-    print("AEGIS worker started. Paper session queue is active. No broker or live execution jobs are registered.")
+    print(
+        "AEGIS worker started. Paper session queue is active. No broker or live execution jobs are registered."
+    )
     while True:
         queue.run_once(orchestrator)
         time.sleep(5)

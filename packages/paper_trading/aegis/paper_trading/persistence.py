@@ -7,7 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from aegis.paper_trading.domain import (
     PaperApproval,
@@ -90,7 +90,8 @@ def to_json(value: Any) -> str:
 def from_json(payload: str, cls: type[T]) -> T:
     raw = json.loads(payload)
     kwargs = {}
-    for field in fields(cls):
+    dataclass_type = cast(Any, cls)
+    for field in fields(dataclass_type):
         if field.name in raw:
             kwargs[field.name] = decode_value(raw[field.name], field.type)
     return cls(**kwargs)
@@ -169,10 +170,19 @@ class SqlitePaperTradingRepository(PaperTradingRepository):
                 cash=portfolio.starting_capital,
             )
             for fill in sorted(
-                [item for item in self.fills.values() if item.paper_portfolio_id == portfolio.paper_portfolio_id],
+                [
+                    item
+                    for item in self.fills.values()
+                    if item.paper_portfolio_id == portfolio.paper_portfolio_id
+                ],
                 key=lambda item: item.fill_time,
             ):
-                paper.buy(fill.instrument_id, fill.fill_quantity, fill.simulated_fill_price, fill.cost_total)
+                paper.buy(
+                    fill.instrument_id,
+                    fill.fill_quantity,
+                    fill.simulated_fill_price,
+                    fill.cost_total,
+                )
             self.paper_portfolios[portfolio.paper_portfolio_id] = paper
 
     def persist(self) -> None:
@@ -184,8 +194,12 @@ class SqlitePaperTradingRepository(PaperTradingRepository):
         self._upsert_many("paper_approval", self.approvals.values())
         self._upsert_many("paper_order", self.orders.values())
         self._upsert_many("paper_fill", self.fills.values())
-        self._upsert_many("paper_ledger_entry", [item for entries in self.ledger.values() for item in entries])
-        self._upsert_many("paper_nav_snapshot", [item for entries in self.nav.values() for item in entries])
+        self._upsert_many(
+            "paper_ledger_entry", [item for entries in self.ledger.values() for item in entries]
+        )
+        self._upsert_many(
+            "paper_nav_snapshot", [item for entries in self.nav.values() for item in entries]
+        )
         self._upsert_many(
             "paper_reconciliation_record",
             [item for entries in self.reconciliations.values() for item in entries],

@@ -1,0 +1,2 @@
+aegis_instrument_id,isin,company_legal_name,security_type,current_symbol,primary_exchange,exchange_instrument_code,provider_instrument_token,listing_date,trading_status,sector,industry,currency,lot_size,tick_size,liquidity_classification,mapping_confidence_score
+AEGIS-IN-AMBIGUOUS,,Ambiguous Limited,EQUITY,ABC,NSE,ABC,ambiguous-token,2020-01-01,ACTIVE,Unknown,Unknown,INR,1,0.05,UNKNOWN,0.40

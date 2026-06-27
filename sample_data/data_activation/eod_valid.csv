@@ -1,0 +1,2 @@
+aegis_instrument_id,exchange,trade_date,session_open_time,session_close_time,open,high,low,close,volume,turnover_nullable,currency,event_time,available_time,ingested_time,source_reference
+AEGIS-IN-000001,NSE,2026-06-25,09:15,15:30,2910.0,2942.5,2894.0,2931.2,3912500,11470000000,INR,2026-06-25T15:30:00+05:30,2026-06-25T18:00:00+05:30,2026-06-25T18:05:00+05:30,fixture://data_activation/eod_valid

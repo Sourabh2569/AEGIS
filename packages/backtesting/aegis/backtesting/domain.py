@@ -116,7 +116,9 @@ class BacktestRun:
     created_by: str
     currency: str = INR
     status: BacktestRunStatus = BacktestRunStatus.DRAFT
-    simulation_classification: SimulationClassification = SimulationClassification.FOUNDATION_SIMULATION_ONLY
+    simulation_classification: SimulationClassification = (
+        SimulationClassification.FOUNDATION_SIMULATION_ONLY
+    )
     strategy_id_nullable: str | None = None
     strategy_version_nullable: str | None = None
     experiment_manifest_id_nullable: str | None = None
@@ -198,7 +200,13 @@ class SimulatedPortfolio:
     updated_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
-        for name in ("starting_cash", "current_available_cash", "current_reserved_cash", "current_market_value", "current_nav"):
+        for name in (
+            "starting_cash",
+            "current_available_cash",
+            "current_reserved_cash",
+            "current_market_value",
+            "current_nav",
+        ):
             object.__setattr__(self, name, money(getattr(self, name)))
 
 
@@ -265,7 +273,9 @@ class OrderIntent:
     available_data_cutoff: datetime
     eligible_execution_time: datetime
     created_by: str
-    execution_reference_type: ExecutionReferenceType = ExecutionReferenceType.NEXT_ELIGIBLE_SESSION_OPEN
+    execution_reference_type: ExecutionReferenceType = (
+        ExecutionReferenceType.NEXT_ELIGIBLE_SESSION_OPEN
+    )
     status: OrderIntentStatus = OrderIntentStatus.PENDING
     reason_code: str | None = None
     id: str = field(default_factory=lambda: new_id("intent"))
@@ -276,8 +286,12 @@ class OrderIntent:
     def __post_init__(self) -> None:
         object.__setattr__(self, "requested_quantity", quantity(self.requested_quantity))
         object.__setattr__(self, "decision_time", require_aware_utc(self.decision_time))
-        object.__setattr__(self, "available_data_cutoff", require_aware_utc(self.available_data_cutoff))
-        object.__setattr__(self, "eligible_execution_time", require_aware_utc(self.eligible_execution_time))
+        object.__setattr__(
+            self, "available_data_cutoff", require_aware_utc(self.available_data_cutoff)
+        )
+        object.__setattr__(
+            self, "eligible_execution_time", require_aware_utc(self.eligible_execution_time)
+        )
 
 
 @dataclass(frozen=True)

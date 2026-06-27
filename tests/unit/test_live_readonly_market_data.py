@@ -6,7 +6,11 @@ import pytest
 
 from aegis.audit.service import AuditLog
 from aegis.configuration.settings import Settings
-from aegis.data_ingestion.service import InMemoryRepository, LocalObjectStore, ProviderIngestionService
+from aegis.data_ingestion.service import (
+    InMemoryRepository,
+    LocalObjectStore,
+    ProviderIngestionService,
+)
 from aegis.domain.models import IngestionStatus
 from aegis.instrument_master.service import InstrumentMasterService
 from aegis.provider_adapters.live_readonly_provider import LiveReadOnlyMarketDataProvider
@@ -34,8 +38,18 @@ def test_live_readonly_provider_exposes_no_order_methods() -> None:
     provider = LiveReadOnlyMarketDataProvider()
     assert provider.data_source_mode == "LIVE_READONLY"
     assert provider.broker_order_access is False
-    assert provider.get_health_status().order_access is False
-    for forbidden in ("place_order", "submit_order", "cancel_order", "modify_order", "fetch_holdings", "mutate_holdings"):
+    health = provider.get_health_status()
+    assert health.order_access is False
+    assert health.healthy is False
+    assert "Provider setup required" in health.message
+    for forbidden in (
+        "place_order",
+        "submit_order",
+        "cancel_order",
+        "modify_order",
+        "fetch_holdings",
+        "mutate_holdings",
+    ):
         assert not hasattr(provider, forbidden)
 
 
@@ -48,10 +62,12 @@ def test_live_readonly_ingestion_creates_governed_layers(tmp_path: Path) -> None
         audit_log=audit_log,
     )
     instrument_master = InstrumentMasterService()
-    provider = LiveReadOnlyMarketDataProvider()
+    provider = LiveReadOnlyMarketDataProvider(configured=True)
 
     health = service.check_provider_health(provider=provider, provider_id="provider-live-readonly")
-    instruments = service.sync_instrument_master(provider=provider, provider_id="provider-live-readonly", instrument_master=instrument_master)
+    instruments = service.sync_instrument_master(
+        provider=provider, provider_id="provider-live-readonly", instrument_master=instrument_master
+    )
     eod = service.ingest_eod_prices(
         provider=provider,
         provider_id="provider-live-readonly",
@@ -79,4 +95,6 @@ def test_live_readonly_ingestion_creates_governed_layers(tmp_path: Path) -> None
     assert repo.data_freshness["live_quotes"]["status"] == "FRESH"
     assert repo.live_quotes
     assert repo.market_calendar
-    assert any(event.event_type == "LIVE_QUOTES_INGESTED_READONLY" for event in audit_log.list_events())
+    assert any(
+        event.event_type == "LIVE_QUOTES_INGESTED_READONLY" for event in audit_log.list_events()
+    )

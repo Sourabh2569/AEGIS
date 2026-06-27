@@ -165,31 +165,54 @@ class PositionSizingEngine:
         if instrument_eligibility_status != "ELIGIBLE":
             reasons.append("INSTRUMENT_NOT_ELIGIBLE")
         for switch in kill_switches:
-            if switch.is_active and switch.scope_id in {"GLOBAL", portfolio_id, strategy_id, instrument_id}:
+            if switch.is_active and switch.scope_id in {
+                "GLOBAL",
+                portfolio_id,
+                strategy_id,
+                instrument_id,
+            }:
                 reasons.append(f"KILL_SWITCH_ACTIVE:{switch.switch_type}")
                 active_blocking_kill_switch = True
-        if state in {PortfolioRiskState.CAPITAL_PRESERVATION, PortfolioRiskState.FROZEN, PortfolioRiskState.EMERGENCY_EXIT}:
+        if state in {
+            PortfolioRiskState.CAPITAL_PRESERVATION,
+            PortfolioRiskState.FROZEN,
+            PortfolioRiskState.EMERGENCY_EXIT,
+        }:
             reasons.append(f"RISK_STATE_BLOCKS_NEW_EXPOSURE:{state}")
 
-        risk_per_share = max(money(entry_price - invalidation_price), money(profile.configured_gap_risk_amount))
+        risk_per_share = max(
+            money(entry_price - invalidation_price), money(profile.configured_gap_risk_amount)
+        )
         if risk_per_share <= 0:
             reasons.append("INVALID_RISK_PER_SHARE")
             risk_per_share = Decimal("999999999")
 
         risk_budget = money(portfolio_nav * profile.maximum_risk_budget_per_position)
         qty_by_risk = floor_quantity(risk_budget / risk_per_share)
-        qty_by_notional = floor_quantity((portfolio_nav * profile.maximum_single_position_weight) / entry_price)
-        max_spend = max(money(available_cash - (portfolio_nav * profile.minimum_cash_weight_normal)), Decimal("0"))
+        qty_by_notional = floor_quantity(
+            (portfolio_nav * profile.maximum_single_position_weight) / entry_price
+        )
+        max_spend = max(
+            money(available_cash - (portfolio_nav * profile.minimum_cash_weight_normal)),
+            Decimal("0"),
+        )
         qty_by_cash = floor_quantity(max_spend / entry_price)
         qty_by_sector = floor_quantity(
-            max((portfolio_nav * profile.maximum_sector_weight) - sector_value, Decimal("0")) / entry_price
+            max((portfolio_nav * profile.maximum_sector_weight) - sector_value, Decimal("0"))
+            / entry_price
         )
         qty_by_cluster = floor_quantity(
-            max((portfolio_nav * profile.maximum_cluster_weight) - cluster_value, Decimal("0")) / entry_price
+            max((portfolio_nav * profile.maximum_cluster_weight) - cluster_value, Decimal("0"))
+            / entry_price
         )
-        qty_by_strategy = floor_quantity((portfolio_nav * profile.strategy_allocation_cap) / entry_price)
+        qty_by_strategy = floor_quantity(
+            (portfolio_nav * profile.strategy_allocation_cap) / entry_price
+        )
         qty_by_exposure = floor_quantity(
-            max((portfolio_nav * profile.maximum_gross_equity_exposure_normal) - gross_equity_value, Decimal("0"))
+            max(
+                (portfolio_nav * profile.maximum_gross_equity_exposure_normal) - gross_equity_value,
+                Decimal("0"),
+            )
             / entry_price
         )
         constrained = min(

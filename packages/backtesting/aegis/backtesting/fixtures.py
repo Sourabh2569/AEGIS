@@ -10,7 +10,9 @@ from aegis.backtesting.repositories import MarketDataReader, TradingCalendarRead
 def load_calendar(path: Path) -> TradingCalendarReader:
     with path.open(newline="", encoding="utf-8") as file:
         rows = list(csv.DictReader(file))
-    sessions = [date.fromisoformat(row["session_date"]) for row in rows if row["is_open"].lower() == "true"]
+    sessions = [
+        date.fromisoformat(row["session_date"]) for row in rows if row["is_open"].lower() == "true"
+    ]
     exchange = rows[0]["exchange"] if rows else "NSE"
     return TradingCalendarReader(sessions=sessions, exchange=exchange)
 

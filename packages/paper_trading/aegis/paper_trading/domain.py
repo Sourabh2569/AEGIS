@@ -154,7 +154,12 @@ class PaperPortfolio:
         return replace(self, status=PaperPortfolioStatus.FROZEN, failure_reason_nullable=reason)
 
     def pause(self, reason: str) -> "PaperPortfolio":
-        return replace(self, status=PaperPortfolioStatus.PAUSED, paused_at_nullable=utc_now(), failure_reason_nullable=reason)
+        return replace(
+            self,
+            status=PaperPortfolioStatus.PAUSED,
+            paused_at_nullable=utc_now(),
+            failure_reason_nullable=reason,
+        )
 
 
 @dataclass(frozen=True)
@@ -281,10 +286,16 @@ class PaperTradeIntent:
     def __post_init__(self) -> None:
         object.__setattr__(self, "proposed_quantity", quantity(self.proposed_quantity))
         if self.approved_quantity_nullable is not None:
-            object.__setattr__(self, "approved_quantity_nullable", quantity(self.approved_quantity_nullable))
+            object.__setattr__(
+                self, "approved_quantity_nullable", quantity(self.approved_quantity_nullable)
+            )
         object.__setattr__(self, "decision_time", require_aware_utc(self.decision_time))
-        object.__setattr__(self, "available_data_cutoff", require_aware_utc(self.available_data_cutoff))
-        object.__setattr__(self, "eligible_execution_time", require_aware_utc(self.eligible_execution_time))
+        object.__setattr__(
+            self, "available_data_cutoff", require_aware_utc(self.available_data_cutoff)
+        )
+        object.__setattr__(
+            self, "eligible_execution_time", require_aware_utc(self.eligible_execution_time)
+        )
         if self.available_data_cutoff > self.decision_time:
             raise ValueError("DATA_TIMING_VIOLATION")
         if self.eligible_execution_time <= self.decision_time:
@@ -311,7 +322,10 @@ class PaperApproval:
         object.__setattr__(self, "expiry_time", require_aware_utc(self.expiry_time))
 
     def is_valid_at(self, value: datetime) -> bool:
-        return self.decision == PaperApprovalDecision.APPROVED and require_aware_utc(value) <= self.expiry_time
+        return (
+            self.decision == PaperApprovalDecision.APPROVED
+            and require_aware_utc(value) <= self.expiry_time
+        )
 
 
 @dataclass(frozen=True)
@@ -359,7 +373,9 @@ class PaperFill:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "fill_time", require_aware_utc(self.fill_time))
-        object.__setattr__(self, "reference_price_time", require_aware_utc(self.reference_price_time))
+        object.__setattr__(
+            self, "reference_price_time", require_aware_utc(self.reference_price_time)
+        )
 
 
 @dataclass(frozen=True)

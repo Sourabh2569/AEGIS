@@ -29,7 +29,9 @@ from aegis.provider_adapters.license_guard import ProviderLicenseGuard
 
 
 def stable_payload_hash(payload: Any) -> str:
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode(
+        "utf-8"
+    )
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -47,9 +49,13 @@ class LocalObjectStore:
             raise ValueError(f"Unknown object-store layer: {layer}")
         target = self.root / layer / object_name
         if target.exists():
-            raise FileExistsError(f"{layer} object already exists and will not be overwritten: {target}")
+            raise FileExistsError(
+                f"{layer} object already exists and will not be overwritten: {target}"
+            )
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
+        target.write_text(
+            json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8"
+        )
         return f"file://{target}"
 
 
@@ -169,19 +175,26 @@ class ProviderIngestionService:
             self.repository.dataset_versions[dataset_version.id] = dataset_version
             self.repository.quality_results[dataset_version.id] = quality_results
             self.repository.idempotency_keys.add(idempotency_key)
-            normalized_uri, curated_uri = self._capture_normalized_and_curated(provider_id, envelope.endpoint, payload_hash, accepted)
+            normalized_uri, curated_uri = self._capture_normalized_and_curated(
+                provider_id, envelope.endpoint, payload_hash, accepted
+            )
 
             completed = ProviderIngestionRun(
                 provider_id=provider_id,
                 dataset_name=dataset_name,
                 source_reference=envelope.source_reference,
-                status=IngestionStatus.COMPLETED if not rejected else IngestionStatus.COMPLETED_WITH_WARNINGS,
+                status=IngestionStatus.COMPLETED
+                if not rejected
+                else IngestionStatus.COMPLETED_WITH_WARNINGS,
                 correlation_id=correlation_id,
                 raw_object_hash=payload_hash,
                 records_received=len(envelope.payload),
                 records_accepted=len(accepted),
                 records_rejected=len(rejected),
-                validation_summary={"dataset_version_id": dataset_version.id, "status": validation_status},
+                validation_summary={
+                    "dataset_version_id": dataset_version.id,
+                    "status": validation_status,
+                },
                 error_summary=[reason for item in rejected for reason in item["reasons"]],
             )
             self.repository.ingestion_runs[completed.id] = completed
@@ -194,7 +207,12 @@ class ProviderIngestionService:
                 action="INGEST_EOD_PRICES",
                 before_state=None,
                 after_state=asdict(completed),
-                metadata={"raw_uri": raw_uri, "normalized_uri": normalized_uri, "curated_uri": curated_uri, "dataset_version_id": dataset_version.id},
+                metadata={
+                    "raw_uri": raw_uri,
+                    "normalized_uri": normalized_uri,
+                    "curated_uri": curated_uri,
+                    "dataset_version_id": dataset_version.id,
+                },
                 correlation_id=correlation_id,
             )
             return completed
@@ -234,10 +252,14 @@ class ProviderIngestionService:
         self.license_guard.assert_ingestion_allowed(provider.get_license_status())
         envelope = provider.fetch_instruments()
         payload_hash = stable_payload_hash(envelope.payload)
-        run = self._start_layer_run(provider_id, "instrument_master", envelope, payload_hash, correlation_id)
+        run = self._start_layer_run(
+            provider_id, "instrument_master", envelope, payload_hash, correlation_id
+        )
         raw_uri = self._capture_raw(provider_id, run.id, envelope, payload_hash)
         normalized = [self._normalize_instrument(record) for record in envelope.payload]
-        normalized_uri, curated_uri = self._capture_normalized_and_curated(provider_id, envelope.endpoint, payload_hash, normalized)
+        normalized_uri, curated_uri = self._capture_normalized_and_curated(
+            provider_id, envelope.endpoint, payload_hash, normalized
+        )
 
         known = instrument_master.known_aegis_ids()
         accepted = 0
@@ -252,7 +274,11 @@ class ProviderIngestionService:
             payload_hash,
             records_accepted=accepted,
             records_rejected=0,
-            validation_summary={"status": "GREEN", "layer": "curated", "instrument_master_count": len(instrument_master.instruments)},
+            validation_summary={
+                "status": "GREEN",
+                "layer": "curated",
+                "instrument_master_count": len(instrument_master.instruments),
+            },
         )
         self._audit_layer_event(
             "INSTRUMENT_MASTER_SYNCED",
@@ -273,10 +299,14 @@ class ProviderIngestionService:
         self.license_guard.assert_ingestion_allowed(provider.get_license_status())
         envelope = provider.fetch_market_calendar()
         payload_hash = stable_payload_hash(envelope.payload)
-        run = self._start_layer_run(provider_id, "market_calendar", envelope, payload_hash, correlation_id)
+        run = self._start_layer_run(
+            provider_id, "market_calendar", envelope, payload_hash, correlation_id
+        )
         raw_uri = self._capture_raw(provider_id, run.id, envelope, payload_hash)
         normalized = [dict(record) for record in envelope.payload]
-        normalized_uri, curated_uri = self._capture_normalized_and_curated(provider_id, envelope.endpoint, payload_hash, normalized)
+        normalized_uri, curated_uri = self._capture_normalized_and_curated(
+            provider_id, envelope.endpoint, payload_hash, normalized
+        )
         for record in normalized:
             key = f"{record.get('exchange')}:{record.get('session_date')}"
             self.repository.market_calendar[key] = record
@@ -309,7 +339,9 @@ class ProviderIngestionService:
         self.license_guard.assert_ingestion_allowed(provider.get_license_status())
         envelope = provider.fetch_live_quotes()
         payload_hash = stable_payload_hash(envelope.payload)
-        run = self._start_layer_run(provider_id, "live_quotes", envelope, payload_hash, correlation_id)
+        run = self._start_layer_run(
+            provider_id, "live_quotes", envelope, payload_hash, correlation_id
+        )
         raw_uri = self._capture_raw(provider_id, run.id, envelope, payload_hash)
         dataset_version = DatasetVersion(
             dataset_id=dataset_id,
@@ -323,7 +355,9 @@ class ProviderIngestionService:
             quality_score=100.0,
             lineage_record_exists=True,
         )
-        accepted, rejected, quality_results = validate_live_quotes(envelope.payload, known_instrument_ids, dataset_version.id)
+        accepted, rejected, quality_results = validate_live_quotes(
+            envelope.payload, known_instrument_ids, dataset_version.id
+        )
         validation_status = derive_validation_status(quality_results, critical_dataset=True)
         version = DatasetVersion(
             dataset_id=dataset_version.dataset_id,
@@ -340,24 +374,37 @@ class ProviderIngestionService:
         )
         self.repository.dataset_versions[version.id] = version
         self.repository.quality_results[version.id] = quality_results
-        normalized_uri, curated_uri = self._capture_normalized_and_curated(provider_id, envelope.endpoint, payload_hash, accepted)
+        normalized_uri, curated_uri = self._capture_normalized_and_curated(
+            provider_id, envelope.endpoint, payload_hash, accepted
+        )
         for record in accepted:
             self.repository.live_quotes[str(record["aegis_instrument_id"])] = record
-        self.repository.data_freshness["live_quotes"] = freshness_snapshot(records=accepted, dataset_name="live_quotes", max_age_seconds=900)
+        self.repository.data_freshness["live_quotes"] = freshness_snapshot(
+            records=accepted, dataset_name="live_quotes", max_age_seconds=900
+        )
         completed = self._complete_layer_run(
             run,
             envelope,
             payload_hash,
             records_accepted=len(accepted),
             records_rejected=len(rejected),
-            validation_summary={"dataset_version_id": version.id, "status": validation_status, "freshness": self.repository.data_freshness["live_quotes"]},
+            validation_summary={
+                "dataset_version_id": version.id,
+                "status": validation_status,
+                "freshness": self.repository.data_freshness["live_quotes"],
+            },
             error_summary=[reason for item in rejected for reason in item["reasons"]],
         )
         self._audit_layer_event(
             "LIVE_QUOTES_INGESTED_READONLY",
             completed,
             "INGEST_LIVE_QUOTES_READONLY",
-            {"raw_uri": raw_uri, "normalized_uri": normalized_uri, "curated_uri": curated_uri, "dataset_version_id": version.id},
+            {
+                "raw_uri": raw_uri,
+                "normalized_uri": normalized_uri,
+                "curated_uri": curated_uri,
+                "dataset_version_id": version.id,
+            },
         )
         return completed
 
@@ -416,12 +463,28 @@ class ProviderIngestionService:
         self.repository.raw_objects[raw.id] = raw
         return uri
 
-    def _capture_normalized_and_curated(self, provider_id: str, endpoint: str, payload_hash: str, payload: Any) -> tuple[str, str]:
+    def _capture_normalized_and_curated(
+        self, provider_id: str, endpoint: str, payload_hash: str, payload: Any
+    ) -> tuple[str, str]:
         object_name = f"{provider_id}/{endpoint}/{payload_hash}.json"
         normalized_uri = self.object_store.put_layer_once("normalized", object_name, payload)
         curated_uri = self.object_store.put_layer_once("curated", object_name, payload)
-        self.repository.layer_objects["normalized"].append({"provider_id": provider_id, "endpoint": endpoint, "content_hash": payload_hash, "storage_uri": normalized_uri})
-        self.repository.layer_objects["curated"].append({"provider_id": provider_id, "endpoint": endpoint, "content_hash": payload_hash, "storage_uri": curated_uri})
+        self.repository.layer_objects["normalized"].append(
+            {
+                "provider_id": provider_id,
+                "endpoint": endpoint,
+                "content_hash": payload_hash,
+                "storage_uri": normalized_uri,
+            }
+        )
+        self.repository.layer_objects["curated"].append(
+            {
+                "provider_id": provider_id,
+                "endpoint": endpoint,
+                "content_hash": payload_hash,
+                "storage_uri": curated_uri,
+            }
+        )
         return normalized_uri, curated_uri
 
     def _start_layer_run(
@@ -459,7 +522,9 @@ class ProviderIngestionService:
             provider_id=run.provider_id,
             dataset_name=run.dataset_name,
             source_reference=envelope.source_reference,
-            status=IngestionStatus.COMPLETED if records_rejected == 0 else IngestionStatus.COMPLETED_WITH_WARNINGS,
+            status=IngestionStatus.COMPLETED
+            if records_rejected == 0
+            else IngestionStatus.COMPLETED_WITH_WARNINGS,
             correlation_id=run.correlation_id,
             raw_object_hash=payload_hash,
             records_received=len(envelope.payload),
@@ -473,7 +538,9 @@ class ProviderIngestionService:
         self.repository.ingestion_runs[completed.id] = completed
         return completed
 
-    def _audit_layer_event(self, event_type: str, run: ProviderIngestionRun, action: str, metadata: dict[str, Any]) -> None:
+    def _audit_layer_event(
+        self, event_type: str, run: ProviderIngestionRun, action: str, metadata: dict[str, Any]
+    ) -> None:
         self.audit_log.record(
             event_type=event_type,
             entity_type="ProviderIngestionRun",

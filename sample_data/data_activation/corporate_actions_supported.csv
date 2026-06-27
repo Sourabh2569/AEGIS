@@ -1,0 +1,2 @@
+aegis_instrument_id,action_type,announcement_time,record_date,ex_date,effective_date,ratio_or_amount,currency,source_reference,event_time,available_time,ingested_time
+AEGIS-IN-000001,SPLIT,2026-06-20T09:00:00+05:30,2026-07-01,2026-06-30,2026-07-01,2:1,INR,fixture://data_activation/ca_supported,2026-06-20T09:00:00+05:30,2026-06-20T09:05:00+05:30,2026-06-20T09:06:00+05:30

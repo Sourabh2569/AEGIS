@@ -149,6 +149,7 @@ export type DashboardData = {
   dataFreshness: DataFreshness[];
   liveQuotes: LiveQuote[];
   marketCalendar: MarketCalendarSession[];
+  dataTruthSummary: Record<string, any>;
 };
 
 export type Tone = "success" | "warning" | "danger" | "info" | "neutral";
@@ -167,6 +168,15 @@ const labelMap: Record<string, string> = {
   LIVE_EXECUTION_DISABLED: "Live execution locked",
   LIVE_EXECUTION_ENABLED: "Live execution",
   LIVE_READONLY: "Read-only market data",
+  NOT_CONFIGURED: "Provider setup required",
+  CONFIGURED_UNVERIFIED: "Verification pending",
+  BLOCKED_LICENSE: "Blocked by licensing",
+  BLOCKED_VALIDATION: "Blocked by validation",
+  FIXTURE: "Fixture data",
+  PROVIDER_NOT_CONFIGURED: "Provider setup required",
+  READ_ONLY: "Read-only",
+  BROKER_ORDER_ACCESS_DISABLED: "Broker access disabled",
+  PAPER_TRADING_USE_OF_ACTUAL_DATA_DISABLED: "Paper uses fixtures",
   DATA_SOURCE_MODE: "Data mode",
   APPROVED_WITH_REDUCED_SIZE: "Approved at reduced size",
   CRITICAL_DIVERGENCE: "Critical divergence",
@@ -236,9 +246,16 @@ export function buildModel(data: DashboardData) {
   const incidents = data.paperIncidents.length;
   const pendingApprovals = data.paperIntents.filter((intent) => /PENDING|QUEUED|DRAFT/.test(intent.approval_status)).length;
   const apiVisible = data.providers.length + data.datasets.length + data.audits.length > 0;
+  const truth = data.dataTruthSummary ?? {};
+  const truthSource = truth.data_source ?? {};
+  const truthProvider = truth.provider ?? {};
+  const truthSafety = truth.safety ?? {};
   const dataMode = String(data.overview.data_source_mode ?? data.dataSourceMode.data_source_mode ?? "LIVE_READONLY");
+  const dataSourceState = String(truthSource.state ?? data.dataSourceMode.provider_state ?? (dataMode === "LIVE_READONLY" ? "NOT_CONFIGURED" : dataMode));
+  const dataSourceLabel = String(truthSource.state_label ?? data.dataSourceMode.provider_state_label ?? uiLabel(dataSourceState));
   const brokerOrderAccess = Boolean(data.overview.broker_order_access ?? data.dataSourceMode.broker_order_access ?? false);
   const liveExecutionEnabled = Boolean(data.overview.live_execution_enabled ?? false);
+  const paperTradingUseLiveData = Boolean(truthSafety.paper_trading_use_live_data ?? false);
   const freshness = data.dataFreshness[0];
   return {
     nav,
@@ -252,11 +269,16 @@ export function buildModel(data: DashboardData) {
     pendingApprovals,
     incidents,
     dataMode,
+    dataSourceState,
+    dataSourceLabel,
     brokerOrderAccess,
     liveExecutionEnabled,
+    paperTradingUseLiveData,
     apiVisible,
-    freshnessStatus: freshness?.status ?? "FRESH",
-    providerHealthy: data.providerHealth.every((item) => item.healthy) || data.providerHealth.length === 0,
+    actualDataIngested: Boolean(truthSource.actual_data_ingested ?? false),
+    fixtureDataVisible: Boolean(truthSource.fixture_data_visible ?? !truthProvider.provider_configured),
+    freshnessStatus: freshness?.status ?? (truthProvider.state === "NOT_CONFIGURED" ? "NOT_CONFIGURED" : "UNKNOWN"),
+    providerHealthy: truthProvider.state === "HEALTHY" || (data.providerHealth.length > 0 && data.providerHealth.every((item) => item.healthy)),
     lastUpdated: shortDate(freshness?.checked_at),
     equityCurve: [
       { label: "D1", portfolio: 100, benchmark: 100 },

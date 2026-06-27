@@ -59,11 +59,26 @@ class CsvFileProvider:
             "sample_data/eod_prices/eod_prices.csv",
         )
 
+    def fetch_historical_eod_bars(self) -> ProviderResponseEnvelope:
+        return self.fetch_eod_prices()
+
     def fetch_live_quotes(self) -> ProviderResponseEnvelope:
-        return ProviderResponseEnvelope(self.name, "fetch_live_quotes", "live_quotes.v1", [], "sample_data/live_quotes/not-configured")
+        return ProviderResponseEnvelope(
+            self.name,
+            "fetch_live_quotes",
+            "live_quotes.v1",
+            [],
+            "sample_data/live_quotes/not-configured",
+        )
 
     def fetch_market_calendar(self) -> ProviderResponseEnvelope:
-        return ProviderResponseEnvelope(self.name, "fetch_market_calendar", "market_calendar.v1", [], "sample_data/market_calendar/not-configured")
+        return ProviderResponseEnvelope(
+            self.name,
+            "fetch_market_calendar",
+            "market_calendar.v1",
+            [],
+            "sample_data/market_calendar/not-configured",
+        )
 
     def fetch_corporate_actions(self) -> ProviderResponseEnvelope:
         return ProviderResponseEnvelope(
@@ -78,16 +93,33 @@ class CsvFileProvider:
         )
 
     def fetch_fundamentals(self) -> ProviderResponseEnvelope:
-        return ProviderResponseEnvelope(self.name, "fetch_fundamentals", "fundamentals.v1", [], "sample_data/fundamentals")
+        return ProviderResponseEnvelope(
+            self.name, "fetch_fundamentals", "fundamentals.v1", [], "sample_data/fundamentals"
+        )
 
     def fetch_filings(self) -> ProviderResponseEnvelope:
-        return ProviderResponseEnvelope(self.name, "fetch_filings", "filings.v1", [], "sample_data/filings")
+        return ProviderResponseEnvelope(
+            self.name, "fetch_filings", "filings.v1", [], "sample_data/filings"
+        )
 
     def fetch_index_membership(self) -> ProviderResponseEnvelope:
-        return ProviderResponseEnvelope(self.name, "fetch_index_membership", "index_membership.v1", [], "sample_data/index")
+        return ProviderResponseEnvelope(
+            self.name, "fetch_index_membership", "index_membership.v1", [], "sample_data/index"
+        )
+
+    def fetch_benchmark_data(self) -> ProviderResponseEnvelope:
+        return ProviderResponseEnvelope(
+            self.name,
+            "fetch_benchmark_data",
+            "benchmark_eod.v1",
+            [],
+            "sample_data/benchmark/not-configured",
+        )
 
     def fetch_macro_data(self) -> ProviderResponseEnvelope:
-        return ProviderResponseEnvelope(self.name, "fetch_macro_data", "macro.v1", [], "sample_data/macro")
+        return ProviderResponseEnvelope(
+            self.name, "fetch_macro_data", "macro.v1", [], "sample_data/macro"
+        )
 
     def get_source_metadata(self) -> dict[str, str]:
         return {"provider": self.name, "base_path": str(self.base_path)}
@@ -96,4 +128,9 @@ class CsvFileProvider:
         return self._license
 
     def get_health_status(self) -> ProviderHealthResult:
-        return ProviderHealthResult(self.base_path.exists(), f"base path exists: {self.base_path.exists()}")
+        return ProviderHealthResult(
+            self.base_path.exists(), f"base path exists: {self.base_path.exists()}"
+        )
+
+    def validate_read_only_scope(self) -> None:
+        return None

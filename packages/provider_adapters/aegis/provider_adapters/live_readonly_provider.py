@@ -12,7 +12,10 @@ class LiveReadOnlyMarketDataProvider:
     data_source_mode = "LIVE_READONLY"
     broker_order_access = False
 
-    def __init__(self, license_: ProviderLicense | None = None) -> None:
+    def __init__(
+        self, license_: ProviderLicense | None = None, *, configured: bool = False
+    ) -> None:
+        self.configured = configured
         self._license = license_ or ProviderLicense(
             provider_id="live-readonly-provider",
             license_status=ProviderLicenseStatus.APPROVED,
@@ -36,13 +39,29 @@ class LiveReadOnlyMarketDataProvider:
             "mutate_holdings",
         }
         if name in blocked:
-            raise AttributeError(f"{name} is prohibited: provider is DATA_SOURCE_MODE=LIVE_READONLY.")
+            raise AttributeError(
+                f"{name} is prohibited: provider is DATA_SOURCE_MODE=LIVE_READONLY."
+            )
         raise AttributeError(name)
 
     def _now(self) -> datetime:
         return datetime.now(timezone.utc)
 
+    def validate_read_only_scope(self) -> None:
+        if self.broker_order_access:
+            raise PermissionError(
+                "BROKER_ORDER_ACCESS must remain false for read-only provider adapters."
+            )
+
+    def _assert_configured(self) -> None:
+        self.validate_read_only_scope()
+        if not self.configured:
+            raise PermissionError(
+                "Provider setup required: no verified read-only market-data configuration exists."
+            )
+
     def fetch_instruments(self) -> ProviderResponseEnvelope:
+        self._assert_configured()
         return ProviderResponseEnvelope(
             provider_name=self.name,
             endpoint="fetch_instruments",
@@ -90,10 +109,14 @@ class LiveReadOnlyMarketDataProvider:
                     "ingested_time": self._now().isoformat(),
                 },
             ],
-            metadata={"mode": self.data_source_mode, "broker_order_access": self.broker_order_access},
+            metadata={
+                "mode": self.data_source_mode,
+                "broker_order_access": self.broker_order_access,
+            },
         )
 
     def fetch_eod_prices(self) -> ProviderResponseEnvelope:
+        self._assert_configured()
         return ProviderResponseEnvelope(
             provider_name=self.name,
             endpoint="fetch_eod_prices",
@@ -125,10 +148,14 @@ class LiveReadOnlyMarketDataProvider:
                     "ingested_time": self._now().isoformat(),
                 },
             ],
-            metadata={"mode": self.data_source_mode, "broker_order_access": self.broker_order_access},
+            metadata={
+                "mode": self.data_source_mode,
+                "broker_order_access": self.broker_order_access,
+            },
         )
 
     def fetch_live_quotes(self) -> ProviderResponseEnvelope:
+        self._assert_configured()
         now = self._now().isoformat()
         return ProviderResponseEnvelope(
             provider_name=self.name,
@@ -165,46 +192,121 @@ class LiveReadOnlyMarketDataProvider:
         )
 
     def fetch_market_calendar(self) -> ProviderResponseEnvelope:
+        self._assert_configured()
         return ProviderResponseEnvelope(
             provider_name=self.name,
             endpoint="fetch_market_calendar",
             schema_version="market_calendar.v1",
             source_reference="live-readonly://market-calendar/nse/2026",
             payload=[
-                {"exchange": "NSE", "session_date": "2026-06-25", "is_open": True, "open_time": "09:15", "close_time": "15:30", "timezone": "Asia/Kolkata", "event_time": "2026-06-25T00:00:00+05:30", "available_time": "2026-06-25T00:01:00+05:30", "ingested_time": self._now().isoformat()},
-                {"exchange": "NSE", "session_date": "2026-06-26", "is_open": True, "open_time": "09:15", "close_time": "15:30", "timezone": "Asia/Kolkata", "event_time": "2026-06-26T00:00:00+05:30", "available_time": "2026-06-26T00:01:00+05:30", "ingested_time": self._now().isoformat()},
-                {"exchange": "NSE", "session_date": "2026-06-27", "is_open": False, "open_time": None, "close_time": None, "timezone": "Asia/Kolkata", "event_time": "2026-06-27T00:00:00+05:30", "available_time": "2026-06-27T00:01:00+05:30", "ingested_time": self._now().isoformat()},
+                {
+                    "exchange": "NSE",
+                    "session_date": "2026-06-25",
+                    "is_open": True,
+                    "open_time": "09:15",
+                    "close_time": "15:30",
+                    "timezone": "Asia/Kolkata",
+                    "event_time": "2026-06-25T00:00:00+05:30",
+                    "available_time": "2026-06-25T00:01:00+05:30",
+                    "ingested_time": self._now().isoformat(),
+                },
+                {
+                    "exchange": "NSE",
+                    "session_date": "2026-06-26",
+                    "is_open": True,
+                    "open_time": "09:15",
+                    "close_time": "15:30",
+                    "timezone": "Asia/Kolkata",
+                    "event_time": "2026-06-26T00:00:00+05:30",
+                    "available_time": "2026-06-26T00:01:00+05:30",
+                    "ingested_time": self._now().isoformat(),
+                },
+                {
+                    "exchange": "NSE",
+                    "session_date": "2026-06-27",
+                    "is_open": False,
+                    "open_time": None,
+                    "close_time": None,
+                    "timezone": "Asia/Kolkata",
+                    "event_time": "2026-06-27T00:00:00+05:30",
+                    "available_time": "2026-06-27T00:01:00+05:30",
+                    "ingested_time": self._now().isoformat(),
+                },
             ],
             metadata={"mode": self.data_source_mode, "governs_execution_dates": True},
         )
 
     def fetch_corporate_actions(self) -> ProviderResponseEnvelope:
-        return ProviderResponseEnvelope(self.name, "fetch_corporate_actions", "corporate_actions.v1", [], "live-readonly://corporate-actions")
+        self._assert_configured()
+        return ProviderResponseEnvelope(
+            self.name,
+            "fetch_corporate_actions",
+            "corporate_actions.v1",
+            [],
+            "live-readonly://corporate-actions",
+        )
+
+    def fetch_historical_eod_bars(self) -> ProviderResponseEnvelope:
+        return self.fetch_eod_prices()
+
+    def fetch_benchmark_data(self) -> ProviderResponseEnvelope:
+        self._assert_configured()
+        return ProviderResponseEnvelope(
+            self.name, "fetch_benchmark_data", "benchmark_eod.v1", [], "live-readonly://benchmark"
+        )
 
     def fetch_fundamentals(self) -> ProviderResponseEnvelope:
-        return ProviderResponseEnvelope(self.name, "fetch_fundamentals", "fundamentals.v1", [], "live-readonly://fundamentals")
+        return ProviderResponseEnvelope(
+            self.name, "fetch_fundamentals", "fundamentals.v1", [], "live-readonly://fundamentals"
+        )
 
     def fetch_filings(self) -> ProviderResponseEnvelope:
-        return ProviderResponseEnvelope(self.name, "fetch_filings", "filings.v1", [], "live-readonly://filings")
+        return ProviderResponseEnvelope(
+            self.name, "fetch_filings", "filings.v1", [], "live-readonly://filings"
+        )
 
     def fetch_index_membership(self) -> ProviderResponseEnvelope:
-        return ProviderResponseEnvelope(self.name, "fetch_index_membership", "index_membership.v1", [], "live-readonly://index-membership")
+        return ProviderResponseEnvelope(
+            self.name,
+            "fetch_index_membership",
+            "index_membership.v1",
+            [],
+            "live-readonly://index-membership",
+        )
 
     def fetch_macro_data(self) -> ProviderResponseEnvelope:
-        return ProviderResponseEnvelope(self.name, "fetch_macro_data", "macro.v1", [], "live-readonly://macro")
+        return ProviderResponseEnvelope(
+            self.name, "fetch_macro_data", "macro.v1", [], "live-readonly://macro"
+        )
 
     def get_source_metadata(self) -> dict[str, Any]:
         return {
             "provider": self.name,
             "data_source_mode": self.data_source_mode,
             "broker_order_access": self.broker_order_access,
-            "capabilities": ["instrument_master", "historical_eod_ohlcv", "live_quotes", "market_calendar", "health"],
+            "configured": self.configured,
+            "capabilities": [
+                "instrument_master",
+                "historical_eod_ohlcv",
+                "live_quotes",
+                "market_calendar",
+                "health",
+            ],
         }
 
     def get_license_status(self) -> ProviderLicense | None:
         return self._license
 
     def get_health_status(self) -> ProviderHealthResult:
+        if not self.configured:
+            return ProviderHealthResult(
+                healthy=False,
+                message="Provider setup required: read-only credentials and environment are not configured.",
+                checked_at=self._now(),
+                latency_ms=None,
+                mode=self.data_source_mode,
+                order_access=self.broker_order_access,
+            )
         return ProviderHealthResult(
             healthy=True,
             message="read-only market data provider healthy; broker order access disabled",

@@ -34,8 +34,16 @@ from aegis.backtesting.domain import (
     SimulatedPortfolio,
 )
 from aegis.backtesting.eligibility import BacktestPreflightGuard
-from aegis.backtesting.execution import NextEligibleSessionOpenExecutionModelV0, validate_order_timing
-from aegis.backtesting.repositories import BacktestRepository, MarketDataReader, TradingCalendarReader, update_portfolio
+from aegis.backtesting.execution import (
+    NextEligibleSessionOpenExecutionModelV0,
+    validate_order_timing,
+)
+from aegis.backtesting.repositories import (
+    BacktestRepository,
+    MarketDataReader,
+    TradingCalendarReader,
+    update_portfolio,
+)
 from aegis.domain.models import DatasetVersion, Instrument, ProviderLicense
 from aegis.shared.errors import EligibilityError, OrderRejected, ReconciliationError
 from aegis.shared.ids import new_id
@@ -135,13 +143,25 @@ class BacktestService:
         created_by: str,
     ) -> OrderIntent:
         run = self.repository.runs[backtest_run_id]
-        if run.status in {BacktestRunStatus.COMPLETED, BacktestRunStatus.FAILED, BacktestRunStatus.CANCELLED, BacktestRunStatus.INVALIDATED}:
-            raise OrderRejected("RUN_NOT_MUTABLE", "Completed, failed, cancelled, or invalidated runs cannot be modified.")
+        if run.status in {
+            BacktestRunStatus.COMPLETED,
+            BacktestRunStatus.FAILED,
+            BacktestRunStatus.CANCELLED,
+            BacktestRunStatus.INVALIDATED,
+        }:
+            raise OrderRejected(
+                "RUN_NOT_MUTABLE",
+                "Completed, failed, cancelled, or invalidated runs cannot be modified.",
+            )
         if requested_quantity <= 0:
             raise OrderRejected("INVALID_QUANTITY", "requested_quantity must be > 0.")
-        next_session = self._calendar.next_session_after(decision_time) if hasattr(self, "_calendar") else None
+        next_session = (
+            self._calendar.next_session_after(decision_time) if hasattr(self, "_calendar") else None
+        )
         if next_session is None:
-            raise OrderRejected("NEXT_SESSION_UNAVAILABLE", "No eligible next market session exists.")
+            raise OrderRejected(
+                "NEXT_SESSION_UNAVAILABLE", "No eligible next market session exists."
+            )
         eligible_execution_time = self._calendar.session_open_time(next_session)
         intent = OrderIntent(
             backtest_run_id=run.backtest_run_id,
@@ -164,7 +184,11 @@ class BacktestService:
             actor_id=created_by,
             action="CREATE_SIMULATION_INSTRUCTION",
             before_state=None,
-            after_state={"order_intent_id": intent.id, "side": intent.side, "quantity": str(intent.requested_quantity)},
+            after_state={
+                "order_intent_id": intent.id,
+                "side": intent.side,
+                "quantity": str(intent.requested_quantity),
+            },
             correlation_id=intent.correlation_id,
         )
         return intent
@@ -200,7 +224,9 @@ class BacktestService:
             )
             running = run.mark_running()
             self.repository.save_run(running)
-            portfolio = update_portfolio(self.repository.portfolios[backtest_run_id], status=PortfolioStatus.ACTIVE)
+            portfolio = update_portfolio(
+                self.repository.portfolios[backtest_run_id], status=PortfolioStatus.ACTIVE
+            )
             self.repository.save_portfolio(portfolio)
             self.repository.append_event(
                 backtest_run_id=backtest_run_id,
@@ -209,10 +235,16 @@ class BacktestService:
                 payload_json={"engine_version": running.engine_version},
                 correlation_id=correlation_id,
             )
-            self._run_sessions(running, calendar, market_data, correlation_id, inject_reconciliation_failure)
+            self._run_sessions(
+                running, calendar, market_data, correlation_id, inject_reconciliation_failure
+            )
             completed = self.repository.runs[backtest_run_id].mark_completed()
             self.repository.save_run(completed)
-            self.repository.save_portfolio(update_portfolio(self.repository.portfolios[backtest_run_id], status=PortfolioStatus.COMPLETED))
+            self.repository.save_portfolio(
+                update_portfolio(
+                    self.repository.portfolios[backtest_run_id], status=PortfolioStatus.COMPLETED
+                )
+            )
             self.repository.append_event(
                 backtest_run_id=backtest_run_id,
                 event_type=BacktestEventType.BACKTEST_COMPLETED,
@@ -235,12 +267,19 @@ class BacktestService:
         except (EligibilityError, OrderRejected, ReconciliationError, ValueError) as exc:
             failed = self.repository.runs[backtest_run_id].mark_failed(str(exc))
             self.repository.save_run(failed)
-            self.repository.save_portfolio(update_portfolio(self.repository.portfolios[backtest_run_id], status=PortfolioStatus.FAILED))
+            self.repository.save_portfolio(
+                update_portfolio(
+                    self.repository.portfolios[backtest_run_id], status=PortfolioStatus.FAILED
+                )
+            )
             self.repository.append_event(
                 backtest_run_id=backtest_run_id,
                 event_type=BacktestEventType.BACKTEST_FAILED,
                 event_time=utc_now(),
-                payload_json={"reason": str(exc), "reason_code": getattr(exc, "reason_code", "FAILED")},
+                payload_json={
+                    "reason": str(exc),
+                    "reason_code": getattr(exc, "reason_code", "FAILED"),
+                },
                 correlation_id=correlation_id,
             )
             self.audit_log.record(
@@ -277,7 +316,10 @@ class BacktestService:
                 correlation_id=correlation_id,
             )
             for intent in list(self.repository.order_intents.get(run.backtest_run_id, [])):
-                if intent.status == OrderIntentStatus.PENDING and intent.eligible_execution_time == open_time:
+                if (
+                    intent.status == OrderIntentStatus.PENDING
+                    and intent.eligible_execution_time == open_time
+                ):
                     self._execute_or_reject(run, intent, calendar, market_data)
             self.repository.append_event(
                 backtest_run_id=run.backtest_run_id,
@@ -300,22 +342,30 @@ class BacktestService:
     ) -> None:
         try:
             if not self.repository.mark_intent_executed_once(intent.id):
-                raise OrderRejected("DUPLICATE_EXECUTION", "Order intent has already been executed.")
+                raise OrderRejected(
+                    "DUPLICATE_EXECUTION", "Order intent has already been executed."
+                )
             fill_time, fill_price = self.execution_model.resolve_fill_price(
                 intent=intent, calendar=calendar, market_data=market_data
             )
             if intent.instrument_id != run.instrument_id:
-                raise OrderRejected("INSTRUMENT_MISMATCH", "Order instrument must match backtest instrument.")
+                raise OrderRejected(
+                    "INSTRUMENT_MISMATCH", "Order instrument must match backtest instrument."
+                )
             portfolio = self.repository.portfolios[run.backtest_run_id]
             current_qty = self.repository.current_quantity(run.backtest_run_id)
             current_basis = self.repository.current_cost_basis(run.backtest_run_id)
             notional = gross_notional(intent.requested_quantity, fill_price)
             if intent.side == OrderSide.BUY:
                 if portfolio.current_available_cash - notional < 0:
-                    raise OrderRejected("INSUFFICIENT_CASH", "Buy would make available cash negative.")
+                    raise OrderRejected(
+                        "INSUFFICIENT_CASH", "Buy would make available cash negative."
+                    )
                 new_cash = money(portfolio.current_available_cash - notional)
                 new_qty = quantity(current_qty + intent.requested_quantity)
-                new_basis = weighted_average_cost_basis(current_qty, current_basis, intent.requested_quantity, fill_price)
+                new_basis = weighted_average_cost_basis(
+                    current_qty, current_basis, intent.requested_quantity, fill_price
+                )
                 realized = money(0)
                 cash_type = CashEntryType.BUY_DEBIT
                 pos_type = PositionEntryType.BUY
@@ -380,7 +430,9 @@ class BacktestService:
                     instrument_id=run.instrument_id,
                     entry_type=pos_type,
                     effective_time=fill_time,
-                    quantity_delta=intent.requested_quantity if intent.side == OrderSide.BUY else -intent.requested_quantity,
+                    quantity_delta=intent.requested_quantity
+                    if intent.side == OrderSide.BUY
+                    else -intent.requested_quantity,
                     quantity_after=new_qty,
                     price_reference=fill_price,
                     gross_notional=notional,
@@ -392,7 +444,9 @@ class BacktestService:
                     correlation_id=intent.correlation_id,
                 )
             )
-            self.repository.save_portfolio(update_portfolio(portfolio, current_available_cash=new_cash))
+            self.repository.save_portfolio(
+                update_portfolio(portfolio, current_available_cash=new_cash)
+            )
             self.repository.replace_intent(replace(intent, status=OrderIntentStatus.FILLED))
             self.repository.append_event(
                 backtest_run_id=run.backtest_run_id,
@@ -401,7 +455,10 @@ class BacktestService:
                 market_session_date=fill_time.date(),
                 entity_type="SimulatedOrder",
                 entity_id=order.id,
-                payload_json={"fill_price": str(fill_price), "quantity": str(intent.requested_quantity)},
+                payload_json={
+                    "fill_price": str(fill_price),
+                    "quantity": str(intent.requested_quantity),
+                },
                 correlation_id=intent.correlation_id,
             )
             self.audit_log.record(
@@ -428,7 +485,9 @@ class BacktestService:
                 rejection_reason_nullable=exc.reason_code,
             )
             self.repository.append_order(order)
-            self.repository.replace_intent(replace(intent, status=OrderIntentStatus.REJECTED, reason_code=exc.reason_code))
+            self.repository.replace_intent(
+                replace(intent, status=OrderIntentStatus.REJECTED, reason_code=exc.reason_code)
+            )
             self.repository.append_event(
                 backtest_run_id=run.backtest_run_id,
                 event_type=BacktestEventType.ORDER_REJECTED,
@@ -471,7 +530,9 @@ class BacktestService:
         unrealized = unrealized_pnl(close_price, basis, qty)
         expected_nav = money(run.starting_cash + realized + unrealized)
         if current_nav != expected_nav:
-            raise ReconciliationError(f"NAV reconciliation mismatch: nav={current_nav} expected={expected_nav}")
+            raise ReconciliationError(
+                f"NAV reconciliation mismatch: nav={current_nav} expected={expected_nav}"
+            )
         hwm = high_water_mark(previous_hwm, current_nav)
         snapshot = PortfolioNavSnapshot(
             backtest_run_id=run.backtest_run_id,

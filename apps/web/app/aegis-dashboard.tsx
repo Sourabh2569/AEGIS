@@ -198,7 +198,7 @@ function Sidebar({
         ))}
       </nav>
       <div className="sidebar-footer">
-        <StatusChip tone="info" label={uiLabel(model.dataMode)} raw={model.dataMode} />
+        <StatusChip tone={toneFor(model.dataSourceState)} label={model.dataSourceLabel} raw={model.dataSourceState} />
         {!collapsed && <StatusChip tone="success" label="Paper environment" raw="PAPER_TRADING_ONLY" />}
         {!collapsed && <StatusChip tone="danger" label="Live locked" raw="LIVE_EXECUTION_ENABLED=false" />}
       </div>
@@ -243,11 +243,11 @@ function TopCommandBar({
 function OperatingStatusRail({ model, apiVisible, onControls }: { model: ReturnType<typeof buildModel>; apiVisible: boolean; onControls: () => void }) {
   return (
     <section className="status-rail" aria-label="Operating status">
-      <StatusChip tone="success" label="Paper only" raw="PAPER_TRADING_ONLY" />
-      <StatusChip tone="info" label={uiLabel(model.dataMode)} raw={model.dataMode} />
+      <StatusChip tone={toneFor(model.dataSourceState)} label={`Data source: ${model.dataSourceLabel}`} raw={model.dataSourceState} />
       <StatusChip tone="success" label="No real capital" raw="NO_REAL_CAPITAL_DEPLOYED" />
       <StatusChip tone="danger" label="Live execution locked" raw="LIVE_EXECUTION_ENABLED=false" />
-      <StatusChip tone={apiVisible ? "success" : "warning"} label={apiVisible ? "API data visible" : "Fixture mode"} raw={apiVisible ? "API_DATA_VISIBLE" : "FIXTURE_SPEC_MODE"} />
+      <StatusChip tone="danger" label="Broker access disabled" raw="BROKER_ORDER_ACCESS_DISABLED" />
+      <StatusChip tone={model.fixtureDataVisible ? "warning" : apiVisible ? "success" : "warning"} label={model.fixtureDataVisible ? "Fixture data visible" : "API data visible"} raw={model.fixtureDataVisible ? "FIXTURE" : "API_DATA_VISIBLE"} />
       <button className="rail-action" onClick={onControls}>View controls</button>
     </section>
   );
@@ -311,10 +311,10 @@ function CommandCenter({ data, model, failClosed }: { data: DashboardData; model
   return (
     <>
       <KpiGrid>
-        <KpiCard label="Portfolio NAV" value={currency(model.nav)} hint="Paper portfolio · no real capital" trend="+0.04%" tone="success" />
-        <KpiCard label="Current drawdown" value={percent(model.drawdown)} hint="Within configured risk threshold" trend="Stable" tone="success" />
-        <KpiCard label="Cash weight" value={percent(model.cashWeight)} hint="Conservative capital posture" trend="High liquidity" tone="info" />
-        <KpiCard label="Risk state" value={failClosed ? "Frozen" : model.riskState} hint="Kill switches and incidents monitored" trend={failClosed ? "Review required" : "Normal"} tone={failClosed ? "danger" : "success"} />
+        <KpiCard label="Data source" value={model.dataSourceLabel} hint={model.actualDataIngested ? "Actual provider data ingested" : "No verified provider ingestion yet"} trend={model.dataSourceState} tone={toneFor(model.dataSourceState)} />
+        <KpiCard label="Dataset freshness" value={uiLabel(model.freshnessStatus)} hint="Freshness is backend-derived" trend={model.lastUpdated} tone={toneFor(model.freshnessStatus)} />
+        <KpiCard label="Broker access" value="Disabled" hint="No order placement, holdings, funds, or live execution" trend="Locked" tone="danger" />
+        <KpiCard label="Paper data use" value={model.paperTradingUseLiveData ? "Blocked" : "Fixture only"} hint="Actual data does not flow into paper trading" trend="Fail closed" tone={model.paperTradingUseLiveData ? "danger" : "warning"} />
       </KpiGrid>
       <section className="hero-grid">
         <ChartCard title="Portfolio equity curve versus benchmark" subtitle="Paper portfolio index, normalized to 100" note="Source: governed paper and research fixtures">
@@ -360,8 +360,8 @@ function LineagePage({ data }: { data: DashboardData }) {
 }
 
 function DataHealthPage({ data, model }: { data: DashboardData; model: ReturnType<typeof buildModel> }) {
-  const healthRows = data.providerHealth.length ? data.providerHealth.map((item) => [item.provider_name, item.healthy ? "Healthy" : "Failed", uiLabel(item.mode), String(item.order_access), `${item.latency_ms ?? 0} ms`, item.message]) : [["live_readonly_market_data", "Healthy", "Read-only market data", "false", "12 ms", "Provider healthy"]];
-  const quoteRows = data.liveQuotes.length ? data.liveQuotes.map((quote) => [quote.aegis_instrument_id, quote.exchange, currency(quote.last_price), currency(quote.bid_price), currency(quote.ask_price), compactNumber(quote.volume), shortDate(quote.available_time)]) : [["AEGIS-IN-000001", "NSE", "₹2,934", "₹2,934", "₹2,934", "11,89,200", model.lastUpdated]];
+  const healthRows = data.providerHealth.length ? data.providerHealth.map((item) => [item.provider_name, item.healthy ? "Healthy" : "Failed", uiLabel(item.mode), String(item.order_access), `${item.latency_ms ?? 0} ms`, item.message]) : [["Provider setup required", "Not configured", "Read-only data source", "false", "n/a", "No verified provider health check has passed"]];
+  const quoteRows = data.liveQuotes.length ? data.liveQuotes.map((quote) => [quote.aegis_instrument_id, quote.exchange, currency(quote.last_price), currency(quote.bid_price), currency(quote.ask_price), compactNumber(quote.volume), shortDate(quote.available_time)]) : [["Live quote feed is not configured", "Historical EOD only", "n/a", "n/a", "n/a", "n/a", "Provider setup required"]];
   return (
     <>
       <KpiGrid><KpiCard label="Provider health" value={model.providerHealthy ? "Healthy" : "Review"} hint="Read-only adapter state" tone={model.providerHealthy ? "success" : "warning"} /><KpiCard label="Data freshness" value={uiLabel(model.freshnessStatus)} hint="Quote availability checked" tone={toneFor(model.freshnessStatus)} /><KpiCard label="Market calendar" value="Open governed" hint="Execution dates controlled by calendar" tone="info" /><KpiCard label="Read-only mode" value="Locked" hint="Broker order access false" tone="success" /></KpiGrid>
@@ -373,7 +373,7 @@ function DataHealthPage({ data, model }: { data: DashboardData; model: ReturnTyp
         <ChartCard title="Data-quality distribution" subtitle="Critical datasets must remain ready"><DonutChart center="Ready" data={[{ label: "Ready", value: 88, tone: "success" }, { label: "Caution", value: 12, tone: "warning" }]} /></ChartCard>
         <ChartCard title="Market-calendar status" subtitle="Exchange sessions govern eligible dates"><Timeline items={(data.marketCalendar.length ? data.marketCalendar : [{ session_date: "2026-06-26", is_open: true }]).map((session) => `${session.session_date} · ${session.is_open ? "Open" : "Closed"}`)} /></ChartCard>
       </section>
-      <DataTable title="Live quote snapshots" headers={["Instrument", "Exchange", "Last", "Bid", "Ask", "Volume", "Available"]} rows={quoteRows} />
+      <DataTable title={data.liveQuotes.length ? "Live quote snapshots" : "Live quote feed is not configured. Historical EOD activation remains available."} headers={["Instrument", "Exchange", "Last", "Bid", "Ask", "Volume", "Available"]} rows={quoteRows} />
     </>
   );
 }
@@ -550,7 +550,7 @@ function Pipeline({ stages }: { stages: string[] }) {
 }
 
 function OperatingPipeline() {
-  return <ChartCard title="Governed operating pipeline" subtitle="Provider data becomes auditable paper evidence through controlled stages"><Pipeline stages={["Provider", "Validation", "Features", "Research", "Risk", "Approval", "Paper fill", "Evidence"]} /></ChartCard>;
+  return <ChartCard title="Data activation flow" subtitle="Provider data is blocked from paper trading until a later explicit activation"><Pipeline stages={["Provider setup", "Raw capture", "Validation", "Curated dataset", "Research eligibility"]} /></ChartCard>;
 }
 
 function LineageFlow({ compact = false }: { compact?: boolean }) {
@@ -562,7 +562,7 @@ function DecisionQueue({ data, failClosed }: { data: DashboardData; failClosed: 
     failClosed ? "Fail-closed review is active" : "No critical fail-closed review active",
     `${data.paperIntents.length} paper trade intents visible`,
     `${data.paperIncidents.length} open paper incident records`,
-    `${data.dataFreshness.length ? uiLabel(data.dataFreshness[0].status) : "Fresh"} data freshness state`,
+    `${data.dataFreshness.length ? uiLabel(data.dataFreshness[0].status) : "Provider setup required"} data freshness state`,
   ];
   return <ChartCard title="Priority decision queue" subtitle="What needs operator attention">{items.map((item) => <AlertCard key={item} tone={item.includes("critical") || item.includes("Fail") ? "danger" : "info"} title={item} body="Open the relevant section for evidence and next action." />)}</ChartCard>;
 }

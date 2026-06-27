@@ -88,7 +88,9 @@ class SqlitePaperSessionQueue:
             id=row["id"],
             paper_portfolio_id=row["paper_portfolio_id"],
             session_date=date.fromisoformat(row["session_date"]),
-            reference_prices={key: Decimal(value) for key, value in payload["reference_prices"].items()},
+            reference_prices={
+                key: Decimal(value) for key, value in payload["reference_prices"].items()
+            },
             readiness_flags=payload["readiness_flags"],
             status="RUNNING",
             attempts=row["attempts"] + 1,
@@ -111,7 +113,12 @@ class SqlitePaperSessionQueue:
         self.connection.commit()
 
     def list_jobs(self) -> list[dict[str, Any]]:
-        return [dict(row) for row in self.connection.execute("SELECT * FROM paper_session_job ORDER BY created_at")]
+        return [
+            dict(row)
+            for row in self.connection.execute(
+                "SELECT * FROM paper_session_job ORDER BY created_at"
+            )
+        ]
 
     def run_once(self, orchestrator: PaperTradingOrchestrator) -> PaperSessionJob | None:
         job = self.claim_next()
@@ -133,7 +140,9 @@ class SqlitePaperSessionQueue:
     def _payload(self, job: PaperSessionJob) -> str:
         return json.dumps(
             {
-                "reference_prices": {key: str(value) for key, value in job.reference_prices.items()},
+                "reference_prices": {
+                    key: str(value) for key, value in job.reference_prices.items()
+                },
                 "readiness_flags": job.readiness_flags,
             },
             sort_keys=True,

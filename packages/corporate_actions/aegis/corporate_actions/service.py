@@ -20,4 +20,7 @@ class CorporateActionService:
         return verified
 
     def can_impact_curated_dataset(self, action_id: str) -> bool:
-        return self.actions[action_id].verification_status == CorporateActionVerificationStatus.VERIFIED
+        return (
+            self.actions[action_id].verification_status
+            == CorporateActionVerificationStatus.VERIFIED
+        )

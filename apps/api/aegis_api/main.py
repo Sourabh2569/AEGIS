@@ -16,7 +16,12 @@ from aegis.backtesting.fixtures import load_calendar, load_market_data
 from aegis.backtesting.repositories import BacktestRepository
 from aegis.backtesting.sprint2 import Sprint2ResearchScenarioRunner
 from aegis.configuration.settings import Settings
-from aegis.data_ingestion.service import InMemoryRepository, LocalObjectStore, ProviderIngestionService
+from aegis.data_activation.service import DataActivationService
+from aegis.data_ingestion.service import (
+    InMemoryRepository,
+    LocalObjectStore,
+    ProviderIngestionService,
+)
 from aegis.domain.models import (
     CorporateAction,
     CorporateActionType,
@@ -65,7 +70,9 @@ backtest_service = BacktestService(backtest_repo, audit_log)
 paper_store_path = Path("work/paper_trading.sqlite")
 paper_store_path.parent.mkdir(parents=True, exist_ok=True)
 paper_queue_path = Path("work/paper_session_queue.sqlite")
-paper_calendar = PaperTradingCalendarService.from_csv(Path("sample_data/sprint_3/forward_market_calendar.csv"))
+paper_calendar = PaperTradingCalendarService.from_csv(
+    Path("sample_data/sprint_3/forward_market_calendar.csv")
+)
 paper_repo = SqlitePaperTradingRepository(paper_store_path)
 paper_orchestrator = PaperTradingOrchestrator(paper_repo, audit_log, calendar=paper_calendar)
 paper_session_queue = SqlitePaperSessionQueue(paper_queue_path)
@@ -95,14 +102,14 @@ live_readonly_provider_record = DataProvider(
 providers[live_readonly_provider_record.id] = live_readonly_provider_record
 licenses[live_readonly_provider_record.id] = ProviderLicense(
     provider_id=live_readonly_provider_record.id,
-    license_status=ProviderLicenseStatus.APPROVED,
-    permitted_use="Read-only instrument, EOD, quote, and calendar ingestion",
-    automation_rights=True,
-    backtesting_rights=True,
+    license_status=ProviderLicenseStatus.PENDING,
+    permitted_use="Read-only market-data activation pending provider setup and legal approval",
+    automation_rights=False,
+    backtesting_rights=False,
     model_training_rights=False,
-    dashboard_display_rights=True,
-    data_retention_period="provider-contract-controlled",
-    legal_review_status="APPROVED_READONLY_DATA",
+    dashboard_display_rights=False,
+    data_retention_period="not-recorded",
+    legal_review_status="PENDING_PROVIDER_SETUP",
 )
 seed_dataset = Dataset(
     name="eod_prices",
@@ -148,7 +155,9 @@ seed_instrument = Instrument(
 )
 instrument_master.add_instrument(seed_instrument)
 fixture_calendar = load_calendar(Path("sample_data/backtesting/market_calendar.csv"))
-fixture_market_data = load_market_data(Path("sample_data/backtesting/valid_eod_prices.csv"), "dataset-version-1")
+fixture_market_data = load_market_data(
+    Path("sample_data/backtesting/valid_eod_prices.csv"), "dataset-version-1"
+)
 backtest_service.attach_calendar_for_intent_creation(fixture_calendar)
 sprint2_runner = Sprint2ResearchScenarioRunner(Path("sample_data/sprint_2"))
 sprint2_reports: list[dict[str, Any]] = []
@@ -170,6 +179,19 @@ def require_role(*allowed: Role):
 
 def as_dict(value: Any) -> dict[str, Any]:
     return asdict(value)
+
+
+def activation_service() -> DataActivationService:
+    return DataActivationService(
+        settings=settings, repository=repo, providers=providers, licenses=licenses
+    )
+
+
+def live_readonly_adapter() -> LiveReadOnlyMarketDataProvider:
+    return LiveReadOnlyMarketDataProvider(
+        licenses[live_readonly_provider_record.id],
+        configured=settings.market_data_provider_configured(),
+    )
 
 
 def jsonable(value: Any) -> Any:
@@ -204,6 +226,7 @@ def ready() -> dict[str, Any]:
 
 @app.get("/api/v1/system/overview")
 def system_overview() -> dict[str, Any]:
+    truth = activation_service().truth_summary()
     return {
         "backend_health": "ok",
         "database_health": "configured",
@@ -214,6 +237,7 @@ def system_overview() -> dict[str, Any]:
         "data_source_mode": settings.data_source_mode,
         "broker_order_access": settings.broker_order_access,
         "live_execution_enabled": settings.live_execution_enabled,
+        "data_truth": truth,
         "critical_incidents_count": 0,
         "configuration": settings.redacted(),
     }
@@ -221,10 +245,18 @@ def system_overview() -> dict[str, Any]:
 
 @app.get("/api/v1/data-source/mode")
 def data_source_mode() -> dict[str, Any]:
+    truth = activation_service().truth_summary()
     return {
         "data_source_mode": settings.data_source_mode,
+        "market_data_enabled": settings.market_data_enabled,
+        "market_data_provider_configured": settings.market_data_provider_configured(),
+        "provider_state": truth["provider"]["state"],
+        "provider_state_label": truth["provider"]["label"],
+        "fixture_data_visible": truth["data_source"]["fixture_data_visible"],
+        "actual_data_ingested": truth["data_source"]["actual_data_ingested"],
         "live_execution_enabled": settings.live_execution_enabled,
         "broker_order_access": settings.broker_order_access,
+        "paper_trading_use_live_data": settings.paper_trading_use_live_data,
         "allowed_operations": [
             "instrument_master_sync",
             "historical_eod_ohlcv_ingestion",
@@ -233,7 +265,14 @@ def data_source_mode() -> dict[str, Any]:
             "provider_health_check",
             "data_freshness_check",
         ],
-        "prohibited_operations": ["place_order", "submit_order", "cancel_order", "modify_order", "holdings_mutation", "live_trading"],
+        "prohibited_operations": [
+            "place_order",
+            "submit_order",
+            "cancel_order",
+            "modify_order",
+            "holdings_mutation",
+            "live_trading",
+        ],
     }
 
 
@@ -242,9 +281,67 @@ def incidents() -> list[dict[str, Any]]:
     return []
 
 
+@app.get("/api/v1/system/data-mode")
+def system_data_mode() -> dict[str, Any]:
+    return data_source_mode()
+
+
+@app.get("/api/v1/system/data-truth-summary")
+def system_data_truth_summary() -> dict[str, Any]:
+    return jsonable(activation_service().truth_summary())
+
+
+@app.get("/api/v1/system/provider-readiness")
+def system_provider_readiness() -> dict[str, Any]:
+    activation = activation_service()
+    provider, _license = activation.selected_provider()
+    return jsonable(
+        {
+            "provider": activation.provider_state(provider.id if provider else None),
+            "capabilities": asdict(activation.capability(provider.id)) if provider else None,
+            "blockers": activation.blockers(),
+        }
+    )
+
+
+@app.get("/api/v1/system/latest-ingestion-summary")
+def system_latest_ingestion_summary() -> dict[str, Any]:
+    latest = activation_service().latest_successful_ingestion()
+    return {
+        "latest_ingestion": jsonable(latest) if latest else None,
+        "last_updated_at": datetime.now().astimezone().isoformat(),
+    }
+
+
+@app.get("/api/v1/system/data-coverage-summary")
+def system_data_coverage_summary() -> dict[str, Any]:
+    return activation_service().coverage_summary()
+
+
+@app.get("/api/v1/system/data-freshness-summary")
+def system_data_freshness_summary() -> dict[str, Any]:
+    return {
+        "freshness": list(repo.data_freshness.values()),
+        "last_updated_at": datetime.now().astimezone().isoformat(),
+    }
+
+
+@app.get("/api/v1/system/data-blockers")
+def system_data_blockers() -> list[dict[str, Any]]:
+    return activation_service().blockers()
+
+
 @app.get("/api/v1/providers")
 def list_providers() -> list[dict[str, Any]]:
-    return [as_dict(provider) for provider in providers.values()]
+    activation = activation_service()
+    return [
+        as_dict(provider)
+        | {
+            "activation": activation.provider_state(provider.id),
+            "capabilities": asdict(activation.capability(provider.id)),
+        }
+        for provider in providers.values()
+    ]
 
 
 @app.post("/api/v1/providers")
@@ -271,16 +368,74 @@ def create_provider(
 
 @app.get("/api/v1/providers/{provider_id}")
 def get_provider(provider_id: str) -> dict[str, Any]:
-    return as_dict(providers[provider_id])
+    activation = activation_service()
+    return as_dict(providers[provider_id]) | {
+        "activation": activation.provider_state(provider_id),
+        "capabilities": asdict(activation.capability(provider_id)),
+    }
 
 
 @app.post("/api/v1/providers/{provider_id}/health-check")
 def provider_health(provider_id: str) -> dict[str, Any]:
     provider = providers[provider_id]
     if provider_id == live_readonly_provider_record.id:
-        adapter = LiveReadOnlyMarketDataProvider(licenses[provider_id])
+        adapter = live_readonly_adapter()
         return ingestion_service.check_provider_health(provider=adapter, provider_id=provider_id)
-    return {"provider_id": provider.id, "healthy": provider.is_active, "message": "registered", "order_access": False}
+    return {
+        "provider_id": provider.id,
+        "healthy": provider.is_active,
+        "message": "registered",
+        "order_access": False,
+    }
+
+
+@app.get("/api/v1/providers/{provider_id}/health")
+def get_provider_health(provider_id: str) -> dict[str, Any]:
+    if provider_id not in repo.provider_health:
+        return activation_service().provider_state(provider_id)
+    return repo.provider_health[provider_id] | {
+        "activation": activation_service().provider_state(provider_id)
+    }
+
+
+@app.post("/api/v1/providers/{provider_id}/run-health-check")
+def run_provider_health_check(
+    provider_id: str,
+    role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD, Role.ENGINEER)),
+) -> dict[str, Any]:
+    return provider_health(provider_id)
+
+
+@app.get("/api/v1/providers/{provider_id}/capabilities")
+def get_provider_capabilities(provider_id: str) -> dict[str, Any]:
+    return asdict(activation_service().capability(provider_id))
+
+
+@app.post("/api/v1/providers/{provider_id}/verify-read-only-connection")
+def verify_provider_read_only_connection(
+    provider_id: str,
+    cid: str = Depends(correlation_id),
+    role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD, Role.ENGINEER)),
+) -> dict[str, Any]:
+    if provider_id != live_readonly_provider_record.id:
+        raise HTTPException(
+            status_code=404, detail="Provider adapter is not available for verification."
+        )
+    adapter = live_readonly_adapter()
+    adapter.validate_read_only_scope()
+    health = ingestion_service.check_provider_health(
+        provider=adapter, provider_id=provider_id, correlation_id=cid
+    )
+    if not settings.market_data_provider_configured():
+        raise HTTPException(
+            status_code=409, detail=activation_service().provider_state(provider_id)
+        )
+    return health | {"read_only_verified": health["order_access"] is False}
+
+
+@app.get("/api/v1/providers/{provider_id}/ingestion-runs")
+def get_provider_ingestion_runs(provider_id: str) -> list[dict[str, Any]]:
+    return [as_dict(run) for run in repo.ingestion_runs.values() if run.provider_id == provider_id]
 
 
 @app.post("/api/v1/data-source/live-readonly/sync")
@@ -288,8 +443,24 @@ def sync_live_readonly_data(
     cid: str = Depends(correlation_id),
     role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD)),
 ) -> dict[str, Any]:
-    adapter = LiveReadOnlyMarketDataProvider(licenses[live_readonly_provider_record.id])
-    health = ingestion_service.check_provider_health(provider=adapter, provider_id=live_readonly_provider_record.id, correlation_id=cid)
+    if not settings.market_data_provider_configured():
+        state = activation_service().provider_state(live_readonly_provider_record.id)
+        audit_log.record(
+            event_type="DATA_ACTIVATION_BLOCKED",
+            entity_type="DataProvider",
+            entity_id=live_readonly_provider_record.id,
+            actor_type="USER",
+            actor_id=role.value,
+            action="BLOCK_INGESTION_PROVIDER_SETUP_REQUIRED",
+            before_state=None,
+            after_state=state,
+            correlation_id=cid,
+        )
+        raise HTTPException(status_code=409, detail=state)
+    adapter = live_readonly_adapter()
+    health = ingestion_service.check_provider_health(
+        provider=adapter, provider_id=live_readonly_provider_record.id, correlation_id=cid
+    )
     instrument_run = ingestion_service.sync_instrument_master(
         provider=adapter,
         provider_id=live_readonly_provider_record.id,
@@ -335,8 +506,10 @@ def sync_live_readonly_data(
 @app.get("/api/v1/provider-health")
 def list_provider_health() -> list[dict[str, Any]]:
     if live_readonly_provider_record.id not in repo.provider_health:
-        adapter = LiveReadOnlyMarketDataProvider(licenses[live_readonly_provider_record.id])
-        ingestion_service.check_provider_health(provider=adapter, provider_id=live_readonly_provider_record.id)
+        adapter = live_readonly_adapter()
+        ingestion_service.check_provider_health(
+            provider=adapter, provider_id=live_readonly_provider_record.id
+        )
     return list(repo.provider_health.values())
 
 
@@ -347,6 +520,8 @@ def list_data_freshness() -> list[dict[str, Any]]:
 
 @app.get("/api/v1/live-quotes")
 def list_live_quotes() -> list[dict[str, Any]]:
+    if not settings.market_data_provider_configured():
+        return []
     return list(repo.live_quotes.values())
 
 
@@ -422,11 +597,44 @@ def dataset_quality(dataset_version_id: str) -> list[dict[str, Any]]:
     return [as_dict(result) for result in repo.quality_results.get(dataset_version_id, [])]
 
 
+@app.get("/api/v1/dataset-versions/{dataset_version_id}")
+def get_dataset_version(dataset_version_id: str) -> dict[str, Any]:
+    versions = {version["id"]: version for version in activation_service().dataset_versions()}
+    return versions[dataset_version_id]
+
+
 @app.get("/api/v1/dataset-versions/{dataset_version_id}/lineage")
 def dataset_lineage(dataset_version_id: str) -> dict[str, Any]:
     version = repo.dataset_versions[dataset_version_id]
-    raw = next(obj for obj in repo.raw_objects.values() if obj.content_hash == version.raw_snapshot_hash)
+    raw = next(
+        obj for obj in repo.raw_objects.values() if obj.content_hash == version.raw_snapshot_hash
+    )
     return {"dataset_version": as_dict(version), "raw_object": as_dict(raw)}
+
+
+@app.get("/api/v1/dataset-versions/{dataset_version_id}/coverage")
+def dataset_coverage(dataset_version_id: str) -> dict[str, Any]:
+    return activation_service().coverage_summary() | {"dataset_version_id": dataset_version_id}
+
+
+@app.get("/api/v1/data-quality/issues")
+def data_quality_issues() -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    for results in repo.quality_results.values():
+        issues.extend(as_dict(result) for result in results if not result.passed)
+    return issues
+
+
+@app.get("/api/v1/data-quality/summary")
+def data_quality_summary() -> dict[str, Any]:
+    results = [result for group in repo.quality_results.values() for result in group]
+    failed = [result for result in results if not result.passed]
+    return {
+        "total_checks": len(results),
+        "failed_checks": len(failed),
+        "status": "GREEN" if not failed else "RED",
+        "label": "Ready" if not failed else "Blocked",
+    }
 
 
 @app.post("/api/v1/ingestions/mock")
@@ -441,6 +649,87 @@ def ingest_mock(cid: str = Depends(correlation_id)) -> dict[str, Any]:
         correlation_id=cid,
     )
     return as_dict(run)
+
+
+@app.post("/api/v1/ingestions/instruments/run")
+def run_instrument_ingestion(
+    cid: str = Depends(correlation_id),
+    role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD, Role.SYSTEM_SERVICE)),
+) -> dict[str, Any]:
+    if not settings.market_data_provider_configured():
+        raise HTTPException(
+            status_code=409,
+            detail=activation_service().provider_state(live_readonly_provider_record.id),
+        )
+    run = ingestion_service.sync_instrument_master(
+        provider=live_readonly_adapter(),
+        provider_id=live_readonly_provider_record.id,
+        instrument_master=instrument_master,
+        correlation_id=cid,
+    )
+    return jsonable(run)
+
+
+@app.post("/api/v1/ingestions/eod/run")
+def run_eod_ingestion(
+    cid: str = Depends(correlation_id),
+    role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD, Role.SYSTEM_SERVICE)),
+) -> dict[str, Any]:
+    if not settings.market_data_provider_configured():
+        raise HTTPException(
+            status_code=409,
+            detail=activation_service().provider_state(live_readonly_provider_record.id),
+        )
+    run = ingestion_service.ingest_eod_prices(
+        provider=live_readonly_adapter(),
+        provider_id=live_readonly_provider_record.id,
+        dataset_id=seed_dataset.id,
+        dataset_name=seed_dataset.name,
+        known_instrument_ids=instrument_master.known_aegis_ids(),
+        correlation_id=cid,
+    )
+    return jsonable(run)
+
+
+@app.post("/api/v1/ingestions/market-calendar/run")
+def run_market_calendar_ingestion(
+    cid: str = Depends(correlation_id),
+    role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD, Role.SYSTEM_SERVICE)),
+) -> dict[str, Any]:
+    if not settings.market_data_provider_configured():
+        raise HTTPException(
+            status_code=409,
+            detail=activation_service().provider_state(live_readonly_provider_record.id),
+        )
+    return jsonable(
+        ingestion_service.sync_market_calendar(
+            provider=live_readonly_adapter(),
+            provider_id=live_readonly_provider_record.id,
+            correlation_id=cid,
+        )
+    )
+
+
+@app.post("/api/v1/ingestions/corporate-actions/run")
+def run_corporate_actions_ingestion(
+    role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD, Role.SYSTEM_SERVICE)),
+) -> dict[str, Any]:
+    return {
+        "status": "BLOCKED",
+        "label": "Provider setup required",
+        "reason": "Corporate-action provider source is not configured.",
+    }
+
+
+@app.post("/api/v1/ingestions/benchmark/run")
+def run_benchmark_ingestion(
+    role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD, Role.SYSTEM_SERVICE)),
+) -> dict[str, Any]:
+    return {
+        "status": "BLOCKED",
+        "label": "Provider setup required",
+        "reason": "Benchmark provider source is not configured.",
+    }
 
 
 @app.post("/api/v1/ingestions/csv")
@@ -467,13 +756,20 @@ def get_ingestion(ingestion_run_id: str) -> dict[str, Any]:
     return as_dict(repo.ingestion_runs[ingestion_run_id])
 
 
+@app.get("/api/v1/ingestions/{ingestion_run_id}/errors")
+def get_ingestion_errors(ingestion_run_id: str) -> list[str]:
+    return repo.ingestion_runs[ingestion_run_id].error_summary
+
+
 @app.get("/api/v1/instruments")
 def list_instruments() -> list[dict[str, Any]]:
     return [as_dict(instrument) for instrument in instrument_master.instruments.values()]
 
 
 @app.post("/api/v1/instruments")
-def create_instrument(payload: dict[str, Any], cid: str = Depends(correlation_id)) -> dict[str, Any]:
+def create_instrument(
+    payload: dict[str, Any], cid: str = Depends(correlation_id)
+) -> dict[str, Any]:
     instrument = Instrument(**payload)
     instrument_master.add_instrument(instrument)
     audit_log.record(
@@ -493,6 +789,76 @@ def create_instrument(payload: dict[str, Any], cid: str = Depends(correlation_id
 @app.get("/api/v1/instruments/{instrument_id}")
 def get_instrument(instrument_id: str) -> dict[str, Any]:
     return as_dict(instrument_master.instruments[instrument_id])
+
+
+@app.get("/api/v1/instruments/{instrument_id}/source-mappings")
+def instrument_source_mappings(instrument_id: str) -> list[dict[str, Any]]:
+    instrument = instrument_master.instruments[instrument_id]
+    return [
+        {
+            "instrument_id": instrument_id,
+            "provider_id": live_readonly_provider_record.id,
+            "external_symbol": instrument.current_symbol,
+            "external_instrument_id": instrument.aegis_instrument_id,
+            "external_exchange_code": instrument.primary_exchange,
+            "external_isin": instrument.isin,
+            "mapping_status": "VERIFIED"
+            if instrument.mapping_confidence_score >= 0.95
+            else "PROVISIONAL",
+            "mapping_confidence_score": instrument.mapping_confidence_score,
+            "source_reference": "instrument-master-local",
+            "last_verified_at": instrument.last_verified_at,
+        }
+    ]
+
+
+@app.get("/api/v1/instrument-mapping-exceptions")
+def instrument_mapping_exceptions() -> list[dict[str, Any]]:
+    return []
+
+
+@app.post("/api/v1/instrument-mapping-exceptions/{exception_id}/resolve")
+def resolve_instrument_mapping_exception(
+    exception_id: str,
+    role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD)),
+) -> dict[str, Any]:
+    return {"exception_id": exception_id, "status": "NO_OPEN_EXCEPTION", "resolved_by": role.value}
+
+
+@app.get("/api/v1/universes")
+def universes() -> list[dict[str, Any]]:
+    return [
+        {
+            "universe_id": "AEGIS_LIQUID_EQUITY_RESEARCH_UNIVERSE_V0",
+            "name": "AEGIS liquid equity research universe",
+            "status": "NOT_PROMOTED",
+            "data_source_label": "Provider setup required"
+            if not settings.market_data_provider_configured()
+            else "Read-only data source",
+        }
+    ]
+
+
+@app.get("/api/v1/universes/{universe_id}")
+def universe(universe_id: str) -> dict[str, Any]:
+    return universes()[0] | {"universe_id": universe_id}
+
+
+@app.get("/api/v1/universes/{universe_id}/members")
+def universe_members(universe_id: str) -> list[dict[str, Any]]:
+    return [
+        as_dict(instrument)
+        | {
+            "universe_id": universe_id,
+            "membership_status": "INCLUDED"
+            if instrument.mapping_confidence_score >= 0.95
+            else "EXCLUDED",
+            "exclusion_reason": None
+            if instrument.mapping_confidence_score >= 0.95
+            else "Mapping confidence below verified threshold",
+        }
+        for instrument in instrument_master.instruments.values()
+    ]
 
 
 @app.get("/api/v1/instruments/{instrument_id}/aliases")
@@ -518,7 +884,9 @@ def list_corporate_actions() -> list[dict[str, Any]]:
 def create_corporate_action(payload: dict[str, Any]) -> dict[str, Any]:
     action = CorporateAction(
         action_type=CorporateActionType(payload["action_type"]),
-        verification_status=CorporateActionVerificationStatus(payload.get("verification_status", "RAW")),
+        verification_status=CorporateActionVerificationStatus(
+            payload.get("verification_status", "RAW")
+        ),
         **{k: v for k, v in payload.items() if k not in {"action_type", "verification_status"}},
     )
     corporate_actions[action.id] = action
@@ -581,7 +949,9 @@ def list_backtest_runs(
         require_role(Role.FOUNDER, Role.RESEARCHER, Role.RISK_REVIEWER, Role.READ_ONLY)
     ),
 ) -> list[dict[str, Any]]:
-    return [jsonable(run) | {"labels": list(SPRINT_1A_LABELS)} for run in backtest_repo.runs.values()]
+    return [
+        jsonable(run) | {"labels": list(SPRINT_1A_LABELS)} for run in backtest_repo.runs.values()
+    ]
 
 
 @app.post("/api/v1/backtest-runs")
@@ -636,7 +1006,9 @@ def cancel_backtest_run(
 ) -> dict[str, Any]:
     run = backtest_repo.runs[backtest_run_id]
     if run.status == BacktestRunStatus.COMPLETED:
-        raise HTTPException(status_code=409, detail="Completed runs cannot be modified or cancelled.")
+        raise HTTPException(
+            status_code=409, detail="Completed runs cannot be modified or cancelled."
+        )
     cancelled = run.mark_failed("CANCELLED_BY_USER")
     object.__setattr__(cancelled, "status", BacktestRunStatus.CANCELLED)
     backtest_repo.save_run(cancelled)
@@ -739,7 +1111,11 @@ def create_feature_run() -> dict[str, Any]:
 
 @app.get("/api/v1/feature-runs/{feature_run_id}")
 def get_feature_run(feature_run_id: str) -> dict[str, Any]:
-    return {"feature_run_id": feature_run_id, "status": "FIXTURE_ONLY", "classification": list(RESEARCH_LABELS)}
+    return {
+        "feature_run_id": feature_run_id,
+        "status": "FIXTURE_ONLY",
+        "classification": list(RESEARCH_LABELS),
+    }
 
 
 @app.get("/api/v1/feature-values")
@@ -759,7 +1135,9 @@ def get_strategies() -> list[dict[str, Any]]:
 @app.post("/api/v1/strategies")
 def create_strategy_placeholder(payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("status") in {"VALIDATED", "PAPER_TRADING", "LIVE_CANDIDATE", "LIVE_ENABLED"}:
-        raise HTTPException(status_code=400, detail="Sprint 2 strategies must remain RESEARCH_ONLY.")
+        raise HTTPException(
+            status_code=400, detail="Sprint 2 strategies must remain RESEARCH_ONLY."
+        )
     return {"strategy_id": str(uuid4()), **payload, "status": "RESEARCH_ONLY"}
 
 
@@ -775,7 +1153,11 @@ def get_risk_profile_versions() -> list[dict[str, Any]]:
 
 @app.get("/api/v1/risk-assessments")
 def get_sprint2_risk_assessments() -> list[dict[str, Any]]:
-    return [assessment for report in sprint2_reports for assessment in report.get("risk_assessments", [])]
+    return [
+        assessment
+        for report in sprint2_reports
+        for assessment in report.get("risk_assessments", [])
+    ]
 
 
 @app.get("/api/v1/risk-events")
@@ -789,7 +1171,9 @@ def get_kill_switches() -> list[dict[str, Any]]:
 
 
 @app.post("/api/v1/sprint-2/scenario-a")
-def run_sprint2_scenario_a(role: Role = Depends(require_role(Role.FOUNDER, Role.RESEARCHER))) -> dict[str, Any]:
+def run_sprint2_scenario_a(
+    role: Role = Depends(require_role(Role.FOUNDER, Role.RESEARCHER)),
+) -> dict[str, Any]:
     report = sprint2_runner.run_equal_weight_scenario()
     payload = jsonable(report)
     sprint2_reports.append(payload)
@@ -814,7 +1198,10 @@ def get_sprint2_reports() -> list[dict[str, Any]]:
 
 @app.get("/api/v1/paper-portfolios")
 def list_paper_portfolios() -> list[dict[str, Any]]:
-    return [jsonable(portfolio) | {"labels": list(PAPER_LABELS)} for portfolio in paper_repo.portfolios.values()]
+    return [
+        jsonable(portfolio) | {"labels": list(PAPER_LABELS)}
+        for portfolio in paper_repo.portfolios.values()
+    ]
 
 
 @app.post("/api/v1/paper-portfolios")
@@ -837,9 +1224,13 @@ def get_paper_portfolio(paper_portfolio_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/v1/paper-portfolios/{paper_portfolio_id}/activate")
-def activate_paper_portfolio(paper_portfolio_id: str, role: Role = Depends(require_role(Role.FOUNDER))) -> dict[str, Any]:
+def activate_paper_portfolio(
+    paper_portfolio_id: str, role: Role = Depends(require_role(Role.FOUNDER))
+) -> dict[str, Any]:
     config = paper_orchestrator.create_strategy_config(paper_portfolio_id)
-    paper_orchestrator.admit_and_activate_strategy(config.paper_strategy_config_id, all_admission_evidence(), role.value)
+    paper_orchestrator.admit_and_activate_strategy(
+        config.paper_strategy_config_id, all_admission_evidence(), role.value
+    )
     return jsonable(paper_repo.portfolios[paper_portfolio_id]) | {"labels": list(PAPER_LABELS)}
 
 
@@ -855,7 +1246,9 @@ def resume_paper_portfolio(paper_portfolio_id: str) -> dict[str, Any]:
     portfolio = paper_repo.portfolios[paper_portfolio_id]
     if portfolio.status != PaperPortfolioStatus.PAUSED:
         raise HTTPException(status_code=400, detail=f"PORTFOLIO_NOT_PAUSED:{portfolio.status}")
-    resumed = replace(portfolio, status=PaperPortfolioStatus.ACTIVE, updated_at=datetime.now().astimezone())
+    resumed = replace(
+        portfolio, status=PaperPortfolioStatus.ACTIVE, updated_at=datetime.now().astimezone()
+    )
     paper_repo.save_portfolio(resumed)
     return jsonable(resumed)
 
@@ -872,7 +1265,11 @@ def complete_paper_portfolio(paper_portfolio_id: str) -> dict[str, Any]:
     from dataclasses import replace
 
     portfolio = paper_repo.portfolios[paper_portfolio_id]
-    completed = replace(portfolio, status=PaperPortfolioStatus.COMPLETED, completed_at_nullable=datetime.now().astimezone())
+    completed = replace(
+        portfolio,
+        status=PaperPortfolioStatus.COMPLETED,
+        completed_at_nullable=datetime.now().astimezone(),
+    )
     paper_repo.save_portfolio(completed)
     return jsonable(completed)
 
@@ -882,7 +1279,11 @@ def paper_portfolio_summary(paper_portfolio_id: str) -> dict[str, Any]:
     return {
         "portfolio": jsonable(paper_repo.portfolios[paper_portfolio_id]),
         "latest_nav": jsonable((paper_repo.nav.get(paper_portfolio_id) or [None])[-1]),
-        "open_incidents": [jsonable(i) for i in paper_repo.incidents.values() if i.paper_portfolio_id == paper_portfolio_id and i.status == "OPEN"],
+        "open_incidents": [
+            jsonable(i)
+            for i in paper_repo.incidents.values()
+            if i.paper_portfolio_id == paper_portfolio_id and i.status == "OPEN"
+        ],
         "labels": list(PAPER_LABELS),
     }
 
@@ -920,7 +1321,11 @@ def create_paper_strategy_configuration(payload: dict[str, Any]) -> dict[str, An
 @app.post("/api/v1/paper-strategy-configurations/{paper_strategy_config_id}/admission-review")
 def paper_admission_review(paper_strategy_config_id: str) -> dict[str, Any]:
     failures = paper_orchestrator.admission.review(all_admission_evidence())
-    return {"paper_strategy_config_id": paper_strategy_config_id, "failures": failures, "ready": not failures}
+    return {
+        "paper_strategy_config_id": paper_strategy_config_id,
+        "failures": failures,
+        "ready": not failures,
+    }
 
 
 @app.post("/api/v1/paper-strategy-configurations/{paper_strategy_config_id}/freeze")
@@ -931,8 +1336,15 @@ def freeze_paper_strategy_configuration(paper_strategy_config_id: str) -> dict[s
 
 
 @app.post("/api/v1/paper-strategy-configurations/{paper_strategy_config_id}/activate")
-def activate_paper_strategy_configuration(paper_strategy_config_id: str, role: Role = Depends(require_role(Role.FOUNDER, Role.RISK_REVIEWER, Role.DATA_STEWARD))) -> dict[str, Any]:
-    return jsonable(paper_orchestrator.admit_and_activate_strategy(paper_strategy_config_id, all_admission_evidence(), role.value))
+def activate_paper_strategy_configuration(
+    paper_strategy_config_id: str,
+    role: Role = Depends(require_role(Role.FOUNDER, Role.RISK_REVIEWER, Role.DATA_STEWARD)),
+) -> dict[str, Any]:
+    return jsonable(
+        paper_orchestrator.admit_and_activate_strategy(
+            paper_strategy_config_id, all_admission_evidence(), role.value
+        )
+    )
 
 
 @app.get("/api/v1/paper-strategy-configurations/{paper_strategy_config_id}/evidence-package")
@@ -959,7 +1371,9 @@ def enqueue_paper_session_job(payload: dict[str, Any]) -> dict[str, Any]:
         readiness_flags=payload.get("readiness_flags", all_readiness_green()),
         reference_prices={
             instrument_id: Decimal(str(price))
-            for instrument_id, price in payload.get("reference_prices", {"AEGIS-IN-000001": "112"}).items()
+            for instrument_id, price in payload.get(
+                "reference_prices", {"AEGIS-IN-000001": "112"}
+            ).items()
         },
     )
     return jsonable(paper_session_queue.enqueue(job))
@@ -990,13 +1404,26 @@ def paper_trade_intents() -> list[dict[str, Any]]:
 
 
 @app.post("/api/v1/paper-trade-intents/{paper_trade_intent_id}/approve")
-def approve_paper_intent(paper_trade_intent_id: str, role: Role = Depends(require_role(Role.FOUNDER, Role.RISK_REVIEWER, Role.PAPER_TRADING_OPERATOR))) -> dict[str, Any]:
+def approve_paper_intent(
+    paper_trade_intent_id: str,
+    role: Role = Depends(
+        require_role(Role.FOUNDER, Role.RISK_REVIEWER, Role.PAPER_TRADING_OPERATOR)
+    ),
+) -> dict[str, Any]:
     return jsonable(paper_orchestrator.approvals.approve(paper_trade_intent_id, role.value))
 
 
 @app.post("/api/v1/paper-trade-intents/{paper_trade_intent_id}/reject")
-def reject_paper_intent(paper_trade_intent_id: str, payload: dict[str, Any], role: Role = Depends(require_role(Role.FOUNDER, Role.RISK_REVIEWER, Role.PAPER_TRADING_OPERATOR))) -> dict[str, Any]:
-    return jsonable(paper_orchestrator.approvals.reject(paper_trade_intent_id, role.value, payload["reason"]))
+def reject_paper_intent(
+    paper_trade_intent_id: str,
+    payload: dict[str, Any],
+    role: Role = Depends(
+        require_role(Role.FOUNDER, Role.RISK_REVIEWER, Role.PAPER_TRADING_OPERATOR)
+    ),
+) -> dict[str, Any]:
+    return jsonable(
+        paper_orchestrator.approvals.reject(paper_trade_intent_id, role.value, payload["reason"])
+    )
 
 
 @app.get("/api/v1/paper-approvals")
@@ -1025,7 +1452,10 @@ def paper_corporate_action_reviews() -> list[dict[str, Any]]:
 
 
 @app.post("/api/v1/paper-corporate-action-reviews")
-def create_paper_corporate_action_review(payload: dict[str, Any], role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD, Role.RISK_REVIEWER))) -> dict[str, Any]:
+def create_paper_corporate_action_review(
+    payload: dict[str, Any],
+    role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD, Role.RISK_REVIEWER)),
+) -> dict[str, Any]:
     review = paper_orchestrator.corporate_actions.review(
         paper_portfolio_id=payload["paper_portfolio_id"],
         instrument_id=payload["instrument_id"],
@@ -1049,14 +1479,18 @@ def resolve_paper_incident(paper_incident_id: str) -> dict[str, Any]:
     from dataclasses import replace
 
     incident = paper_repo.incidents[paper_incident_id]
-    resolved = replace(incident, status="RESOLVED", resolved_at_nullable=datetime.now().astimezone())
+    resolved = replace(
+        incident, status="RESOLVED", resolved_at_nullable=datetime.now().astimezone()
+    )
     paper_repo.incidents[paper_incident_id] = resolved
     return jsonable(resolved)
 
 
 @app.post("/api/v1/kill-switches/{kill_switch_id}/activate")
 def activate_kill_switch(kill_switch_id: str) -> dict[str, Any]:
-    switch = paper_orchestrator.activate_kill_switch(KillSwitchType.PORTFOLIO_KILL_SWITCH, kill_switch_id, "API activation")
+    switch = paper_orchestrator.activate_kill_switch(
+        KillSwitchType.PORTFOLIO_KILL_SWITCH, kill_switch_id, "API activation"
+    )
     return jsonable(switch)
 
 

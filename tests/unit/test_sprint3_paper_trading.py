@@ -38,7 +38,9 @@ def setup_active_orchestrator():
         created_by="FOUNDER",
     )
     config = orch.create_strategy_config(portfolio.paper_portfolio_id)
-    orch.admit_and_activate_strategy(config.paper_strategy_config_id, all_admission_evidence(), "FOUNDER")
+    orch.admit_and_activate_strategy(
+        config.paper_strategy_config_id, all_admission_evidence(), "FOUNDER"
+    )
     return orch, repo, audit, portfolio, config
 
 
@@ -49,7 +51,11 @@ def create_intent(orch, repo, portfolio):
         readiness_flags=all_readiness_green(),
         reference_prices={"AEGIS-IN-000001": Decimal("112")},
     )
-    return next(intent for intent in repo.intents.values() if intent.paper_portfolio_id == portfolio.paper_portfolio_id)
+    return next(
+        intent
+        for intent in repo.intents.values()
+        if intent.paper_portfolio_id == portfolio.paper_portfolio_id
+    )
 
 
 def test_paper_labels_and_no_broker_fields() -> None:
@@ -112,7 +118,11 @@ def test_approval_expiry_blocks_execution() -> None:
 def test_successful_forward_cycle_and_duplicate_execution_impossible() -> None:
     orch, repo, _, portfolio, _ = setup_active_orchestrator()
     intent = create_intent(orch, repo, portfolio)
-    orch.approvals.approve(intent.paper_trade_intent_id, "RISK_REVIEWER", datetime(2026, 6, 26, 11, 0, tzinfo=timezone.utc))
+    orch.approvals.approve(
+        intent.paper_trade_intent_id,
+        "RISK_REVIEWER",
+        datetime(2026, 6, 26, 11, 0, tzinfo=timezone.utc),
+    )
     orders = orch.execute_approved_orders(
         paper_portfolio_id=portfolio.paper_portfolio_id,
         execution_time=datetime(2026, 6, 29, 3, 45, tzinfo=timezone.utc),
@@ -133,13 +143,18 @@ def test_reconciliation_failure_freezes_portfolio() -> None:
     orch, repo, _, portfolio, _ = setup_active_orchestrator()
     orch.value_and_reconcile(portfolio.paper_portfolio_id, {}, inject_failure=True)
     assert repo.portfolios[portfolio.paper_portfolio_id].status == PaperPortfolioStatus.FROZEN
-    assert any(incident.incident_type == IncidentType.RECONCILIATION_INCIDENT for incident in repo.incidents.values())
+    assert any(
+        incident.incident_type == IncidentType.RECONCILIATION_INCIDENT
+        for incident in repo.incidents.values()
+    )
 
 
 def test_kill_switch_blocks_pending_intent() -> None:
     orch, repo, _, portfolio, _ = setup_active_orchestrator()
     intent = create_intent(orch, repo, portfolio)
-    orch.activate_kill_switch(KillSwitchType.PORTFOLIO_KILL_SWITCH, portfolio.paper_portfolio_id, "test")
+    orch.activate_kill_switch(
+        KillSwitchType.PORTFOLIO_KILL_SWITCH, portfolio.paper_portfolio_id, "test"
+    )
     assert repo.intents[intent.paper_trade_intent_id].intent_status == PaperIntentStatus.BLOCKED
 
 
@@ -167,7 +182,9 @@ def test_sqlite_repository_persists_paper_tables(tmp_path) -> None:
         created_by="FOUNDER",
     )
     config = orch.create_strategy_config(portfolio.paper_portfolio_id)
-    orch.admit_and_activate_strategy(config.paper_strategy_config_id, all_admission_evidence(), "FOUNDER")
+    orch.admit_and_activate_strategy(
+        config.paper_strategy_config_id, all_admission_evidence(), "FOUNDER"
+    )
     reloaded = SqlitePaperTradingRepository(db_path)
     assert portfolio.paper_portfolio_id in reloaded.portfolios
     assert config.paper_strategy_config_id in reloaded.strategy_configs
@@ -185,7 +202,9 @@ def test_queue_backed_session_execution(tmp_path) -> None:
         created_by="FOUNDER",
     )
     config = orch.create_strategy_config(portfolio.paper_portfolio_id)
-    orch.admit_and_activate_strategy(config.paper_strategy_config_id, all_admission_evidence(), "FOUNDER")
+    orch.admit_and_activate_strategy(
+        config.paper_strategy_config_id, all_admission_evidence(), "FOUNDER"
+    )
     queue = SqlitePaperSessionQueue(queue_path)
     job = queue.enqueue(
         PaperSessionJob(
@@ -219,6 +238,8 @@ def test_corporate_action_review_freezes_unsupported_actions() -> None:
 
 def test_calendar_fixture_rejects_closed_session_execution() -> None:
     calendar = PaperTradingCalendarService(sessions=[date(2026, 6, 26), date(2026, 6, 29)])
-    assert calendar.next_open_session_after(datetime(2026, 6, 26, 10, 45, tzinfo=timezone.utc)) == date(2026, 6, 29)
+    assert calendar.next_open_session_after(
+        datetime(2026, 6, 26, 10, 45, tzinfo=timezone.utc)
+    ) == date(2026, 6, 29)
     with pytest.raises(ValueError):
         calendar.open_time(date(2026, 6, 27))

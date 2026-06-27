@@ -152,7 +152,9 @@ class TradingCalendarReader:
 
 
 class MarketDataReader:
-    def __init__(self, bars: dict[tuple[str, date], dict[str, Any]], dataset_version_id: str) -> None:
+    def __init__(
+        self, bars: dict[tuple[str, date], dict[str, Any]], dataset_version_id: str
+    ) -> None:
         self.bars = bars
         self.dataset_version_id = dataset_version_id
 

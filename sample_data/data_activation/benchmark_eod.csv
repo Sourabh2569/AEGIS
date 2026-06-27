@@ -1,0 +1,2 @@
+benchmark_id,name,provider_id,benchmark_symbol,exchange,trade_date,open_nullable,high_nullable,low_nullable,close,event_time,available_time,ingested_time
+NIFTY50,NIFTY 50,fixture-provider,NIFTY,NSE,2026-06-25,24000,24100,23900,24050,2026-06-25T15:30:00+05:30,2026-06-25T18:00:00+05:30,2026-06-25T18:05:00+05:30

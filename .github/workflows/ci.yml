@@ -13,6 +13,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
+      - run: python infrastructure/scripts/check_no_secrets.py
       - run: make test
       - run: ruff check apps packages tests
       - run: ruff format --check apps packages tests

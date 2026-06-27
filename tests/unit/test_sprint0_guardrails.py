@@ -7,7 +7,12 @@ import pytest
 
 from aegis.audit.service import AuditLog
 from aegis.configuration.settings import Settings
-from aegis.data_ingestion.service import InMemoryRepository, LocalObjectStore, ProviderIngestionService, stable_payload_hash
+from aegis.data_ingestion.service import (
+    InMemoryRepository,
+    LocalObjectStore,
+    ProviderIngestionService,
+    stable_payload_hash,
+)
 from aegis.data_quality.validation import derive_validation_status, validate_eod_ohlcv
 from aegis.domain.models import (
     CorporateAction,

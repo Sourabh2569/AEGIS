@@ -29,6 +29,7 @@ pythonpath = [
   "packages/configuration",
   "packages/audit",
   "packages/data_quality",
+  "packages/data_activation",
   "packages/provider_adapters",
   "packages/data_ingestion",
   "packages/instrument_master",
@@ -45,6 +46,9 @@ pythonpath = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.ruff.lint]
+ignore = ["F401", "F403"]
 
 [tool.mypy]
 python_version = "3.12"

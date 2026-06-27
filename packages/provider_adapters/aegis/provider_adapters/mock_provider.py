@@ -65,6 +65,9 @@ class MockMarketDataProvider:
             ],
         )
 
+    def fetch_historical_eod_bars(self) -> ProviderResponseEnvelope:
+        return self.fetch_eod_prices()
+
     def fetch_live_quotes(self) -> ProviderResponseEnvelope:
         return ProviderResponseEnvelope(
             provider_name=self.name,
@@ -93,16 +96,29 @@ class MockMarketDataProvider:
         )
 
     def fetch_fundamentals(self) -> ProviderResponseEnvelope:
-        return ProviderResponseEnvelope(self.name, "fetch_fundamentals", "fundamentals.v1", [], "mock://fundamentals")
+        return ProviderResponseEnvelope(
+            self.name, "fetch_fundamentals", "fundamentals.v1", [], "mock://fundamentals"
+        )
 
     def fetch_filings(self) -> ProviderResponseEnvelope:
-        return ProviderResponseEnvelope(self.name, "fetch_filings", "filings.v1", [], "mock://filings")
+        return ProviderResponseEnvelope(
+            self.name, "fetch_filings", "filings.v1", [], "mock://filings"
+        )
 
     def fetch_index_membership(self) -> ProviderResponseEnvelope:
-        return ProviderResponseEnvelope(self.name, "fetch_index_membership", "index_membership.v1", [], "mock://index")
+        return ProviderResponseEnvelope(
+            self.name, "fetch_index_membership", "index_membership.v1", [], "mock://index"
+        )
+
+    def fetch_benchmark_data(self) -> ProviderResponseEnvelope:
+        return ProviderResponseEnvelope(
+            self.name, "fetch_benchmark_data", "benchmark_eod.v1", [], "mock://benchmark"
+        )
 
     def fetch_macro_data(self) -> ProviderResponseEnvelope:
-        return ProviderResponseEnvelope(self.name, "fetch_macro_data", "macro.v1", [], "mock://macro")
+        return ProviderResponseEnvelope(
+            self.name, "fetch_macro_data", "macro.v1", [], "mock://macro"
+        )
 
     def get_source_metadata(self) -> dict[str, str]:
         return {"provider": self.name, "deterministic": "true"}
@@ -112,3 +128,6 @@ class MockMarketDataProvider:
 
     def get_health_status(self) -> ProviderHealthResult:
         return ProviderHealthResult(True, "mock provider healthy")
+
+    def validate_read_only_scope(self) -> None:
+        return None

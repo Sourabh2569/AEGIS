@@ -35,8 +35,20 @@ from aegis.paper_trading.domain import (
     PaperTradingSession,
     default_approval_expiry,
 )
-from aegis.portfolio.sprint2 import CostModel, CostSchedule, FixedBpsSlippageModelV0, ResearchPortfolio
-from aegis.risk.engine import KillSwitch, KillSwitchType, PositionSizingEngine, RiskAssessment, RiskDecision, RiskProfileVersion
+from aegis.portfolio.sprint2 import (
+    CostModel,
+    CostSchedule,
+    FixedBpsSlippageModelV0,
+    ResearchPortfolio,
+)
+from aegis.risk.engine import (
+    KillSwitch,
+    KillSwitchType,
+    PositionSizingEngine,
+    RiskAssessment,
+    RiskDecision,
+    RiskProfileVersion,
+)
 from aegis.shared.ids import new_id
 from aegis.shared.money import money, quantity
 from aegis.shared.time import require_aware_utc, utc_now
@@ -122,7 +134,11 @@ class PaperAdmissionService:
     )
 
     def review(self, evidence: dict[str, bool]) -> list[str]:
-        return [f"MISSING_{flag.upper()}" for flag in self.required_flags if not evidence.get(flag, False)]
+        return [
+            f"MISSING_{flag.upper()}"
+            for flag in self.required_flags
+            if not evidence.get(flag, False)
+        ]
 
 
 class PaperDataReadinessService:
@@ -146,7 +162,11 @@ class PaperDataReadinessService:
     )
 
     def check(self, flags: dict[str, bool]) -> tuple[str, list[str]]:
-        failures = [f"READINESS_{flag.upper()}_FAILED" for flag in self.required_flags if not flags.get(flag, False)]
+        failures = [
+            f"READINESS_{flag.upper()}_FAILED"
+            for flag in self.required_flags
+            if not flags.get(flag, False)
+        ]
         return ("GREEN" if not failures else "BLOCKED", failures)
 
 
@@ -155,11 +175,17 @@ class PaperApprovalService:
         self.repository = repository
         self.audit_log = audit_log
 
-    def approve(self, intent_id: str, approver_id: str, now: datetime | None = None) -> PaperApproval:
+    def approve(
+        self, intent_id: str, approver_id: str, now: datetime | None = None
+    ) -> PaperApproval:
         now = require_aware_utc(now or utc_now())
         intent = self.repository.intents[intent_id]
         portfolio = self.repository.portfolios[intent.paper_portfolio_id]
-        if portfolio.status in {PaperPortfolioStatus.CAPITAL_PRESERVATION, PaperPortfolioStatus.FROZEN, PaperPortfolioStatus.PAUSED}:
+        if portfolio.status in {
+            PaperPortfolioStatus.CAPITAL_PRESERVATION,
+            PaperPortfolioStatus.FROZEN,
+            PaperPortfolioStatus.PAUSED,
+        }:
             raise ValueError(f"APPROVAL_BLOCKED_BY_PORTFOLIO_STATE:{portfolio.status}")
         approval = PaperApproval(
             paper_trade_intent_id=intent.paper_trade_intent_id,
@@ -169,7 +195,9 @@ class PaperApprovalService:
             risk_assessment_id=intent.risk_assessment_id,
             paper_strategy_config_id=intent.paper_strategy_config_id,
             reason="Approved for paper-only simulated execution.",
-            expiry_time=max(default_approval_expiry(now), intent.eligible_execution_time + timedelta(hours=1)),
+            expiry_time=max(
+                default_approval_expiry(now), intent.eligible_execution_time + timedelta(hours=1)
+            ),
         )
         self.repository.approvals[approval.paper_trade_intent_id] = approval
         self.repository.intents[intent_id] = replace(
@@ -281,7 +309,9 @@ class PaperIncidentService:
 
 
 class PaperReconciliationService:
-    def __init__(self, repository: PaperTradingRepository, incident_service: PaperIncidentService) -> None:
+    def __init__(
+        self, repository: PaperTradingRepository, incident_service: PaperIncidentService
+    ) -> None:
         self.repository = repository
         self.incident_service = incident_service
 
@@ -319,8 +349,18 @@ class PaperReconciliationService:
 
 
 class PaperMonitoringService:
-    def assess_drift(self, *, paper_strategy_config_id: str, expected_signal_count: int, observed_signal_count: int) -> PaperDriftAssessment:
-        ratio = Decimal("0") if expected_signal_count == 0 else Decimal(observed_signal_count) / Decimal(expected_signal_count)
+    def assess_drift(
+        self,
+        *,
+        paper_strategy_config_id: str,
+        expected_signal_count: int,
+        observed_signal_count: int,
+    ) -> PaperDriftAssessment:
+        ratio = (
+            Decimal("0")
+            if expected_signal_count == 0
+            else Decimal(observed_signal_count) / Decimal(expected_signal_count)
+        )
         if ratio <= Decimal("0.25") or ratio >= Decimal("3"):
             state = DriftState.CRITICAL_DIVERGENCE
             action = "PAUSE_STRATEGY_AND_REVALIDATE"
@@ -466,7 +506,9 @@ class PaperTradingOrchestrator:
         )
         self.slippage = FixedBpsSlippageModelV0(Decimal("5"), Decimal("5"))
 
-    def create_portfolio(self, *, name: str, description: str, starting_capital: Decimal, created_by: str) -> PaperPortfolio:
+    def create_portfolio(
+        self, *, name: str, description: str, starting_capital: Decimal, created_by: str
+    ) -> PaperPortfolio:
         portfolio = PaperPortfolio(
             name=name,
             description=description,
@@ -523,7 +565,9 @@ class PaperTradingOrchestrator:
         persist_if_supported(self.repository)
         return config
 
-    def admit_and_activate_strategy(self, paper_strategy_config_id: str, evidence: dict[str, bool], approved_by: str) -> PaperStrategyConfiguration:
+    def admit_and_activate_strategy(
+        self, paper_strategy_config_id: str, evidence: dict[str, bool], approved_by: str
+    ) -> PaperStrategyConfiguration:
         failures = self.admission.review(evidence)
         config = self.repository.strategy_configs[paper_strategy_config_id]
         if failures:
@@ -533,7 +577,9 @@ class PaperTradingOrchestrator:
         active = config.freeze().activate(approved_by)
         self.repository.save_strategy_config(active)
         portfolio = self.repository.portfolios[active.paper_portfolio_id]
-        self.repository.save_portfolio(replace(portfolio, status=PaperPortfolioStatus.READY).activate())
+        self.repository.save_portfolio(
+            replace(portfolio, status=PaperPortfolioStatus.READY).activate()
+        )
         persist_if_supported(self.repository)
         return active
 
@@ -549,7 +595,12 @@ class PaperTradingOrchestrator:
         correlation_id = correlation_id or new_id("corr")
         idempotency_key = f"{paper_portfolio_id}:{session_date}:decision"
         if idempotency_key in self.repository.session_idempotency_keys:
-            return next(session for session in self.repository.sessions.values() if session.paper_portfolio_id == paper_portfolio_id and session.session_date == session_date)
+            return next(
+                session
+                for session in self.repository.sessions.values()
+                if session.paper_portfolio_id == paper_portfolio_id
+                and session.session_date == session_date
+            )
         self.repository.session_idempotency_keys.add(idempotency_key)
         status, failures = self.readiness.check(readiness_flags)
         portfolio = self.repository.portfolios[paper_portfolio_id]
@@ -570,7 +621,9 @@ class PaperTradingOrchestrator:
             self.incidents.create(
                 paper_portfolio_id=paper_portfolio_id,
                 incident_type=IncidentType.DATA_INCIDENT,
-                severity="CRITICAL" if any("DATASET" in failure for failure in failures) else "WARNING",
+                severity="CRITICAL"
+                if any("DATASET" in failure for failure in failures)
+                else "WARNING",
                 description="Paper data readiness failed.",
                 reason_codes=failures,
                 freeze=any("DATASET_GREEN_OR_CAUTION" in failure for failure in failures),
@@ -590,7 +643,11 @@ class PaperTradingOrchestrator:
             correlation_id=correlation_id,
         )
         self.repository.sessions[session.paper_trading_session_id] = session
-        if portfolio.status in {PaperPortfolioStatus.CAPITAL_PRESERVATION, PaperPortfolioStatus.FROZEN, PaperPortfolioStatus.PAUSED}:
+        if portfolio.status in {
+            PaperPortfolioStatus.CAPITAL_PRESERVATION,
+            PaperPortfolioStatus.FROZEN,
+            PaperPortfolioStatus.PAUSED,
+        }:
             self.repository.sessions[session.paper_trading_session_id] = replace(
                 session,
                 decision_cycle_status=LifecycleStatus.BLOCKED,
@@ -621,7 +678,10 @@ class PaperTradingOrchestrator:
                 current_drawdown=Decimal("0"),
                 kill_switches=list(self.repository.kill_switches.values()),
             )
-            if risk.decision in {RiskDecision.APPROVED, RiskDecision.APPROVED_WITH_REDUCED_SIZE} and risk.approved_quantity > 0:
+            if (
+                risk.decision in {RiskDecision.APPROVED, RiskDecision.APPROVED_WITH_REDUCED_SIZE}
+                and risk.approved_quantity > 0
+            ):
                 decision_time = datetime.combine(session_date, time(10, 45), tzinfo=timezone.utc)
                 next_session = self.calendar.next_open_session_after(decision_time)
                 intent = PaperTradeIntent(
@@ -633,7 +693,9 @@ class PaperTradingOrchestrator:
                     proposed_quantity=Decimal("100"),
                     approved_quantity_nullable=risk.approved_quantity,
                     decision_time=decision_time,
-                    available_data_cutoff=datetime.combine(session_date, time(10, 30), tzinfo=timezone.utc),
+                    available_data_cutoff=datetime.combine(
+                        session_date, time(10, 30), tzinfo=timezone.utc
+                    ),
                     eligible_execution_time=self.calendar.open_time(next_session),
                     risk_assessment_id=risk.risk_assessment_id,
                     configuration_version=config.paper_strategy_config_id,
@@ -642,7 +704,11 @@ class PaperTradingOrchestrator:
                     reason_codes_json=risk.reason_codes,
                 )
                 self.repository.intents[intent.paper_trade_intent_id] = intent
-        completed = replace(session, decision_cycle_status=LifecycleStatus.COMPLETED, completed_at_nullable=utc_now())
+        completed = replace(
+            session,
+            decision_cycle_status=LifecycleStatus.COMPLETED,
+            completed_at_nullable=utc_now(),
+        )
         self.repository.sessions[session.paper_trading_session_id] = completed
         persist_if_supported(self.repository)
         return completed
@@ -658,7 +724,11 @@ class PaperTradingOrchestrator:
         correlation_id = correlation_id or new_id("corr")
         orders: list[PaperOrder] = []
         portfolio = self.repository.portfolios[paper_portfolio_id]
-        if portfolio.status in {PaperPortfolioStatus.CAPITAL_PRESERVATION, PaperPortfolioStatus.FROZEN, PaperPortfolioStatus.PAUSED}:
+        if portfolio.status in {
+            PaperPortfolioStatus.CAPITAL_PRESERVATION,
+            PaperPortfolioStatus.FROZEN,
+            PaperPortfolioStatus.PAUSED,
+        }:
             return []
         for intent in list(self.repository.intents.values()):
             if intent.paper_portfolio_id != paper_portfolio_id:
@@ -723,7 +793,9 @@ class PaperTradingOrchestrator:
                 executed_at_nullable=execution_time if status == PaperOrderStatus.FILLED else None,
                 requested_quantity=intent.approved_quantity_nullable or Decimal("0"),
                 filled_quantity=filled_quantity,
-                remaining_quantity=Decimal("0") if status == PaperOrderStatus.FILLED else filled_quantity,
+                remaining_quantity=Decimal("0")
+                if status == PaperOrderStatus.FILLED
+                else filled_quantity,
                 execution_model_version="NEXT_ELIGIBLE_SESSION_OPEN_WITH_CONFIGURED_FRICTION_V0",
                 idempotency_key=intent.idempotency_key,
                 rejection_reason_nullable=reason,
@@ -784,19 +856,32 @@ class PaperTradingOrchestrator:
                     actor_id="paper-execution-service",
                     action="SIMULATE_FILL",
                     before_state=None,
-                    after_state={"classification": list(PAPER_LABELS), "fill_id": fill.paper_fill_id},
+                    after_state={
+                        "classification": list(PAPER_LABELS),
+                        "fill_id": fill.paper_fill_id,
+                    },
                     correlation_id=correlation_id,
                 )
         persist_if_supported(self.repository)
         return orders
 
-    def value_and_reconcile(self, paper_portfolio_id: str, prices: dict[str, Decimal], inject_failure: bool = False) -> PaperNavSnapshot:
+    def value_and_reconcile(
+        self, paper_portfolio_id: str, prices: dict[str, Decimal], inject_failure: bool = False
+    ) -> PaperNavSnapshot:
         paper = self.repository.paper_portfolios[paper_portfolio_id]
-        market_value = money(sum((qty * prices.get(inst, Decimal("0")) for inst, qty in paper.positions.items()), Decimal("0")))
+        market_value = money(
+            sum(
+                (qty * prices.get(inst, Decimal("0")) for inst, qty in paper.positions.items()),
+                Decimal("0"),
+            )
+        )
         nav = money(paper.cash + paper.unsettled_receivables + market_value)
         observed = money(nav + (Decimal("1") if inject_failure else Decimal("0")))
         recon = self.reconciliation.reconcile(paper_portfolio_id, nav, observed, new_id("corr"))
-        previous_hwm = max([snap.high_water_mark for snap in self.repository.nav.get(paper_portfolio_id, [])], default=nav)
+        previous_hwm = max(
+            [snap.high_water_mark for snap in self.repository.nav.get(paper_portfolio_id, [])],
+            default=nav,
+        )
         hwm = max(previous_hwm, nav)
         drawdown = Decimal("0") if hwm == 0 else money((nav - hwm) / hwm)
         snapshot = PaperNavSnapshot(
@@ -814,11 +899,18 @@ class PaperTradingOrchestrator:
         persist_if_supported(self.repository)
         return snapshot
 
-    def activate_kill_switch(self, switch_type: KillSwitchType, scope_id: str, reason: str) -> KillSwitch:
-        switch = KillSwitch(switch_type=switch_type, scope_id=scope_id, is_active=True, reason=reason)
+    def activate_kill_switch(
+        self, switch_type: KillSwitchType, scope_id: str, reason: str
+    ) -> KillSwitch:
+        switch = KillSwitch(
+            switch_type=switch_type, scope_id=scope_id, is_active=True, reason=reason
+        )
         self.repository.kill_switches[switch.id] = switch
         for intent_id, intent in list(self.repository.intents.items()):
-            if intent.intent_status in {PaperIntentStatus.PENDING_APPROVAL, PaperIntentStatus.APPROVED}:
+            if intent.intent_status in {
+                PaperIntentStatus.PENDING_APPROVAL,
+                PaperIntentStatus.APPROVED,
+            }:
                 self.repository.intents[intent_id] = replace(
                     intent,
                     intent_status=PaperIntentStatus.BLOCKED,
@@ -829,17 +921,35 @@ class PaperTradingOrchestrator:
 
     def evidence_package(self, paper_portfolio_id: str) -> PaperEvidencePackage:
         configs = self.repository.active_strategy_configs(paper_portfolio_id)
-        strategy_config_id = configs[0].paper_strategy_config_id if configs else "NO_ACTIVE_STRATEGY"
+        strategy_config_id = (
+            configs[0].paper_strategy_config_id if configs else "NO_ACTIVE_STRATEGY"
+        )
         package = PaperEvidencePackage(
             paper_portfolio_id=paper_portfolio_id,
             paper_strategy_config_id=strategy_config_id,
             generated_at=utc_now(),
             payload_json={
                 "portfolio": asdict(self.repository.portfolios[paper_portfolio_id]),
-                "intents": [asdict(intent) for intent in self.repository.intents.values() if intent.paper_portfolio_id == paper_portfolio_id],
-                "orders": [asdict(order) for order in self.repository.orders.values() if order.paper_portfolio_id == paper_portfolio_id],
-                "fills": [asdict(fill) for fill in self.repository.fills.values() if fill.paper_portfolio_id == paper_portfolio_id],
-                "incidents": [asdict(incident) for incident in self.repository.incidents.values() if incident.paper_portfolio_id == paper_portfolio_id],
+                "intents": [
+                    asdict(intent)
+                    for intent in self.repository.intents.values()
+                    if intent.paper_portfolio_id == paper_portfolio_id
+                ],
+                "orders": [
+                    asdict(order)
+                    for order in self.repository.orders.values()
+                    if order.paper_portfolio_id == paper_portfolio_id
+                ],
+                "fills": [
+                    asdict(fill)
+                    for fill in self.repository.fills.values()
+                    if fill.paper_portfolio_id == paper_portfolio_id
+                ],
+                "incidents": [
+                    asdict(incident)
+                    for incident in self.repository.incidents.values()
+                    if incident.paper_portfolio_id == paper_portfolio_id
+                ],
             },
         )
         self.repository.evidence[package.id] = package

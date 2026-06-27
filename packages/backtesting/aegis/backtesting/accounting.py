@@ -21,12 +21,17 @@ def weighted_average_cost_basis(
     if total_quantity <= 0:
         return money(0)
     return money(
-        ((existing_quantity * money(existing_average_cost)) + (new_quantity * money(new_fill_price)))
+        (
+            (existing_quantity * money(existing_average_cost))
+            + (new_quantity * money(new_fill_price))
+        )
         / total_quantity
     )
 
 
-def realized_pnl(fill_price: Decimal, average_cost_basis: Decimal, fill_quantity: Decimal) -> Decimal:
+def realized_pnl(
+    fill_price: Decimal, average_cost_basis: Decimal, fill_quantity: Decimal
+) -> Decimal:
     return money((money(fill_price) - money(average_cost_basis)) * quantity(fill_quantity))
 
 
@@ -34,7 +39,9 @@ def nav(available_cash: Decimal, market_value: Decimal) -> Decimal:
     return money(available_cash + market_value)
 
 
-def unrealized_pnl(mark_price: Decimal, average_cost_basis: Decimal, quantity_after: Decimal) -> Decimal:
+def unrealized_pnl(
+    mark_price: Decimal, average_cost_basis: Decimal, quantity_after: Decimal
+) -> Decimal:
     return money((money(mark_price) - money(average_cost_basis)) * quantity(quantity_after))
 
 

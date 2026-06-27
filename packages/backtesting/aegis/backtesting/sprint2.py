@@ -7,11 +7,20 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from aegis.portfolio.sprint2 import CostModel, CostSchedule, FixedBpsSlippageModelV0, ResearchPortfolio
+from aegis.portfolio.sprint2 import (
+    CostModel,
+    CostSchedule,
+    FixedBpsSlippageModelV0,
+    ResearchPortfolio,
+)
 from aegis.research_registry.sprint2 import RESEARCH_LABELS
 from aegis.risk.engine import PositionSizingEngine, RiskAssessment, RiskProfileVersion
 from aegis.shared.money import money, quantity
-from aegis.strategies.baselines import Candidate, EqualWeightUniverseBenchmarkStrategyV0, TrendFollowingBaselineStrategyV0
+from aegis.strategies.baselines import (
+    Candidate,
+    EqualWeightUniverseBenchmarkStrategyV0,
+    TrendFollowingBaselineStrategyV0,
+)
 
 
 @dataclass(frozen=True)
@@ -105,12 +114,20 @@ class Sprint2ResearchScenarioRunner:
         self.risk_engine = PositionSizingEngine()
         self.cost_model = CostModel()
         self.cost_schedule = _load_cost_schedule(fixture_root)
-        self.slippage = FixedBpsSlippageModelV0(buy_slippage_bps=Decimal("5"), sell_slippage_bps=Decimal("5"))
+        self.slippage = FixedBpsSlippageModelV0(
+            buy_slippage_bps=Decimal("5"), sell_slippage_bps=Decimal("5")
+        )
 
-    def run_equal_weight_scenario(self, starting_cash: Decimal = Decimal("100000")) -> Sprint2Report:
+    def run_equal_weight_scenario(
+        self, starting_cash: Decimal = Decimal("100000")
+    ) -> Sprint2Report:
         portfolio = ResearchPortfolio(portfolio_id="sprint2-scenario-a", cash=money(starting_cash))
-        candidates = EqualWeightUniverseBenchmarkStrategyV0().rank_candidates(_latest_candidates(self.fixture_root))
-        targets = EqualWeightUniverseBenchmarkStrategyV0().propose_target_weights(candidates, self.profile.maximum_position_count)
+        candidates = EqualWeightUniverseBenchmarkStrategyV0().rank_candidates(
+            _latest_candidates(self.fixture_root)
+        )
+        targets = EqualWeightUniverseBenchmarkStrategyV0().propose_target_weights(
+            candidates, self.profile.maximum_position_count
+        )
         assessments: list[RiskAssessment] = []
         sector_values: dict[str, Decimal] = {}
         cluster_values: dict[str, Decimal] = {}
@@ -128,7 +145,13 @@ class Sprint2ResearchScenarioRunner:
                 existing_position_value=Decimal("0"),
                 sector_value=sector_values.get(candidate.sector, Decimal("0")),
                 cluster_value=cluster_values.get(candidate.cluster, Decimal("0")),
-                gross_equity_value=sum((qty * _latest_price(self.fixture_root, inst) for inst, qty in portfolio.positions.items()), Decimal("0")),
+                gross_equity_value=sum(
+                    (
+                        qty * _latest_price(self.fixture_root, inst)
+                        for inst, qty in portfolio.positions.items()
+                    ),
+                    Decimal("0"),
+                ),
                 entry_price=candidate.close,
                 invalidation_price=money(candidate.close * Decimal("0.90")),
                 proposed_quantity=proposed_quantity,
@@ -144,9 +167,18 @@ class Sprint2ResearchScenarioRunner:
                 fill_price = self.slippage.fill_price(candidate.close, "BUY")
                 notional = money(fill_price * assessment.approved_quantity)
                 costs = self.cost_model.calculate(notional, "BUY", self.cost_schedule)
-                portfolio.buy(candidate.instrument_id, assessment.approved_quantity, fill_price, costs.total_cost)
-                sector_values[candidate.sector] = money(sector_values.get(candidate.sector, Decimal("0")) + notional)
-                cluster_values[candidate.cluster] = money(cluster_values.get(candidate.cluster, Decimal("0")) + notional)
+                portfolio.buy(
+                    candidate.instrument_id,
+                    assessment.approved_quantity,
+                    fill_price,
+                    costs.total_cost,
+                )
+                sector_values[candidate.sector] = money(
+                    sector_values.get(candidate.sector, Decimal("0")) + notional
+                )
+                cluster_values[candidate.cluster] = money(
+                    cluster_values.get(candidate.cluster, Decimal("0")) + notional
+                )
         ending_nav = self._nav(portfolio)
         return Sprint2Report(
             scenario="Scenario A - Equal Weight Portfolio Baseline",
@@ -155,7 +187,9 @@ class Sprint2ResearchScenarioRunner:
             ending_nav=ending_nav,
             total_return=money((ending_nav - starting_cash) / starting_cash),
             cash_weight=money(portfolio.cash / ending_nav),
-            gross_equity_exposure=money((ending_nav - portfolio.cash - portfolio.unsettled_receivables) / ending_nav),
+            gross_equity_exposure=money(
+                (ending_nav - portfolio.cash - portfolio.unsettled_receivables) / ending_nav
+            ),
             total_transaction_cost=portfolio.total_costs,
             position_count=len([qty for qty in portfolio.positions.values() if qty > 0]),
             risk_assessments=assessments,
@@ -185,7 +219,9 @@ class Sprint2ResearchScenarioRunner:
     def settlement_restriction_demo(self) -> str:
         portfolio = ResearchPortfolio(portfolio_id="settlement-demo", cash=Decimal("100000"))
         portfolio.buy("AEGIS-IN-000001", Decimal("100"), Decimal("100"), Decimal("0"))
-        portfolio.sell_t_plus_1("AEGIS-IN-000001", Decimal("100"), Decimal("110"), Decimal("0"), date(2026, 6, 30))
+        portfolio.sell_t_plus_1(
+            "AEGIS-IN-000001", Decimal("100"), Decimal("110"), Decimal("0"), date(2026, 6, 30)
+        )
         try:
             portfolio.buy("AEGIS-IN-000002", Decimal("455"), Decimal("200"), Decimal("0"))
         except ValueError as exc:
@@ -194,7 +230,10 @@ class Sprint2ResearchScenarioRunner:
 
     def _nav(self, portfolio: ResearchPortfolio) -> Decimal:
         market_value = sum(
-            (quantity_value * _latest_price(self.fixture_root, instrument_id) for instrument_id, quantity_value in portfolio.positions.items()),
+            (
+                quantity_value * _latest_price(self.fixture_root, instrument_id)
+                for instrument_id, quantity_value in portfolio.positions.items()
+            ),
             Decimal("0"),
         )
         return money(portfolio.cash + portfolio.unsettled_receivables + market_value)

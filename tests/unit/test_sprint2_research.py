@@ -15,7 +15,14 @@ from aegis.research_registry.sprint2 import (
     ResearchRegistry,
     Strategy,
 )
-from aegis.risk.engine import KillSwitch, KillSwitchType, PortfolioRiskState, PositionSizingEngine, RiskProfileVersion, drawdown_state
+from aegis.risk.engine import (
+    KillSwitch,
+    KillSwitchType,
+    PortfolioRiskState,
+    PositionSizingEngine,
+    RiskProfileVersion,
+    drawdown_state,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -58,11 +65,16 @@ def manifest(frozen: bool = True) -> ExperimentManifest:
 def test_frozen_manifest_is_immutable_and_required() -> None:
     registry = ResearchRegistry()
     frozen = manifest()
-    registry.add_experiment(Experiment(strategy_version_id="sv-1", name="exp", created_by="RESEARCHER"), frozen)
+    registry.add_experiment(
+        Experiment(strategy_version_id="sv-1", name="exp", created_by="RESEARCHER"), frozen
+    )
     with pytest.raises(ValueError):
         frozen.update_rebalance_frequency("DAILY")
     with pytest.raises(ValueError):
-        registry.add_experiment(Experiment(strategy_version_id="sv-1", name="bad", created_by="RESEARCHER"), manifest(False))
+        registry.add_experiment(
+            Experiment(strategy_version_id="sv-1", name="bad", created_by="RESEARCHER"),
+            manifest(False),
+        )
 
 
 def test_holdout_consumption_blocks_reuse() -> None:
@@ -95,7 +107,9 @@ def test_feature_math_known_values() -> None:
     assert daily_return(Decimal("100"), Decimal("110")) == Decimal("0.1000")
     assert sma(values, 4) == Decimal("2.5000")
     assert ema(values, 2) is not None
-    assert rsi([Decimal("1"), Decimal("2"), Decimal("3"), Decimal("4"), Decimal("5")], 4) == Decimal("100.0000")
+    assert rsi(
+        [Decimal("1"), Decimal("2"), Decimal("3"), Decimal("4"), Decimal("5")], 4
+    ) == Decimal("100.0000")
 
 
 def test_risk_state_and_kill_switch_block() -> None:
@@ -126,12 +140,16 @@ def test_risk_state_and_kill_switch_block() -> None:
 
 
 def test_sprint2_scenario_a_runs_research_only() -> None:
-    report = Sprint2ResearchScenarioRunner(ROOT / "sample_data/sprint_2").run_equal_weight_scenario()
+    report = Sprint2ResearchScenarioRunner(
+        ROOT / "sample_data/sprint_2"
+    ).run_equal_weight_scenario()
     assert "RESEARCH_ONLY" in report.classification
     assert report.position_count > 0
     assert report.cash_weight >= Decimal("0.2000")
 
 
 def test_t_plus_1_settlement_blocks_unsettled_cash_reuse() -> None:
-    reason = Sprint2ResearchScenarioRunner(ROOT / "sample_data/sprint_2").settlement_restriction_demo()
+    reason = Sprint2ResearchScenarioRunner(
+        ROOT / "sample_data/sprint_2"
+    ).settlement_restriction_demo()
     assert reason == "INSUFFICIENT_SETTLED_CASH"

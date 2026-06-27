@@ -116,7 +116,9 @@ def rsi(closes: list[Decimal], lookback: int = 14) -> Decimal | None:
     return money(Decimal("100") - (Decimal("100") / (Decimal("1") + rs)))
 
 
-def atr(highs: list[Decimal], lows: list[Decimal], closes: list[Decimal], lookback: int = 14) -> Decimal | None:
+def atr(
+    highs: list[Decimal], lows: list[Decimal], closes: list[Decimal], lookback: int = 14
+) -> Decimal | None:
     if len(highs) <= lookback or len(lows) <= lookback or len(closes) <= lookback:
         return None
     true_ranges: list[Decimal] = []
@@ -185,7 +187,9 @@ def compute_feature_set(
             "ATR_14": atr(highs, lows, closes, 14),
             "ROLLING_VOLATILITY_20": rolling_volatility(returns, 20),
             "ROLLING_AVERAGE_DAILY_VOLUME_20": sma(volumes, 20),
-            "ROLLING_AVERAGE_DAILY_VALUE_TRADED_20": sma([c * v for c, v in zip(closes, volumes)], 20),
+            "ROLLING_AVERAGE_DAILY_VALUE_TRADED_20": sma(
+                [c * v for c, v in zip(closes, volumes)], 20
+            ),
             "MOMENTUM_20": rolling_return(closes[-21:]),
             "MOMENTUM_60": rolling_return(closes[-61:]),
             "PRICE_TO_SMA_50_DISTANCE": price_to_ma_distance(close, sma(closes, 50)),
@@ -236,7 +240,9 @@ def default_feature_definitions() -> list[FeatureDefinition]:
         definition("EMA_50", 50, "exponential moving average close, 50"),
         definition("RSI_14", 14, "relative strength index, 14"),
         definition("ATR_14", 14, "average true range, 14"),
-        definition("ROLLING_VOLATILITY_20", 20, "population standard deviation of daily returns, 20"),
+        definition(
+            "ROLLING_VOLATILITY_20", 20, "population standard deviation of daily returns, 20"
+        ),
         definition("ROLLING_AVERAGE_DAILY_VOLUME_20", 20, "mean(volume, 20)"),
         definition("ROLLING_AVERAGE_DAILY_VALUE_TRADED_20", 20, "mean(close * volume, 20)"),
         definition("MOMENTUM_20", 20, "20-day rolling return"),
