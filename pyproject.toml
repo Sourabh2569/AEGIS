@@ -35,6 +35,7 @@ pythonpath = [
   "packages/instrument_master",
   "packages/corporate_actions",
   "packages/research_registry",
+  "packages/research_activation",
   "packages/backtesting",
   "packages/feature_engine",
   "packages/risk",

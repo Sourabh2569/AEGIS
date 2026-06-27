@@ -49,6 +49,7 @@ from aegis.paper_trading.services import (
     all_readiness_green,
 )
 from aegis.research_registry.sprint2 import RESEARCH_LABELS
+from aegis.research_activation.service import HistoricalResearchActivationService
 from aegis.risk.engine import KillSwitchType, RiskProfileVersion
 
 
@@ -158,9 +159,14 @@ fixture_calendar = load_calendar(Path("sample_data/backtesting/market_calendar.c
 fixture_market_data = load_market_data(
     Path("sample_data/backtesting/valid_eod_prices.csv"), "dataset-version-1"
 )
+repo.dataset_versions[seed_dataset_version.id] = seed_dataset_version
+repo.dataset_origins[seed_dataset_version.id] = "FIXTURE_DATA"
 backtest_service.attach_calendar_for_intent_creation(fixture_calendar)
 sprint2_runner = Sprint2ResearchScenarioRunner(Path("sample_data/sprint_2"))
 sprint2_reports: list[dict[str, Any]] = []
+research_activation_manifests: dict[str, dict[str, Any]] = {}
+actual_feature_runs: dict[str, dict[str, Any]] = {}
+actual_experiments: dict[str, dict[str, Any]] = {}
 
 
 def correlation_id(request: Request) -> str:
@@ -185,6 +191,30 @@ def activation_service() -> DataActivationService:
     return DataActivationService(
         settings=settings, repository=repo, providers=providers, licenses=licenses
     )
+
+
+def research_activation_service() -> HistoricalResearchActivationService:
+    return HistoricalResearchActivationService(
+        settings=settings, repository=repo, licenses=licenses
+    )
+
+
+def actual_research_blocked_detail() -> dict[str, Any]:
+    readiness = research_activation_service().status()
+    return {
+        "status": "BLOCKED",
+        "status_label": "Research blocked",
+        "classification": [
+            "ACTUAL_HISTORICAL_RESEARCH_ONLY",
+            "NOT_VALIDATED",
+            "NOT_PAPER_TRADING_ELIGIBLE",
+            "NOT_LIVE_TRADING_ELIGIBLE",
+            "NO_REAL_CAPITAL_DEPLOYED",
+        ],
+        "readiness": readiness,
+        "reason_codes": readiness["reason_codes"],
+        "blockers": readiness["blockers"],
+    }
 
 
 def live_readonly_adapter() -> LiveReadOnlyMarketDataProvider:
@@ -329,6 +359,127 @@ def system_data_freshness_summary() -> dict[str, Any]:
 @app.get("/api/v1/system/data-blockers")
 def system_data_blockers() -> list[dict[str, Any]]:
     return activation_service().blockers()
+
+
+@app.get("/api/v1/research-activation/status")
+def research_activation_status() -> dict[str, Any]:
+    return jsonable(research_activation_service().status())
+
+
+@app.get("/api/v1/research-activation/eligible-datasets")
+def research_activation_eligible_datasets() -> dict[str, Any]:
+    service = research_activation_service()
+    return jsonable(
+        {
+            "eligible_datasets": service.eligible_dataset_versions(),
+            "dataset_diagnostics": service.dataset_diagnostics(),
+            "labels": service.status()["labels"],
+        }
+    )
+
+
+@app.get("/api/v1/research-activation/manifests")
+def list_research_activation_manifests() -> list[dict[str, Any]]:
+    return list(research_activation_manifests.values())
+
+
+@app.get("/api/v1/research-activation/manifests/{activation_id}")
+def get_research_activation_manifest(activation_id: str) -> dict[str, Any]:
+    if activation_id not in research_activation_manifests:
+        raise HTTPException(status_code=404, detail="Research activation manifest not found.")
+    return research_activation_manifests[activation_id]
+
+
+@app.post("/api/v1/research-activation/activate-historical")
+def activate_historical_research(
+    payload: dict[str, Any],
+    cid: str = Depends(correlation_id),
+    role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD, Role.RESEARCHER)),
+) -> dict[str, Any]:
+    manifest = research_activation_service().activate_historical_dataset(
+        payload.get("dataset_version_id")
+    )
+    manifest_payload = jsonable(manifest)
+    research_activation_manifests[manifest.activation_id] = manifest_payload
+    audit_log.record(
+        event_type="RESEARCH_ACTIVATION_ATTEMPT",
+        entity_type="ResearchActivationManifest",
+        entity_id=manifest.activation_id,
+        action="ACTIVATE_HISTORICAL_RESEARCH",
+        actor_type="USER",
+        actor_id=role.value,
+        correlation_id=cid,
+        before_state={},
+        after_state=manifest_payload,
+        metadata={"labels": manifest.labels},
+    )
+    if manifest.status != "ACTIVE":
+        raise HTTPException(status_code=409, detail=manifest_payload)
+    return manifest_payload
+
+
+@app.get("/api/v1/research/actual-data/readiness")
+def actual_data_research_readiness() -> dict[str, Any]:
+    return jsonable(research_activation_service().status())
+
+
+@app.get("/api/v1/research/actual-data/blockers")
+def actual_data_research_blockers() -> list[dict[str, Any]]:
+    return jsonable(research_activation_service().status()["blockers"])
+
+
+@app.get("/api/v1/research/actual-data/universe-readiness")
+def actual_data_universe_readiness() -> dict[str, Any]:
+    readiness = research_activation_service().status()
+    return {
+        "universe_version_id": readiness["universe_version_id"],
+        "universe_name": "AEGIS_LIQUID_EQUITY_RESEARCH_UNIVERSE_V0",
+        "data_origin": "ACTUAL_PROVIDER_DATA_OR_APPROVED_FILE_IMPORT_REQUIRED",
+        "eligible_instrument_count": 0 if readiness["overall_status"] == "BLOCKED" else 1,
+        "excluded_instruments": [],
+        "exclusion_reasons": readiness["reason_codes"],
+        "coverage_percentage": 0 if readiness["overall_status"] == "BLOCKED" else 100,
+        "latest_valid_eod_date": None,
+        "corporate_action_exceptions": [],
+        "research_readiness_status": readiness["overall_status"],
+    }
+
+
+@app.get("/api/v1/research/actual-data/benchmark-readiness")
+def actual_data_benchmark_readiness() -> dict[str, Any]:
+    readiness = research_activation_service().status()
+    return {
+        "benchmark_version_id": readiness["benchmark_version_id"],
+        "status": "BLOCKED" if readiness["overall_status"] == "BLOCKED" else "READY",
+        "reason_codes": ["BENCHMARK_ACTUAL_DATA_NOT_CONFIGURED"]
+        if readiness["overall_status"] == "BLOCKED"
+        else [],
+        "classification": "ACTUAL_HISTORICAL_RESEARCH_ONLY",
+    }
+
+
+@app.get("/api/v1/research/actual-data/feature-readiness")
+def actual_data_feature_readiness() -> dict[str, Any]:
+    readiness = research_activation_service().status()
+    return {
+        "feature_readiness_status": readiness["feature_readiness_status"],
+        "required_features": [
+            "Daily Return",
+            "Rolling Return",
+            "Simple Moving Average",
+            "Exponential Moving Average",
+            "Relative Strength Index",
+            "Average True Range",
+            "Rolling Volatility",
+            "Rolling Average Daily Volume",
+            "Rolling Average Daily Value Traded",
+            "Momentum",
+            "Price-to-Moving-Average Distance",
+        ],
+        "point_in_time_rule": "feature_available_time <= decision_time",
+        "same_close_execution_allowed": False,
+        "reason_codes": readiness["reason_codes"],
+    }
 
 
 @app.get("/api/v1/providers")
@@ -938,17 +1089,168 @@ def create_experiment(payload: dict[str, Any]) -> dict[str, Any]:
     return {"id": str(uuid4()), **payload}
 
 
+@app.post("/api/v1/experiments/actual-data/baseline")
+def create_actual_data_baseline_experiment(
+    payload: dict[str, Any],
+    cid: str = Depends(correlation_id),
+    role: Role = Depends(require_role(Role.FOUNDER, Role.RESEARCHER)),
+) -> dict[str, Any]:
+    readiness = research_activation_service().status()
+    allowed_strategies = {
+        "BuyAndHoldBenchmarkStrategyV0",
+        "EqualWeightUniverseBenchmarkStrategyV0",
+        "TrendFollowingBaselineStrategyV0",
+    }
+    strategy = payload.get("strategy_version_id")
+    if strategy not in allowed_strategies:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "BASELINE_STRATEGY_ONLY",
+                "allowed_strategies": sorted(allowed_strategies),
+            },
+        )
+    if readiness["overall_status"] == "BLOCKED":
+        detail = actual_research_blocked_detail()
+        audit_log.record(
+            event_type="ACTUAL_BASELINE_EXPERIMENT_BLOCKED",
+            entity_type="Experiment",
+            entity_id="blocked",
+            action="CREATE_ACTUAL_BASELINE_EXPERIMENT",
+            actor_type="USER",
+            actor_id=role.value,
+            correlation_id=cid,
+            before_state=payload,
+            after_state=detail,
+            metadata={"labels": detail["classification"]},
+        )
+        raise HTTPException(status_code=409, detail=detail)
+    experiment_id = f"actual-experiment-{uuid4()}"
+    experiment = {
+        "experiment_id": experiment_id,
+        "experiment_name": payload.get("experiment_name", strategy),
+        "classification": "ACTUAL_HISTORICAL_RESEARCH_ONLY",
+        "promotion_state": [
+            "NOT_VALIDATED",
+            "NOT_PAPER_TRADING_ELIGIBLE",
+            "NOT_LIVE_TRADING_ELIGIBLE",
+        ],
+        "data_origin": payload.get("data_origin", "ACTUAL_PROVIDER_DATA"),
+        "strategy_version_id": strategy,
+        "dataset_version_id": readiness["dataset_version_id"],
+        "manifest_status": "DRAFT",
+        "is_frozen": False,
+        "created_by": role.value,
+        "created_at": datetime.now().astimezone().isoformat(),
+    }
+    actual_experiments[experiment_id] = experiment
+    return experiment
+
+
+@app.get("/api/v1/experiments/{experiment_id}")
+def get_experiment(experiment_id: str) -> dict[str, Any]:
+    if experiment_id in actual_experiments:
+        return actual_experiments[experiment_id]
+    raise HTTPException(status_code=404, detail="Experiment not found.")
+
+
 @app.post("/api/v1/experiments/{experiment_id}/freeze-manifest")
 def freeze_manifest(experiment_id: str) -> dict[str, Any]:
+    if experiment_id in actual_experiments:
+        experiment = actual_experiments[experiment_id]
+        if experiment["is_frozen"]:
+            return experiment
+        frozen = experiment | {
+            "manifest_status": "FROZEN",
+            "is_frozen": True,
+            "frozen_at": datetime.now().astimezone().isoformat(),
+        }
+        actual_experiments[experiment_id] = frozen
+        return frozen
     return {"experiment_id": experiment_id, "is_frozen": True}
+
+
+@app.post("/api/v1/experiments/{experiment_id}/run")
+def run_actual_data_experiment(
+    experiment_id: str,
+    cid: str = Depends(correlation_id),
+    role: Role = Depends(require_role(Role.FOUNDER, Role.RESEARCHER, Role.SYSTEM_SERVICE)),
+) -> dict[str, Any]:
+    if experiment_id not in actual_experiments:
+        raise HTTPException(status_code=404, detail="Actual-data experiment not found.")
+    experiment = actual_experiments[experiment_id]
+    if not experiment["is_frozen"]:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "FROZEN_MANIFEST_REQUIRED", "experiment_id": experiment_id},
+        )
+    detail = actual_research_blocked_detail()
+    audit_log.record(
+        event_type="ACTUAL_BACKTEST_BLOCKED",
+        entity_type="Experiment",
+        entity_id=experiment_id,
+        action="RUN_ACTUAL_DATA_EXPERIMENT",
+        actor_type="USER",
+        actor_id=role.value,
+        correlation_id=cid,
+        before_state=experiment,
+        after_state=detail,
+        metadata={"labels": detail["classification"]},
+    )
+    raise HTTPException(status_code=409, detail=detail)
+
+
+@app.get("/api/v1/experiments/{experiment_id}/partitions")
+def get_experiment_partitions(experiment_id: str) -> dict[str, Any]:
+    return {
+        "experiment_id": experiment_id,
+        "status": "DRAFT_OR_BLOCKED",
+        "partitions": {
+            "warmup": None,
+            "training": None,
+            "validation": None,
+            "holdout": None,
+        },
+        "rule": "Warmup -> training -> validation -> locked holdout",
+    }
+
+
+@app.get("/api/v1/experiments/{experiment_id}/holdout-usage")
+def get_experiment_holdout_usage(experiment_id: str) -> dict[str, Any]:
+    return {
+        "experiment_id": experiment_id,
+        "holdout_usage_records": [],
+        "reuse_for_tuning_allowed": False,
+    }
+
+
+@app.get("/api/v1/experiments/{experiment_id}/evidence-package")
+def get_experiment_evidence_package(experiment_id: str) -> dict[str, Any]:
+    if experiment_id not in actual_experiments:
+        raise HTTPException(status_code=404, detail="Actual-data experiment not found.")
+    return {
+        "experiment_id": experiment_id,
+        "status": "NOT_AVAILABLE",
+        "reason": "No completed actual-data backtest exists.",
+        "classification": [
+            "ACTUAL_HISTORICAL_RESEARCH_ONLY",
+            "NOT_VALIDATED",
+            "NOT_PAPER_TRADING_ELIGIBLE",
+            "NOT_LIVE_TRADING_ELIGIBLE",
+            "NO_REAL_CAPITAL_DEPLOYED",
+        ],
+    }
 
 
 @app.get("/api/v1/backtest-runs")
 def list_backtest_runs(
+    data_origin: str | None = None,
     role: Role = Depends(
         require_role(Role.FOUNDER, Role.RESEARCHER, Role.RISK_REVIEWER, Role.READ_ONLY)
     ),
 ) -> list[dict[str, Any]]:
+    if data_origin in {"ACTUAL_PROVIDER_DATA", "APPROVED_FILE_IMPORT"}:
+        return []
     return [
         jsonable(run) | {"labels": list(SPRINT_1A_LABELS)} for run in backtest_repo.runs.values()
     ]
@@ -1045,6 +1347,70 @@ def get_backtest_summary(backtest_run_id: str) -> dict[str, Any]:
     }
 
 
+@app.get("/api/v1/backtest-runs/{backtest_run_id}/metrics")
+def get_backtest_metrics(backtest_run_id: str) -> dict[str, Any]:
+    if backtest_run_id not in backtest_repo.runs:
+        raise HTTPException(status_code=404, detail="Backtest run not found.")
+    return {
+        "backtest_run_id": backtest_run_id,
+        "classification": list(SPRINT_1A_LABELS),
+        "metrics": {
+            "total_return": None,
+            "maximum_drawdown": None,
+            "gross_exposure": None,
+            "turnover": None,
+            "total_transaction_cost": None,
+        },
+        "note": "Actual-data metrics are available only after a completed actual-data research run.",
+    }
+
+
+@app.get("/api/v1/backtest-runs/{backtest_run_id}/attribution")
+def get_backtest_attribution(backtest_run_id: str) -> dict[str, Any]:
+    if backtest_run_id not in backtest_repo.runs:
+        raise HTTPException(status_code=404, detail="Backtest run not found.")
+    return {
+        "backtest_run_id": backtest_run_id,
+        "attribution": {},
+        "note": "No actual-data attribution package exists for this foundation run.",
+    }
+
+
+@app.get("/api/v1/backtest-runs/{backtest_run_id}/stress-results")
+def get_backtest_stress_results(backtest_run_id: str) -> dict[str, Any]:
+    if backtest_run_id not in backtest_repo.runs:
+        raise HTTPException(status_code=404, detail="Backtest run not found.")
+    return {
+        "backtest_run_id": backtest_run_id,
+        "stress_results": [],
+        "note": "Stress scenarios are retained only for actual-data baseline evidence packages.",
+    }
+
+
+@app.get("/api/v1/backtest-runs/{backtest_run_id}/lineage")
+def get_backtest_lineage(backtest_run_id: str) -> dict[str, Any]:
+    run = backtest_repo.runs.get(backtest_run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Backtest run not found.")
+    return {
+        "backtest_run_id": backtest_run_id,
+        "dataset_version_id": run.dataset_version_id,
+        "instrument_master_version": run.instrument_master_version,
+        "classification": list(SPRINT_1A_LABELS),
+    }
+
+
+@app.get("/api/v1/backtest-runs/{backtest_run_id}/report")
+def get_backtest_report(backtest_run_id: str) -> dict[str, Any]:
+    if backtest_run_id not in backtest_repo.runs:
+        raise HTTPException(status_code=404, detail="Backtest run not found.")
+    return {
+        "backtest_run_id": backtest_run_id,
+        "report_status": "FOUNDATION_RUN_ONLY",
+        "disclaimer": "Historical research evidence is not validated, paper-ready, or live-ready.",
+    }
+
+
 @app.get("/api/v1/backtest-runs/{backtest_run_id}/order-intents")
 def get_order_intents(backtest_run_id: str) -> list[dict[str, Any]]:
     return [jsonable(intent) for intent in backtest_repo.order_intents.get(backtest_run_id, [])]
@@ -1109,12 +1475,100 @@ def create_feature_run() -> dict[str, Any]:
     return {"status": "AVAILABLE_VIA_FIXTURE_PIPELINE", "classification": list(RESEARCH_LABELS)}
 
 
+@app.post("/api/v1/feature-runs/actual-data")
+def create_actual_data_feature_run(
+    payload: dict[str, Any],
+    cid: str = Depends(correlation_id),
+    role: Role = Depends(
+        require_role(Role.FOUNDER, Role.DATA_STEWARD, Role.RESEARCHER, Role.SYSTEM_SERVICE)
+    ),
+) -> dict[str, Any]:
+    readiness = research_activation_service().status()
+    if readiness["overall_status"] == "BLOCKED":
+        detail = actual_research_blocked_detail()
+        audit_log.record(
+            event_type="ACTUAL_FEATURE_RUN_BLOCKED",
+            entity_type="FeatureRun",
+            entity_id="blocked",
+            action="CREATE_ACTUAL_FEATURE_RUN",
+            actor_type="USER",
+            actor_id=role.value,
+            correlation_id=cid,
+            before_state=payload,
+            after_state=detail,
+            metadata={"labels": detail["classification"]},
+        )
+        raise HTTPException(status_code=409, detail=detail)
+    feature_run_id = f"actual-feature-run-{uuid4()}"
+    record = {
+        "feature_run_id": feature_run_id,
+        "data_origin": payload.get("data_origin", "ACTUAL_PROVIDER_DATA"),
+        "dataset_version_id": readiness["dataset_version_id"],
+        "instrument_master_version_id": readiness["instrument_master_version_id"],
+        "universe_version_id": readiness["universe_version_id"],
+        "corporate_action_version_id": readiness["corporate_action_version_id"],
+        "feature_definition_ids": payload.get("feature_definition_ids", []),
+        "feature_versions": payload.get("feature_versions", {}),
+        "validation_status": "PENDING",
+        "classification": [
+            "ACTUAL_HISTORICAL_RESEARCH_ONLY",
+            "NOT_VALIDATED",
+            "NOT_PAPER_TRADING_ELIGIBLE",
+            "NOT_LIVE_TRADING_ELIGIBLE",
+            "NO_REAL_CAPITAL_DEPLOYED",
+        ],
+        "created_by": role.value,
+        "created_at": datetime.now().astimezone().isoformat(),
+    }
+    actual_feature_runs[feature_run_id] = record
+    return record
+
+
 @app.get("/api/v1/feature-runs/{feature_run_id}")
 def get_feature_run(feature_run_id: str) -> dict[str, Any]:
+    if feature_run_id in actual_feature_runs:
+        return actual_feature_runs[feature_run_id]
     return {
         "feature_run_id": feature_run_id,
         "status": "FIXTURE_ONLY",
         "classification": list(RESEARCH_LABELS),
+    }
+
+
+@app.get("/api/v1/feature-runs/{feature_run_id}/coverage")
+def get_feature_run_coverage(feature_run_id: str) -> dict[str, Any]:
+    record = actual_feature_runs.get(feature_run_id)
+    return {
+        "feature_run_id": feature_run_id,
+        "status": record["validation_status"] if record else "NOT_FOUND_OR_FIXTURE_ONLY",
+        "coverage_summary": record.get("coverage_summary", {}) if record else {},
+        "missing_data_summary": record.get("missing_data_summary", {}) if record else {},
+    }
+
+
+@app.get("/api/v1/feature-runs/{feature_run_id}/lineage")
+def get_feature_run_lineage(feature_run_id: str) -> dict[str, Any]:
+    record = actual_feature_runs.get(feature_run_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Actual-data feature run not found.")
+    return {
+        "feature_run_id": feature_run_id,
+        "data_origin": record["data_origin"],
+        "dataset_version_id": record["dataset_version_id"],
+        "instrument_master_version_id": record["instrument_master_version_id"],
+        "universe_version_id": record["universe_version_id"],
+        "corporate_action_version_id": record["corporate_action_version_id"],
+    }
+
+
+@app.get("/api/v1/feature-runs/{feature_run_id}/quality")
+def get_feature_run_quality(feature_run_id: str) -> dict[str, Any]:
+    record = actual_feature_runs.get(feature_run_id)
+    return {
+        "feature_run_id": feature_run_id,
+        "validation_status": record["validation_status"] if record else "NOT_FOUND_OR_FIXTURE_ONLY",
+        "point_in_time_pass": False if record is None else True,
+        "same_close_execution_allowed": False,
     }
 
 

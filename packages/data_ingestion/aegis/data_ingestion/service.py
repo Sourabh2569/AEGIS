@@ -64,6 +64,7 @@ class InMemoryRepository:
         self.ingestion_runs: dict[str, ProviderIngestionRun] = {}
         self.raw_objects: dict[str, RawDataObject] = {}
         self.dataset_versions: dict[str, DatasetVersion] = {}
+        self.dataset_origins: dict[str, str] = {}
         self.quality_results: dict[str, list[Any]] = {}
         self.idempotency_keys: set[str] = set()
         self.layer_objects: dict[str, list[dict[str, Any]]] = {"normalized": [], "curated": []}

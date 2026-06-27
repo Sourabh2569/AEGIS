@@ -122,6 +122,75 @@ curl http://localhost:8000/api/v1/instrument-mapping-exceptions
 
 To revert to fixture mode, remove provider credentials and keep `BROKER_ORDER_ACCESS=false`, `LIVE_EXECUTION_ENABLED=false`, and `PAPER_TRADING_USE_LIVE_DATA=false`.
 
+## Real Historical Research Activation
+
+The Real Historical Research Activation Sprint adds the governed workflow for:
+
+```text
+ACTUAL HISTORICAL DATA
+→ POINT-IN-TIME FEATURES
+→ FROZEN EXPERIMENT MANIFEST
+→ BASELINE STRATEGY BACKTEST
+→ EVIDENCE PACKAGE
+```
+
+This repository currently reports `Research blocked` because no configured, approved, healthy actual provider dataset exists. The seeded EOD dataset is explicitly `FIXTURE_DATA` and is blocked from actual-data research.
+
+Actual-data research accepts only:
+
+```text
+ACTUAL_PROVIDER_DATA
+APPROVED_FILE_IMPORT
+```
+
+All actual research output remains:
+
+```text
+ACTUAL_HISTORICAL_RESEARCH_ONLY
+NOT_VALIDATED
+NOT_PAPER_TRADING_ELIGIBLE
+NOT_LIVE_TRADING_ELIGIBLE
+NO_REAL_CAPITAL_DEPLOYED
+BROKER_ORDER_ACCESS_DISABLED
+LIVE_EXECUTION_LOCKED
+```
+
+Readiness and blocker checks:
+
+```bash
+curl http://localhost:8000/api/v1/research/actual-data/readiness
+curl http://localhost:8000/api/v1/research/actual-data/blockers
+curl http://localhost:8000/api/v1/research/actual-data/universe-readiness
+curl http://localhost:8000/api/v1/research/actual-data/benchmark-readiness
+curl http://localhost:8000/api/v1/research/actual-data/feature-readiness
+```
+
+Actual feature computation, baseline experiment creation, manifest freezing, backtest execution, and evidence inspection:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/feature-runs/actual-data \
+  -H 'Content-Type: application/json' \
+  -H 'X-AEGIS-Role: RESEARCHER' \
+  -d '{"feature_definition_ids":["SMA_50","SMA_200","MOMENTUM_60"]}'
+
+curl -X POST http://localhost:8000/api/v1/experiments/actual-data/baseline \
+  -H 'Content-Type: application/json' \
+  -H 'X-AEGIS-Role: RESEARCHER' \
+  -d '{"strategy_version_id":"TrendFollowingBaselineStrategyV0"}'
+
+curl -X POST http://localhost:8000/api/v1/experiments/{experiment_id}/freeze-manifest \
+  -H 'X-AEGIS-Role: RESEARCHER'
+
+curl -X POST http://localhost:8000/api/v1/experiments/{experiment_id}/run \
+  -H 'X-AEGIS-Role: RESEARCHER'
+
+curl http://localhost:8000/api/v1/experiments/{experiment_id}/evidence-package
+```
+
+When readiness is blocked, mutation endpoints return `409` with structured reason codes instead of creating fake feature runs or backtests.
+
+Dashboard route: open `http://127.0.0.1:3001` and use Research Lab for the Actual Historical Research workspace. It shows actual-data blockers, eligible datasets, and fixture isolation status.
+
 ## Local Setup
 
 ```bash

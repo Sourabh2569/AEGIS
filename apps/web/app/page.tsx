@@ -33,6 +33,7 @@ export default async function Page() {
     liveQuotes,
     marketCalendar,
     dataTruthSummary,
+    researchActivation,
   ] = await Promise.all([
     fetchJson<Record<string, unknown>>("/api/v1/system/overview", {}),
     fetchJson<DashboardData["providers"]>("/api/v1/providers", []),
@@ -53,6 +54,7 @@ export default async function Page() {
     fetchJson<DashboardData["liveQuotes"]>("/api/v1/live-quotes", []),
     fetchJson<DashboardData["marketCalendar"]>("/api/v1/market-calendar", []),
     fetchJson<DashboardData["dataTruthSummary"]>("/api/v1/system/data-truth-summary", {}),
+    fetchJson<DashboardData["researchActivation"]>("/api/v1/research-activation/status", {}),
   ]);
 
   return (
@@ -77,6 +79,7 @@ export default async function Page() {
         liveQuotes,
         marketCalendar,
         dataTruthSummary,
+        researchActivation,
       }}
     />
   );

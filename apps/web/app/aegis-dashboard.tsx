@@ -285,7 +285,7 @@ function renderSection(args: {
     case "features":
       return <FeaturePage />;
     case "research":
-      return <ResearchPage data={args.data} />;
+      return <ResearchPage data={args.data} model={args.model} />;
     case "risk":
       return <RiskPage model={args.model} failClosed={args.failClosed} />;
     case "drift":
@@ -387,9 +387,37 @@ function FeaturePage() {
   return <VisualEvidencePage kpis={[["Frozen features", "2", "Manifest locked", "success"], ["Active risk inputs", "1", "Sizing input", "info"], ["Look-ahead breaches", "0", "Timing pass", "success"], ["Feature policy", "Frozen", "No mutation", "success"]]} primary={<ChartCard title="Feature timing pipeline" subtitle="Raw close to decision availability"><Timeline items={["Raw close", "Validation", "Feature run", "Availability stamp", "Manifest freeze", "Decision"]} /></ChartCard>} secondary={<DataTable title="Feature registry" headers={["Feature", "Source", "Availability", "Status"]} rows={featureRows} />} />;
 }
 
-function ResearchPage({ data }: { data: DashboardData }) {
+function ResearchPage({ data, model }: { data: DashboardData; model: ReturnType<typeof buildModel> }) {
+  const activation = data.researchActivation ?? {};
+  const blockers = Array.isArray(activation.blockers) ? activation.blockers : [];
+  const eligible = Array.isArray(activation.eligible_datasets) ? activation.eligible_datasets : [];
   const rows = data.sprint2Reports.length ? data.sprint2Reports.map((report) => [report.scenario, report.total_return, report.gross_equity_exposure, report.total_transaction_cost, "Research only"]) : [["Equal weight benchmark", "0.4%", "5.0%", "₹40", "Research only"]];
-  return <VisualEvidencePage kpis={[["Manifests", String(rows.length), "Frozen evidence", "success"], ["Holdout policy", "Protected", "Single-use review", "success"], ["Classification", "Research / paper", "No live promotion", "info"], ["Benchmark", "NIFTY-style", "Fixture comparison", "info"]]} primary={<ChartCard title="Research lifecycle funnel" subtitle="Hypothesis to monitored paper state"><Funnel items={["Hypothesis", "Manifest", "Backtest", "Robustness", "Paper admitted", "Monitoring"]} /></ChartCard>} secondary={<DataTable title="Backtest vs paper observation" headers={["Scenario", "Return", "Exposure", "Cost drag", "Classification"]} rows={rows} />} />;
+  const blockerRows = blockers.length
+    ? blockers.map((blocker: Record<string, unknown>) => [uiLabel(blocker.code), String(blocker.label ?? "Blocked"), uiLabel(blocker.severity), String(blocker.remediation ?? "Resolve gate")])
+    : [["Historical activation", "Eligible", "Ready", "Dataset can be used for research-only manifests"]];
+  const eligibleRows = eligible.length
+    ? eligible.map((dataset: Record<string, unknown>) => [String(dataset.dataset_version_id), uiLabel(dataset.validation_status), String(dataset.quality_score), uiLabel(dataset.classification), "Paper/live locked"])
+    : [["No eligible dataset", model.researchActivationLabel, "0", "Actual historical research only", "Provider or licensed file required"]];
+  return (
+    <>
+      <KpiGrid>
+        <KpiCard label="Historical activation" value={model.researchActivationLabel} hint="Real data must pass license, lineage, and quality gates" trend={model.researchActivationStatus} tone={toneFor(model.researchActivationStatus)} />
+        <KpiCard label="Eligible datasets" value={String(model.researchEligibleDatasetCount)} hint="Only non-fixture raw snapshots qualify" tone={model.researchEligibleDatasetCount > 0 ? "success" : "warning"} />
+        <KpiCard label="Research mode" value={uiLabel(activation.research_mode ?? "ACTUAL_HISTORICAL_RESEARCH_ONLY")} hint="No paper or live promotion from this gate" tone="info" />
+        <KpiCard label="Safety" value="Paper/live locked" hint="No broker execution, no holdings mutation" tone="success" />
+      </KpiGrid>
+      <section className="hero-grid single">
+        <ChartCard title="Research lifecycle funnel" subtitle="Licensed historical data to frozen experiment manifest">
+          <Funnel items={["Licensed data", "Raw immutable capture", "Validation", "Lineage", "Activation", "Frozen manifest"]} />
+        </ChartCard>
+      </section>
+      <section className="analytics-grid two">
+        <DataTable title="Historical activation blockers" headers={["Gate", "State", "Severity", "Remediation"]} rows={blockerRows} />
+        <DataTable title="Research-eligible datasets" headers={["Dataset version", "Validation", "Quality", "Classification", "Trading use"]} rows={eligibleRows} />
+      </section>
+      <DataTable title="Backtest vs paper observation" headers={["Scenario", "Return", "Exposure", "Cost drag", "Classification"]} rows={rows} />
+    </>
+  );
 }
 
 function RiskPage({ model, failClosed }: { model: ReturnType<typeof buildModel>; failClosed: boolean }) {

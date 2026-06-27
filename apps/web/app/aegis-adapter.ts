@@ -150,6 +150,7 @@ export type DashboardData = {
   liveQuotes: LiveQuote[];
   marketCalendar: MarketCalendarSession[];
   dataTruthSummary: Record<string, any>;
+  researchActivation: Record<string, any>;
 };
 
 export type Tone = "success" | "warning" | "danger" | "info" | "neutral";
@@ -168,6 +169,14 @@ const labelMap: Record<string, string> = {
   LIVE_EXECUTION_DISABLED: "Live execution locked",
   LIVE_EXECUTION_ENABLED: "Live execution",
   LIVE_READONLY: "Read-only market data",
+  HISTORICAL_RESEARCH_ONLY: "Historical research only",
+  ELIGIBLE_FOR_HISTORICAL_RESEARCH: "Historical research ready",
+  NO_ELIGIBLE_HISTORICAL_DATASET: "No eligible historical dataset",
+  PROVIDER_SETUP_REQUIRED: "Provider setup required",
+  NO_PAPER_TRADING: "No paper trading",
+  NO_LIVE_EXECUTION: "No live execution",
+  NO_HOLDINGS_MUTATION: "No holdings mutation",
+  LINEAGE_REQUIRED: "Lineage required",
   NOT_CONFIGURED: "Provider setup required",
   CONFIGURED_UNVERIFIED: "Verification pending",
   BLOCKED_LICENSE: "Blocked by licensing",
@@ -250,6 +259,7 @@ export function buildModel(data: DashboardData) {
   const truthSource = truth.data_source ?? {};
   const truthProvider = truth.provider ?? {};
   const truthSafety = truth.safety ?? {};
+  const researchActivation = data.researchActivation ?? {};
   const dataMode = String(data.overview.data_source_mode ?? data.dataSourceMode.data_source_mode ?? "LIVE_READONLY");
   const dataSourceState = String(truthSource.state ?? data.dataSourceMode.provider_state ?? (dataMode === "LIVE_READONLY" ? "NOT_CONFIGURED" : dataMode));
   const dataSourceLabel = String(truthSource.state_label ?? data.dataSourceMode.provider_state_label ?? uiLabel(dataSourceState));
@@ -271,6 +281,11 @@ export function buildModel(data: DashboardData) {
     dataMode,
     dataSourceState,
     dataSourceLabel,
+    researchActivationStatus: String(researchActivation.status ?? "PROVIDER_SETUP_REQUIRED"),
+    researchActivationLabel: String(
+      researchActivation.status_label ?? "Provider or licensed file required"
+    ),
+    researchEligibleDatasetCount: Number(researchActivation.eligible_dataset_count ?? 0),
     brokerOrderAccess,
     liveExecutionEnabled,
     paperTradingUseLiveData,
