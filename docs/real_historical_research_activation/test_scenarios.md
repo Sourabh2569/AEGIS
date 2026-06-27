@@ -8,6 +8,7 @@ Covered locally:
 - Provider health is required.
 - RED validation and missing lineage block activation.
 - Actual research mutation endpoints fail closed when readiness is blocked.
+- Actual research background jobs are idempotent and fail closed when readiness is blocked.
 
 Deferred until provider data exists:
 

@@ -17,4 +17,5 @@ Implementation mapping:
 - Provider/data truth: `packages/data_activation/aegis/data_activation/service.py`.
 - Raw object storage: `packages/data_ingestion/aegis/data_ingestion/service.py`.
 - Research API orchestration: `apps/api/aegis_api/main.py`.
+- Actual research jobs: `packages/research_activation/aegis/research_activation/jobs.py`.
 - Dashboard truth layer: `apps/web/app/aegis-dashboard.tsx`, `apps/web/app/aegis-adapter.ts`, `apps/web/app/page.tsx`.

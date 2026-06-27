@@ -12,9 +12,11 @@ Current gaps blocking formal actual historical research:
 - Actual feature-run output is not available because source dataset is blocked.
 - No frozen actual-data experiment manifest exists.
 - No completed actual-data backtest or evidence package exists.
+- Actual research jobs use a local idempotent runner; production queue wiring is deferred.
 
 Non-gaps:
 
 - Safety flags remain locked.
 - Fixture data is isolated from actual-data research.
 - API exposes blocked states instead of faking actual runs.
+- Background job names are represented and fail closed until readiness passes.

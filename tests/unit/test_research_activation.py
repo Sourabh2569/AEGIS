@@ -9,6 +9,11 @@ from aegis.domain.models import (
     RawDataObject,
     ValidationStatus,
 )
+from aegis.research_activation.jobs import (
+    ActualResearchJob,
+    ActualResearchJobRunner,
+    ActualResearchJobType,
+)
 from aegis.research_activation.service import HistoricalResearchActivationService
 
 
@@ -121,3 +126,37 @@ def test_red_or_missing_lineage_dataset_blocks_activation() -> None:
         "DATASET_VALIDATION_NOT_GREEN",
         "MISSING_LINEAGE",
     }
+
+
+def test_blocked_manifest_uses_actual_historical_classification() -> None:
+    repository = InMemoryRepository()
+    repository.dataset_versions["dataset-version-1"] = dataset_version(
+        raw_snapshot_hash="fixture-hash"
+    )
+    repository.dataset_origins["dataset-version-1"] = "FIXTURE_DATA"
+
+    manifest = service(repository).activate_historical_dataset("dataset-version-1")
+
+    assert manifest.status == "BLOCKED"
+    assert manifest.research_mode == "ACTUAL_HISTORICAL_RESEARCH_ONLY"
+
+
+def test_actual_research_job_runner_is_idempotent_and_fail_closed() -> None:
+    repository = InMemoryRepository()
+    research_service = service(repository)
+    runner = ActualResearchJobRunner(research_service)
+    job = ActualResearchJob(
+        job_type=ActualResearchJobType.READINESS,
+        correlation_id="correlation-1",
+        dataset_version_id="dataset-version-1",
+    )
+
+    first = runner.enqueue(job)
+    duplicate = runner.enqueue(job)
+    completed = runner.run_once()
+
+    assert first.job_id == duplicate.job_id
+    assert completed is not None
+    assert completed.status == "BLOCKED"
+    assert completed.result["paper_trading_activated"] is False
+    assert completed.result["live_execution_activated"] is False

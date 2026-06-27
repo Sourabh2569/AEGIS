@@ -22,4 +22,5 @@
 | Attribution | Existing report surfaces, blocked until actual run exists |
 | Evidence packaging | Existing paper/research evidence concepts, actual package endpoint |
 | Audit logging | `AuditLog` |
+| Background jobs | `ActualResearchJobRunner` local idempotent job runner |
 | Dashboard rendering | Next.js dashboard adapter and Research Lab |

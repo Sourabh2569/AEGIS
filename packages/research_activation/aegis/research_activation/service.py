@@ -53,6 +53,19 @@ class FixtureIsolationGuard:
             raise ValueError("FIXTURE_DATA_NOT_ALLOWED")
 
 
+class ActualResearchEligibilityGuard:
+    def __init__(self, service: "HistoricalResearchActivationService") -> None:
+        self.service = service
+
+    def assert_dataset_eligible(self, dataset_version_id: str) -> None:
+        version = self.service.repository.dataset_versions.get(dataset_version_id)
+        if version is None:
+            raise ValueError("DATASET_VERSION_NOT_FOUND")
+        blockers = self.service.dataset_blockers(version) + self.service.system_blockers()
+        if blockers:
+            raise ValueError(",".join(blocker.code for blocker in blockers))
+
+
 @dataclass(frozen=True)
 class ResearchActivationBlocker:
     code: str
@@ -373,7 +386,7 @@ class HistoricalResearchActivationService:
                 dataset_version_id=selected.id if selected else dataset_version_id,
                 status="BLOCKED",
                 status_label="Historical research activation blocked",
-                research_mode="HISTORICAL_RESEARCH_ONLY",
+                research_mode="ACTUAL_HISTORICAL_RESEARCH_ONLY",
                 data_source_mode=self.settings.data_source_mode,
                 labels=HISTORICAL_RESEARCH_LABELS,
                 blockers=blockers,
