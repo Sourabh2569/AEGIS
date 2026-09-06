@@ -15,14 +15,26 @@ Usage:
 
 Requires MARKET_DATA_PROVIDER_API_KEY and MARKET_DATA_PROVIDER_CLIENT_SECRET
 already set in .env (from your Kite Connect developer app). The app's
-Redirect URL must be exactly http://127.0.0.1:8765/kite/callback.
+Redirect URL must be exactly https://127.0.0.1:8765/kite/callback -- Kite
+Connect requires HTTPS for the redirect (a plain http:// callback fails with
+a browser-side ERR_SSL_PROTOCOL_ERROR, confirmed against a real app), so this
+starts a local HTTPS server with a throwaway self-signed certificate. Your
+browser will show a "connection is not private" warning for it -- that's
+expected for a self-signed localhost cert; click through
+("Advanced" -> "Proceed to 127.0.0.1"). The request_token Kite issues on
+redirect is single-use and expires within roughly a minute, so this has to
+catch it automatically rather than relying on you copying it out of a URL by
+hand -- by the time you'd paste it somewhere, it's often already dead.
 """
 
 from __future__ import annotations
 
 import os
 import re
+import ssl
+import subprocess
 import sys
+import tempfile
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -82,15 +94,52 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         pass  # keep stdout clean for our own prints
 
 
-def wait_for_request_token() -> str:
-    server = HTTPServer((CALLBACK_HOST, CALLBACK_PORT), _CallbackHandler)
-    print(
-        f"Waiting for the login redirect on http://{CALLBACK_HOST}:{CALLBACK_PORT}{CALLBACK_PATH} ..."
+def _generate_self_signed_cert(cert_dir: Path) -> tuple[Path, Path]:
+    cert_path = cert_dir / "cert.pem"
+    key_path = cert_dir / "key.pem"
+    subprocess.run(
+        [
+            "openssl",
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-keyout",
+            str(key_path),
+            "-out",
+            str(cert_path),
+            "-days",
+            "1",
+            "-nodes",
+            "-subj",
+            f"/CN={CALLBACK_HOST}",
+        ],
+        check=True,
+        capture_output=True,
     )
-    while _CallbackHandler.request_token is None:
-        server.handle_request()
-    server.server_close()
-    return _CallbackHandler.request_token
+    return cert_path, key_path
+
+
+def wait_for_request_token() -> str:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        cert_path, key_path = _generate_self_signed_cert(Path(tmp_dir))
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_context.load_cert_chain(certfile=cert_path, keyfile=key_path)
+
+        server = HTTPServer((CALLBACK_HOST, CALLBACK_PORT), _CallbackHandler)
+        server.socket = ssl_context.wrap_socket(server.socket, server_side=True)
+        print(
+            f"Waiting for the login redirect on "
+            f"https://{CALLBACK_HOST}:{CALLBACK_PORT}{CALLBACK_PATH} ..."
+        )
+        print(
+            "Your browser will warn that this connection is not private "
+            "(self-signed cert) -- click through it, this is expected.\n"
+        )
+        while _CallbackHandler.request_token is None:
+            server.handle_request()
+        server.server_close()
+        return _CallbackHandler.request_token
 
 
 def main() -> None:

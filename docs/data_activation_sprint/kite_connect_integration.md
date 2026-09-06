@@ -41,7 +41,10 @@ It is read-only: it never calls order, holdings, margin, or position endpoints
    existing Zerodha trading/demat account).
 2. Create a Connect app in the Kite developer console to get an `api_key` and
    `api_secret`. Set its **Redirect URL** to exactly
-   `http://127.0.0.1:8765/kite/callback` (matches `kite_login.py` below).
+   `https://127.0.0.1:8765/kite/callback` (matches `kite_login.py` below --
+   Kite Connect requires HTTPS for the redirect; the script serves it via a
+   throwaway self-signed cert, so your browser will show a one-time
+   "connection is not private" warning to click through).
 3. In `.env`, set:
    ```
    MARKET_DATA_PROVIDER_NAME=kite_connect
