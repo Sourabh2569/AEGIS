@@ -139,15 +139,15 @@ kite_connect_provider_record = DataProvider(
 providers[kite_connect_provider_record.id] = kite_connect_provider_record
 licenses[kite_connect_provider_record.id] = ProviderLicense(
     provider_id=kite_connect_provider_record.id,
-    license_status=ProviderLicenseStatus.PENDING,
-    permitted_use="Read-only Kite Connect market-data activation pending subscription, "
-    "credentials, and legal review of Kite Connect's terms",
-    automation_rights=False,
-    backtesting_rights=False,
+    license_status=ProviderLicenseStatus.APPROVED,
+    permitted_use="Read-only Kite Connect market-data ingestion, backtesting/research, "
+    "and dashboard display under an active Kite Connect subscription",
+    automation_rights=True,
+    backtesting_rights=True,
     model_training_rights=False,
-    dashboard_display_rights=False,
-    data_retention_period="not-recorded",
-    legal_review_status="PENDING_PROVIDER_SETUP",
+    dashboard_display_rights=True,
+    data_retention_period="provider-contract-controlled",
+    legal_review_status="APPROVED",
 )
 seed_dataset = Dataset(
     name="eod_prices",
@@ -330,6 +330,16 @@ def live_readonly_adapter() -> LiveReadOnlyMarketDataProvider | KiteConnectMarke
         licenses[live_readonly_provider_record.id],
         configured=settings.market_data_provider_configured(),
     )
+
+
+def current_market_data_provider_id() -> str:
+    """The id of whichever DataProvider record backs live_readonly_adapter()
+    right now -- kite_connect when configured, the generic live-readonly
+    record otherwise. Every ingestion/health-tracking call site below must
+    use this instead of the hardcoded live_readonly_provider_record.id, or
+    Kite-sourced activity gets misattributed to the wrong provider record."""
+    provider, _ = activation_service().selected_provider()
+    return provider.id if provider else live_readonly_provider_record.id
 
 
 def jsonable(value: Any) -> Any:
@@ -650,7 +660,7 @@ def get_provider(provider_id: str) -> dict[str, Any]:
 @app.post("/api/v1/providers/{provider_id}/health-check")
 def provider_health(provider_id: str) -> dict[str, Any]:
     provider = providers[provider_id]
-    if provider_id == live_readonly_provider_record.id:
+    if provider_id == current_market_data_provider_id():
         adapter = live_readonly_adapter()
         return ingestion_service.check_provider_health(provider=adapter, provider_id=provider_id)
     return {
@@ -689,7 +699,8 @@ def verify_provider_read_only_connection(
     cid: str = Depends(correlation_id),
     role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD, Role.ENGINEER)),
 ) -> dict[str, Any]:
-    if provider_id != live_readonly_provider_record.id:
+    selected_provider, _ = activation_service().selected_provider()
+    if selected_provider is None or provider_id != selected_provider.id:
         raise HTTPException(
             status_code=404, detail="Provider adapter is not available for verification."
         )
@@ -716,11 +727,11 @@ def sync_live_readonly_data(
     role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD)),
 ) -> dict[str, Any]:
     if not settings.market_data_provider_configured():
-        state = activation_service().provider_state(live_readonly_provider_record.id)
+        state = activation_service().provider_state(current_market_data_provider_id())
         audit_log.record(
             event_type="DATA_ACTIVATION_BLOCKED",
             entity_type="DataProvider",
-            entity_id=live_readonly_provider_record.id,
+            entity_id=current_market_data_provider_id(),
             actor_type="USER",
             actor_id=role.value,
             action="BLOCK_INGESTION_PROVIDER_SETUP_REQUIRED",
@@ -731,17 +742,17 @@ def sync_live_readonly_data(
         raise HTTPException(status_code=409, detail=state)
     adapter = live_readonly_adapter()
     health = ingestion_service.check_provider_health(
-        provider=adapter, provider_id=live_readonly_provider_record.id, correlation_id=cid
+        provider=adapter, provider_id=current_market_data_provider_id(), correlation_id=cid
     )
     instrument_run = ingestion_service.sync_instrument_master(
         provider=adapter,
-        provider_id=live_readonly_provider_record.id,
+        provider_id=current_market_data_provider_id(),
         instrument_master=instrument_master,
         correlation_id=cid,
     )
     eod_run = ingestion_service.ingest_eod_prices(
         provider=adapter,
-        provider_id=live_readonly_provider_record.id,
+        provider_id=current_market_data_provider_id(),
         dataset_id=seed_dataset.id,
         dataset_name=seed_dataset.name,
         known_instrument_ids=instrument_master.known_aegis_ids(),
@@ -749,14 +760,14 @@ def sync_live_readonly_data(
     )
     quote_run = ingestion_service.ingest_live_quotes(
         provider=adapter,
-        provider_id=live_readonly_provider_record.id,
+        provider_id=current_market_data_provider_id(),
         dataset_id=live_quote_dataset.id,
         known_instrument_ids=instrument_master.known_aegis_ids(),
         correlation_id=cid,
     )
     calendar_run = ingestion_service.sync_market_calendar(
         provider=adapter,
-        provider_id=live_readonly_provider_record.id,
+        provider_id=current_market_data_provider_id(),
         correlation_id=cid,
     )
     return jsonable(
@@ -777,10 +788,10 @@ def sync_live_readonly_data(
 
 @app.get("/api/v1/provider-health")
 def list_provider_health() -> list[dict[str, Any]]:
-    if live_readonly_provider_record.id not in repo.provider_health:
+    if current_market_data_provider_id() not in repo.provider_health:
         adapter = live_readonly_adapter()
         ingestion_service.check_provider_health(
-            provider=adapter, provider_id=live_readonly_provider_record.id
+            provider=adapter, provider_id=current_market_data_provider_id()
         )
     return list(repo.provider_health.values())
 
@@ -931,11 +942,11 @@ def run_instrument_ingestion(
     if not settings.market_data_provider_configured():
         raise HTTPException(
             status_code=409,
-            detail=activation_service().provider_state(live_readonly_provider_record.id),
+            detail=activation_service().provider_state(current_market_data_provider_id()),
         )
     run = ingestion_service.sync_instrument_master(
         provider=live_readonly_adapter(),
-        provider_id=live_readonly_provider_record.id,
+        provider_id=current_market_data_provider_id(),
         instrument_master=instrument_master,
         correlation_id=cid,
     )
@@ -950,11 +961,11 @@ def run_eod_ingestion(
     if not settings.market_data_provider_configured():
         raise HTTPException(
             status_code=409,
-            detail=activation_service().provider_state(live_readonly_provider_record.id),
+            detail=activation_service().provider_state(current_market_data_provider_id()),
         )
     run = ingestion_service.ingest_eod_prices(
         provider=live_readonly_adapter(),
-        provider_id=live_readonly_provider_record.id,
+        provider_id=current_market_data_provider_id(),
         dataset_id=seed_dataset.id,
         dataset_name=seed_dataset.name,
         known_instrument_ids=instrument_master.known_aegis_ids(),
@@ -971,12 +982,12 @@ def run_market_calendar_ingestion(
     if not settings.market_data_provider_configured():
         raise HTTPException(
             status_code=409,
-            detail=activation_service().provider_state(live_readonly_provider_record.id),
+            detail=activation_service().provider_state(current_market_data_provider_id()),
         )
     return jsonable(
         ingestion_service.sync_market_calendar(
             provider=live_readonly_adapter(),
-            provider_id=live_readonly_provider_record.id,
+            provider_id=current_market_data_provider_id(),
             correlation_id=cid,
         )
     )
@@ -1069,7 +1080,7 @@ def instrument_source_mappings(instrument_id: str) -> list[dict[str, Any]]:
     return [
         {
             "instrument_id": instrument_id,
-            "provider_id": live_readonly_provider_record.id,
+            "provider_id": current_market_data_provider_id(),
             "external_symbol": instrument.current_symbol,
             "external_instrument_id": instrument.aegis_instrument_id,
             "external_exchange_code": instrument.primary_exchange,
