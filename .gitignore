@@ -10,6 +10,9 @@ Thumbs.db
 venv/
 env/
 
+# Auth credentials (bcrypt hashes, but still never commit)
+auth_users*.json
+
 # Python
 __pycache__/
 *.py[cod]

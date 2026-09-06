@@ -1,4 +1,10 @@
-export type Provider = { id: string; name: string; status: string; is_active: boolean };
+export type Provider = {
+  id: string;
+  name: string;
+  status: string;
+  is_active: boolean;
+  capabilities?: { license_status?: string; dashboard_display_rights?: boolean; model_training_rights?: boolean };
+};
 export type Dataset = { id: string; name: string; domain: string; criticality: string; status: string };
 export type Ingestion = {
   id: string;

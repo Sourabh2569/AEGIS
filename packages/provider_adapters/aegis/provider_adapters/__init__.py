@@ -1,5 +1,6 @@
 from aegis.provider_adapters.base import *
 from aegis.provider_adapters.csv_provider import CsvFileProvider
+from aegis.provider_adapters.kite_connect_provider import KiteConnectMarketDataProvider
 from aegis.provider_adapters.license_guard import ProviderLicenseGuard
 from aegis.provider_adapters.live_readonly_provider import LiveReadOnlyMarketDataProvider
 from aegis.provider_adapters.mock_provider import MockMarketDataProvider

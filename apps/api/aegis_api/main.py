@@ -8,8 +8,12 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from aegis.audit.service import AuditLog
+from aegis.auth.service import AuthenticatedUser, AuthService
+from aegis.auth.tokens import TokenError
+from aegis.auth.users import UserStoreError
 from aegis.backtesting.domain import BacktestRunStatus, OrderSide, SPRINT_1A_LABELS
 from aegis.backtesting.engine import BacktestService
 from aegis.backtesting.fixtures import load_calendar, load_market_data
@@ -37,6 +41,10 @@ from aegis.domain.models import (
 )
 from aegis.instrument_master.service import InstrumentMasterService
 from aegis.provider_adapters.csv_provider import CsvFileProvider
+from aegis.provider_adapters.kite_connect_provider import (
+    CURATED_INSTRUMENT_METADATA,
+    KiteConnectMarketDataProvider,
+)
 from aegis.provider_adapters.live_readonly_provider import LiveReadOnlyMarketDataProvider
 from aegis.provider_adapters.mock_provider import MockMarketDataProvider
 from aegis.paper_trading.domain import PAPER_LABELS, IncidentType, PaperPortfolioStatus
@@ -56,6 +64,18 @@ from aegis.risk.engine import KillSwitchType, RiskProfileVersion
 
 settings = Settings.from_env()
 settings.validate_startup()
+
+try:
+    auth_service = AuthService(
+        jwt_secret=settings.jwt_secret,
+        ttl_minutes=settings.jwt_access_token_ttl_minutes,
+        users_file=settings.auth_users_file,
+        users_json=settings.auth_users_json,
+    )
+except UserStoreError as exc:
+    raise RuntimeError(f"AEGIS auth configuration is invalid: {exc}") from exc
+
+bearer_scheme = HTTPBearer(auto_error=False)
 
 app = FastAPI(title="AEGIS Sprint 0 API", version="0.1.0")
 audit_log = AuditLog()
@@ -106,6 +126,24 @@ licenses[live_readonly_provider_record.id] = ProviderLicense(
     provider_id=live_readonly_provider_record.id,
     license_status=ProviderLicenseStatus.PENDING,
     permitted_use="Read-only market-data activation pending provider setup and legal approval",
+    automation_rights=False,
+    backtesting_rights=False,
+    model_training_rights=False,
+    dashboard_display_rights=False,
+    data_retention_period="not-recorded",
+    legal_review_status="PENDING_PROVIDER_SETUP",
+)
+kite_connect_provider_record = DataProvider(
+    name="kite_connect",
+    provider_type="LIVE_READONLY_MARKET_DATA",
+    base_url_or_reference="provider-adapter://kite-connect",
+)
+providers[kite_connect_provider_record.id] = kite_connect_provider_record
+licenses[kite_connect_provider_record.id] = ProviderLicense(
+    provider_id=kite_connect_provider_record.id,
+    license_status=ProviderLicenseStatus.PENDING,
+    permitted_use="Read-only Kite Connect market-data activation pending subscription, "
+    "credentials, and legal review of Kite Connect's terms",
     automation_rights=False,
     backtesting_rights=False,
     model_training_rights=False,
@@ -174,14 +212,60 @@ def correlation_id(request: Request) -> str:
     return request.headers.get("X-Correlation-ID", str(uuid4()))
 
 
+def authenticated_role(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    x_aegis_role: str = Header(default=Role.READ_ONLY.value),
+) -> Role:
+    """Resolve the caller's role. A verified Bearer token always wins.
+
+    The X-AEGIS-Role header is only trusted when
+    AUTH_ALLOW_INSECURE_HEADER_FALLBACK is true -- which validate_startup()
+    refuses to allow outside development/test. Anywhere else, a request with
+    no valid token is rejected outright: the header alone proves nothing,
+    since any caller can set it to anything.
+    """
+    if credentials is not None:
+        try:
+            user: AuthenticatedUser = auth_service.verify(credentials.credentials)
+        except TokenError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        try:
+            return Role(user.role)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=401, detail=f"Token role '{user.role}' is not a known role."
+            ) from exc
+    if settings.auth_allow_insecure_header_fallback:
+        return Role(x_aegis_role)
+    raise HTTPException(
+        status_code=401,
+        detail="Authentication required: provide a Bearer token from POST /api/v1/auth/login.",
+    )
+
+
 def require_role(*allowed: Role):
-    def dependency(x_aegis_role: str = Header(default=Role.READ_ONLY.value)) -> Role:
-        role = Role(x_aegis_role)
+    def dependency(role: Role = Depends(authenticated_role)) -> Role:
         if role not in allowed:
             raise HTTPException(status_code=403, detail=f"Role {role} cannot perform this action.")
         return role
 
     return dependency
+
+
+@app.post("/api/v1/auth/login")
+def login(payload: dict[str, Any]) -> dict[str, Any]:
+    username = str(payload.get("username", ""))
+    password = str(payload.get("password", ""))
+    user = auth_service.authenticate(username, password)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    token = auth_service.issue_token(user)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": user.role,
+        "expires_in_minutes": settings.jwt_access_token_ttl_minutes,
+    }
 
 
 def as_dict(value: Any) -> dict[str, Any]:
@@ -222,7 +306,28 @@ def actual_research_blocked_detail() -> dict[str, Any]:
     }
 
 
-def live_readonly_adapter() -> LiveReadOnlyMarketDataProvider:
+def _build_kite_client(current_settings: Settings) -> Any | None:
+    if not (
+        current_settings.market_data_provider_api_key
+        and current_settings.market_data_provider_access_token
+    ):
+        return None
+    from kiteconnect import KiteConnect  # optional runtime dependency, imported lazily
+
+    client = KiteConnect(api_key=current_settings.market_data_provider_api_key)
+    client.set_access_token(current_settings.market_data_provider_access_token)
+    return client
+
+
+def live_readonly_adapter() -> LiveReadOnlyMarketDataProvider | KiteConnectMarketDataProvider:
+    if settings.market_data_provider_name == "kite_connect":
+        client = _build_kite_client(settings)
+        return KiteConnectMarketDataProvider(
+            client=client,
+            tradingsymbols=list(CURATED_INSTRUMENT_METADATA.keys()),
+            license_=licenses[kite_connect_provider_record.id],
+            configured=client is not None,
+        )
     return LiveReadOnlyMarketDataProvider(
         licenses[live_readonly_provider_record.id],
         configured=settings.market_data_provider_configured(),

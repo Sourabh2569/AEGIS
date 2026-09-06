@@ -15,10 +15,23 @@ dependencies = [
   "redis>=5",
   "boto3>=1.34",
   "polars>=0.20",
+  "kiteconnect>=5.0",
+  "PyJWT>=2.8",
+  "bcrypt>=4.1",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10", "httpx>=0.27"]
+
+[tool.setuptools]
+# This project ships no installable top-level package of its own -- every
+# subpackage under apps/ and packages/ is imported via the explicit
+# pythonpath list below (and the matching PYTHONPATH in Makefile/Dockerfile),
+# never via a normal package install. Without this, setuptools' automatic
+# package discovery finds apps/, packages/, sample_data/, infrastructure/ as
+# ambiguous top-level packages and refuses to build (this broke
+# `pip install -e .` -- and therefore the entire CI job -- on every run).
+packages = []
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -31,6 +44,7 @@ pythonpath = [
   "packages/data_quality",
   "packages/data_activation",
   "packages/provider_adapters",
+  "packages/auth",
   "packages/data_ingestion",
   "packages/instrument_master",
   "packages/corporate_actions",

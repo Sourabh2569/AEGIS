@@ -31,6 +31,7 @@ class Settings:
     market_data_provider_client_id: str = ""
     market_data_provider_client_secret: str = ""
     market_data_provider_api_key: str = ""
+    market_data_provider_access_token: str = ""
     market_data_provider_redirect_uri: str = ""
     market_data_eod_enabled: bool = True
     market_data_quotes_enabled: bool = False
@@ -41,11 +42,23 @@ class Settings:
     paper_trading_use_live_data: bool = False
     paper_trading_enabled: bool = False
     human_approval_required: bool = True
+    jwt_access_token_ttl_minutes: int = 720
+    auth_users_file: str = ""
+    auth_users_json: str = ""
+    # SECURITY: when true, requests with no valid Bearer token fall back to
+    # trusting the client-supplied X-AEGIS-Role header -- i.e. no real
+    # authentication. validate_startup() refuses to let this be true outside
+    # development/test. See docs/security/authentication.md.
+    auth_allow_insecure_header_fallback: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
+        environment = os.getenv("ENVIRONMENT", "development")
+        # Only development/test get the insecure header fallback by default,
+        # and only when the operator hasn't set the flag explicitly.
+        default_header_fallback = environment in {"development", "test"}
         return cls(
-            environment=os.getenv("ENVIRONMENT", "development"),
+            environment=environment,
             database_url=os.getenv("DATABASE_URL", "sqlite:///aegis-dev.db"),
             redis_url=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
             minio_endpoint=os.getenv("MINIO_ENDPOINT", "http://localhost:9000"),
@@ -64,6 +77,7 @@ class Settings:
             market_data_provider_client_id=os.getenv("MARKET_DATA_PROVIDER_CLIENT_ID", ""),
             market_data_provider_client_secret=os.getenv("MARKET_DATA_PROVIDER_CLIENT_SECRET", ""),
             market_data_provider_api_key=os.getenv("MARKET_DATA_PROVIDER_API_KEY", ""),
+            market_data_provider_access_token=os.getenv("MARKET_DATA_PROVIDER_ACCESS_TOKEN", ""),
             market_data_provider_redirect_uri=os.getenv("MARKET_DATA_PROVIDER_REDIRECT_URI", ""),
             market_data_eod_enabled=_as_bool(os.getenv("MARKET_DATA_EOD_ENABLED"), True),
             market_data_quotes_enabled=_as_bool(os.getenv("MARKET_DATA_QUOTES_ENABLED"), False),
@@ -80,6 +94,12 @@ class Settings:
             paper_trading_use_live_data=_as_bool(os.getenv("PAPER_TRADING_USE_LIVE_DATA"), False),
             paper_trading_enabled=_as_bool(os.getenv("PAPER_TRADING_ENABLED"), False),
             human_approval_required=_as_bool(os.getenv("HUMAN_APPROVAL_REQUIRED"), True),
+            jwt_access_token_ttl_minutes=int(os.getenv("JWT_ACCESS_TOKEN_TTL_MINUTES", "720")),
+            auth_users_file=os.getenv("AUTH_USERS_FILE", ""),
+            auth_users_json=os.getenv("AUTH_USERS_JSON", ""),
+            auth_allow_insecure_header_fallback=_as_bool(
+                os.getenv("AUTH_ALLOW_INSECURE_HEADER_FALLBACK"), default_header_fallback
+            ),
         )
 
     def validate_startup(self) -> None:
@@ -124,6 +144,29 @@ class Settings:
             raise ValueError("PAPER_TRADING_ENABLED must remain false.")
         if not self.human_approval_required:
             raise ValueError("HUMAN_APPROVAL_REQUIRED must remain true.")
+        if self.auth_allow_insecure_header_fallback and self.environment not in {
+            "development",
+            "test",
+        }:
+            raise ValueError(
+                "AUTH_ALLOW_INSECURE_HEADER_FALLBACK must remain false outside "
+                "development/test -- it lets any caller self-declare a role via a "
+                "plain header with no verification."
+            )
+        if self.environment not in {"development", "test"}:
+            if not (self.auth_users_file or self.auth_users_json):
+                raise ValueError(
+                    "AUTH_USERS_FILE or AUTH_USERS_JSON must be configured outside "
+                    "development/test -- there is no other way to authenticate."
+                )
+            if self.jwt_secret == "development-only-change-me":
+                raise ValueError("JWT_SECRET must be changed from its development default.")
+            if len(self.jwt_secret) < 32:
+                raise ValueError(
+                    "JWT_SECRET must be at least 32 characters outside development/test "
+                    "-- a short secret makes tokens forgeable. Generate one with, e.g., "
+                    '`python -c "import secrets; print(secrets.token_urlsafe(48))"`.'
+                )
 
     def market_data_provider_configured(self) -> bool:
         if not self.market_data_enabled:
@@ -160,6 +203,9 @@ class Settings:
             if self.market_data_provider_client_secret
             else "",
             "market_data_provider_api_key": "***" if self.market_data_provider_api_key else "",
+            "market_data_provider_access_token": "***"
+            if self.market_data_provider_access_token
+            else "",
             "market_data_provider_redirect_uri": self.market_data_provider_redirect_uri or "",
             "market_data_provider_configured": self.market_data_provider_configured(),
             "market_data_eod_enabled": self.market_data_eod_enabled,
@@ -171,4 +217,8 @@ class Settings:
             "paper_trading_use_live_data": self.paper_trading_use_live_data,
             "paper_trading_enabled": self.paper_trading_enabled,
             "human_approval_required": self.human_approval_required,
+            "jwt_access_token_ttl_minutes": self.jwt_access_token_ttl_minutes,
+            "auth_users_file": "***" if self.auth_users_file else "",
+            "auth_users_json": "***" if self.auth_users_json else "",
+            "auth_allow_insecure_header_fallback": self.auth_allow_insecure_header_fallback,
         }

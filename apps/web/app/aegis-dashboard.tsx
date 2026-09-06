@@ -379,8 +379,18 @@ function DataHealthPage({ data, model }: { data: DashboardData; model: ReturnTyp
 }
 
 function LicensingPage({ data }: { data: DashboardData }) {
-  const rows = data.providers.length ? data.providers.map((provider) => [provider.name, provider.is_active ? "Approved" : "Inactive", "Research, paper display", "Allowed", "Restricted", "Tracked"]) : [["mock_market_data", "Approved", "Research, paper display", "Allowed", "Restricted", "Tracked"]];
-  return <VisualEvidencePage kpis={[["Approved providers", String(rows.length), "Permitted data paths", "success"], ["Live broker rights", "0", "No broker configured", "danger"], ["Display rights", "Allowed", "Dashboard use", "success"], ["Model training", "Restricted", "Requires rights", "warning"]]} primary={<ChartCard title="Licensing readiness" subtitle="Allowed, restricted, and blocked uses"><ReadinessBars data={[["Allowed use", 78], ["Restricted use", 18], ["Blocked use", 4]]} /></ChartCard>} secondary={<DataTable title="Provider permission matrix" headers={["Provider", "Status", "Permitted use", "Display", "Training", "Expiry"]} rows={rows} />} />;
+  const rows = data.providers.length
+    ? data.providers.map((provider) => [
+        provider.name,
+        uiLabel(provider.capabilities?.license_status ?? "NOT_APPROVED"),
+        "Research, paper display",
+        provider.capabilities?.dashboard_display_rights ? "Allowed" : "Restricted",
+        provider.capabilities?.model_training_rights ? "Allowed" : "Restricted",
+        "Tracked",
+      ])
+    : [["mock_market_data", "Not available", "Research, paper display", "Restricted", "Restricted", "Tracked"]];
+  const approvedCount = data.providers.filter((provider) => provider.capabilities?.license_status === "APPROVED").length;
+  return <VisualEvidencePage kpis={[["Approved providers", String(approvedCount), "Permitted data paths", approvedCount ? "success" : "warning"], ["Live broker rights", "0", "No broker configured", "danger"], ["Display rights", uiLabel(data.providers[0]?.capabilities?.license_status ?? "NOT_APPROVED"), "Dashboard use", data.providers[0]?.capabilities?.dashboard_display_rights ? "success" : "warning"], ["Model training", "Restricted", "Requires rights", "warning"]]} primary={<ChartCard title="Licensing readiness" subtitle="Allowed, restricted, and blocked uses"><ReadinessBars data={[["Allowed use", data.providers.length ? Math.round((approvedCount / data.providers.length) * 100) : 0], ["Restricted use", data.providers.length ? Math.round(((data.providers.length - approvedCount) / data.providers.length) * 100) : 0], ["Blocked use", 0]]} /></ChartCard>} secondary={<DataTable title="Provider permission matrix" headers={["Provider", "Status", "Permitted use", "Display", "Training", "Expiry"]} rows={rows} />} />;
 }
 
 function FeaturePage() {

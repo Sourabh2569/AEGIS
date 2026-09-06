@@ -1,7 +1,7 @@
 .PHONY: test lint format typecheck mock-ingest csv-ingest sprint3-operational-hardening
 
 test:
-	PYTHONPATH=apps/api:packages/shared:packages/domain:packages/configuration:packages/audit:packages/data_quality:packages/provider_adapters:packages/data_ingestion:packages/instrument_master:packages/corporate_actions:packages/research_registry:packages/backtesting:packages/feature_engine:packages/risk:packages/strategies:packages/portfolio:packages/paper_trading pytest
+	PYTHONPATH=apps/api:packages/shared:packages/domain:packages/configuration:packages/audit:packages/auth:packages/data_quality:packages/data_activation:packages/provider_adapters:packages/data_ingestion:packages/instrument_master:packages/corporate_actions:packages/research_registry:packages/research_activation:packages/backtesting:packages/feature_engine:packages/risk:packages/strategies:packages/portfolio:packages/paper_trading pytest
 
 lint:
 	ruff check apps packages tests
@@ -11,6 +11,9 @@ format:
 
 typecheck:
 	mypy packages apps/api || true
+
+hash-password:
+	PYTHONPATH=packages/auth python infrastructure/scripts/hash_password.py
 
 mock-ingest:
 	PYTHONPATH=packages/shared:packages/domain:packages/configuration:packages/audit:packages/data_quality:packages/provider_adapters:packages/data_ingestion:packages/backtesting python infrastructure/scripts/run_mock_ingestion.py

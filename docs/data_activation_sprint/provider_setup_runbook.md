@@ -1,5 +1,9 @@
 # Provider Setup Runbook
 
+For Zerodha Kite Connect specifically, see
+[kite_connect_integration.md](kite_connect_integration.md) for the concrete
+subscription, key-generation, and daily-access-token steps referenced below.
+
 1. Record provider contract and allowed usage.
 2. Set backend-only provider environment variables.
 3. Record approved license rights.

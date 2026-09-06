@@ -263,9 +263,11 @@ Sprint 2 schema sketch: [0003_sprint2_research.sql](apps/api/alembic/versions/00
 
 Sprint 3 schema sketch: [0004_sprint3_paper_trading.sql](apps/api/alembic/versions/0004_sprint3_paper_trading.sql).
 
-## Development Auth
+## Authentication
 
-Local development uses the `X-AEGIS-Role` header. This is intentionally a placeholder; no production credentials are committed. Default role is `READ_ONLY`.
+Real auth: `POST /api/v1/auth/login` with `{"username", "password"}` returns a signed, short-lived JWT (`Authorization: Bearer <token>`); the role in the verified token -- never a client-supplied header -- determines access. Users come from `AUTH_USERS_FILE` or `AUTH_USERS_JSON` (bcrypt password hashes; generate an entry with `make hash-password`), never hardcoded.
+
+Local development also accepts the plain `X-AEGIS-Role` header with no token, purely for dev/test convenience (`AUTH_ALLOW_INSECURE_HEADER_FALLBACK=true` in `.env.example`). `Settings.validate_startup()` refuses to let that flag be true, or `AUTH_USERS_FILE`/`AUTH_USERS_JSON` be unset, outside `development`/`test` -- so this convenience path cannot reach a real deployment. See [docs/security/authentication.md](docs/security/authentication.md).
 
 ## Safety Defaults
 

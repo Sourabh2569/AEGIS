@@ -11,5 +11,5 @@
 - [x] Documentation and runbooks.
 - [x] Tests for fail-closed truth states.
 - [ ] Approved real provider credentials supplied.
-- [ ] Provider-specific adapter implemented.
+- [x] Provider-specific adapter implemented (`kite_connect`, see [kite_connect_integration.md](kite_connect_integration.md)). Unverified against the live Kite Connect API pending real credentials.
 - [ ] Real historical provider payload ingested.
