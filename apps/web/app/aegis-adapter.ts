@@ -23,6 +23,8 @@ export type Instrument = {
   primary_exchange: string;
   trading_status: string;
   sector: string;
+  industry?: string;
+  listing_date?: string;
   mapping_confidence_score: number;
 };
 export type AuditEvent = {

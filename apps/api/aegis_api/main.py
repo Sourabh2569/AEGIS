@@ -186,10 +186,15 @@ seed_instrument = Instrument(
     security_type="EQUITY",
     current_symbol="RELIANCE",
     primary_exchange="NSE",
-    listing_date=date(1995, 1, 1),
+    # Matches CURATED_INSTRUMENT_METADATA["RELIANCE"] exactly (verified
+    # against NSE's official securities master, see the Kite adapter's
+    # module comment). This is registered before any real sync runs, and
+    # sync_instrument_master() skips instruments it already knows about --
+    # so a placeholder value here would never get corrected by real data.
+    listing_date=date(1995, 11, 29),
     trading_status="ACTIVE",
-    sector="Energy",
-    industry="Oil, Gas and Consumable Fuels",
+    sector="Oil Gas & Consumable Fuels",
+    industry="Oil Gas & Consumable Fuels",
     mapping_confidence_score=0.99,
 )
 instrument_master.add_instrument(seed_instrument)

@@ -15,6 +15,7 @@ import {
   Gauge,
   GitBranch,
   Landmark,
+  Layers,
   Lock,
   LucideIcon,
   Search,
@@ -37,6 +38,7 @@ type SectionId =
   | "dataHealth"
   | "licensing"
   | "features"
+  | "universe"
   | "research"
   | "risk"
   | "drift"
@@ -56,6 +58,7 @@ const navGroups: Array<{ label: string; items: Array<{ id: SectionId; title: str
       { id: "dataHealth", title: "Data Health", icon: Activity },
       { id: "licensing", title: "Provider Licensing", icon: Landmark },
       { id: "features", title: "Feature Versioning", icon: SlidersHorizontal },
+      { id: "universe", title: "Instrument Universe", icon: Layers },
       { id: "corporate", title: "Corporate Actions", icon: FileWarning },
     ],
   },
@@ -85,6 +88,7 @@ const sectionMeta: Record<SectionId, { title: string; eyebrow: string; subtitle:
   dataHealth: { title: "Data Health", eyebrow: "Data Foundation", subtitle: "Provider health, quote freshness, calendar state, and quality readiness.", action: "View providers" },
   licensing: { title: "Provider Licensing", eyebrow: "Data Foundation", subtitle: "Permitted uses, data rights, display readiness, and license constraints.", action: "Review rights" },
   features: { title: "Feature Versioning", eyebrow: "Data Foundation", subtitle: "Feature availability, frozen versions, source dependencies, and no-look-ahead controls.", action: "Compare versions" },
+  universe: { title: "Instrument Universe", eyebrow: "Data Foundation", subtitle: "Every instrument the platform tracks, with real provider-verified identifiers and classification.", action: "Export register" },
   research: { title: "Research Lab", eyebrow: "Research & Intelligence", subtitle: "Hypotheses, manifests, experiments, holdouts, and paper-observation comparison.", action: "Compare runs" },
   risk: { title: "Risk Attribution", eyebrow: "Research & Intelligence", subtitle: "Budget use, constraint impact, exposure concentration, and kill-switch state.", action: "Open rule registry" },
   drift: { title: "Drift Statistics", eyebrow: "Research & Intelligence", subtitle: "Forward paper behavior versus research expectations and recommended response.", action: "Review drift" },
@@ -284,6 +288,8 @@ function renderSection(args: {
       return <LicensingPage data={args.data} />;
     case "features":
       return <FeaturePage />;
+    case "universe":
+      return <UniversePage data={args.data} />;
     case "research":
       return <ResearchPage data={args.data} model={args.model} />;
     case "risk":
@@ -395,6 +401,49 @@ function LicensingPage({ data }: { data: DashboardData }) {
 
 function FeaturePage() {
   return <VisualEvidencePage kpis={[["Frozen features", "2", "Manifest locked", "success"], ["Active risk inputs", "1", "Sizing input", "info"], ["Look-ahead breaches", "0", "Timing pass", "success"], ["Feature policy", "Frozen", "No mutation", "success"]]} primary={<ChartCard title="Feature timing pipeline" subtitle="Raw close to decision availability"><Timeline items={["Raw close", "Validation", "Feature run", "Availability stamp", "Manifest freeze", "Decision"]} /></ChartCard>} secondary={<DataTable title="Feature registry" headers={["Feature", "Source", "Availability", "Status"]} rows={featureRows} />} />;
+}
+
+function UniversePage({ data }: { data: DashboardData }) {
+  const instruments = data.instruments;
+  const total = instruments.length;
+  const sectorCounts = new Map<string, number>();
+  for (const instrument of instruments) {
+    const sector = instrument.sector || "Unclassified";
+    sectorCounts.set(sector, (sectorCounts.get(sector) ?? 0) + 1);
+  }
+  const sectorBars = Array.from(sectorCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, value]) => ({ label, value }));
+  const activeCount = instruments.filter((instrument) => instrument.trading_status === "ACTIVE").length;
+  const avgConfidence = total ? Math.round((instruments.reduce((sum, instrument) => sum + instrument.mapping_confidence_score, 0) / total) * 100) : 0;
+  const rows = total
+    ? [...instruments]
+        .sort((a, b) => a.current_symbol.localeCompare(b.current_symbol))
+        .map((instrument) => [
+          instrument.current_symbol,
+          instrument.company_legal_name,
+          instrument.sector || "Unclassified",
+          instrument.isin,
+          instrument.listing_date ?? "Unknown",
+          uiLabel(instrument.trading_status),
+        ])
+    : [["No instruments synced yet", "Run a provider sync to populate the universe", "-", "-", "-", "Not configured"]];
+  return (
+    <VisualEvidencePage
+      kpis={[
+        ["Universe size", String(total), "Real NSE-listed instruments tracked", total ? "success" : "warning"],
+        ["Sectors covered", String(sectorCounts.size), "Distinct sector classifications", "info"],
+        ["Active listings", `${activeCount}/${total}`, "Trading status ACTIVE", total && activeCount === total ? "success" : "warning"],
+        ["Mapping confidence", `${avgConfidence}%`, "Average curated-metadata confidence", avgConfidence >= 95 ? "success" : "warning"],
+      ]}
+      primary={
+        <ChartCard title="Sector composition" subtitle="Instrument count by sector, from provider-verified classification">
+          <HorizontalBars data={sectorBars.length ? sectorBars : [{ label: "No data", value: 0 }]} />
+        </ChartCard>
+      }
+      secondary={<DataTable title="Instrument register" headers={["Symbol", "Company", "Sector", "ISIN", "Listing date", "Status"]} rows={rows} />}
+    />
+  );
 }
 
 function ResearchPage({ data, model }: { data: DashboardData; model: ReturnType<typeof buildModel> }) {
