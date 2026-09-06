@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from aegis.configuration.settings import Settings
 from aegis.data_activation.service import DataActivationService
 from aegis.data_ingestion.service import InMemoryRepository
@@ -68,6 +69,67 @@ def test_settings_redacts_provider_secrets() -> None:
     assert redacted["market_data_provider_api_key"] == "***"
     assert redacted["market_data_provider_client_secret"] == "***"
     assert settings.market_data_provider_configured() is True
+
+
+def test_paper_trading_live_data_flags_no_longer_hard_blocked_at_startup() -> None:
+    """These were hard-blocked during the Data Activation Sprint ("not yet,
+    this sprint"). That sprint is done -- paper trading now has real prices
+    and a real calendar to use. Enabling these must not crash startup."""
+    settings = _settings(paper_trading_use_live_data=True, paper_trading_enabled=True)
+    settings.validate_startup()  # must not raise
+
+
+def test_real_trading_gates_stay_hard_blocked_regardless_of_paper_flags() -> None:
+    """The critical regression check: enabling paper trading on live data
+    must never loosen the actually-dangerous gates -- real order placement,
+    real broker connection, real capital -- even when combined with the
+    paper flags."""
+    for field in (
+        "live_execution_enabled",
+        "broker_order_access",
+        "live_broker_connection_enabled",
+    ):
+        settings = _settings(
+            paper_trading_use_live_data=True,
+            paper_trading_enabled=True,
+            **{field: True},
+        )
+        with pytest.raises(ValueError):
+            settings.validate_startup()
+
+
+def test_blockers_ignore_paper_live_data_but_not_broker_access() -> None:
+    provider = DataProvider(name="kite_connect", provider_type="LIVE_READONLY_MARKET_DATA")
+    license_ = ProviderLicense(
+        provider_id=provider.id,
+        license_status=ProviderLicenseStatus.APPROVED,
+        permitted_use="test",
+        automation_rights=True,
+        backtesting_rights=True,
+        model_training_rights=False,
+        dashboard_display_rights=True,
+        data_retention_period="test",
+    )
+
+    paper_live_settings = _settings(paper_trading_use_live_data=True)
+    service = DataActivationService(
+        settings=paper_live_settings,
+        repository=InMemoryRepository(),
+        providers={provider.id: provider},
+        licenses={provider.id: license_},
+    )
+    codes = [blocker["code"] for blocker in service.blockers()]
+    assert "SAFETY_GUARD_VIOLATION" not in codes
+
+    broker_access_settings = _settings(broker_order_access=True)
+    service = DataActivationService(
+        settings=broker_access_settings,
+        repository=InMemoryRepository(),
+        providers={provider.id: provider},
+        licenses={provider.id: license_},
+    )
+    codes = [blocker["code"] for blocker in service.blockers()]
+    assert "SAFETY_GUARD_VIOLATION" in codes
 
 
 def test_eod_validation_blocks_missing_market_calendar_date() -> None:

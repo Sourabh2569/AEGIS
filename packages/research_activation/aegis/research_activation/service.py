@@ -322,17 +322,15 @@ class HistoricalResearchActivationService:
 
     def system_blockers(self) -> list[ResearchActivationBlocker]:
         blockers: list[ResearchActivationBlocker] = []
-        if (
-            self.settings.live_execution_enabled
-            or self.settings.broker_order_access
-            or self.settings.paper_trading_use_live_data
-        ):
+        # paper_trading_use_live_data deliberately excluded here too -- see
+        # the matching comment in data_activation/service.py's blockers().
+        if self.settings.live_execution_enabled or self.settings.broker_order_access:
             blockers.append(
                 ResearchActivationBlocker(
                     code="TRADING_SAFETY_GUARD_VIOLATION",
                     label="Trading safety flags must remain disabled",
                     severity="CRITICAL",
-                    remediation="Set live execution, broker access, and live paper-data use to false.",
+                    remediation="Set live execution and broker access to false.",
                 )
             )
         return blockers

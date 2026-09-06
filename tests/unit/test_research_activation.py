@@ -61,6 +61,39 @@ def service(repository: InMemoryRepository) -> HistoricalResearchActivationServi
     )
 
 
+def _settings(**overrides: object) -> Settings:
+    values: dict[str, object] = {
+        "environment": "development",
+        "database_url": "sqlite://",
+        "redis_url": "redis://localhost:6379/0",
+        "minio_endpoint": "http://localhost:9000",
+        "minio_access_key": "access",
+        "minio_secret_key": "secret",
+        "minio_bucket": "bucket",
+        "jwt_secret": "jwt",
+        "log_level": "INFO",
+    }
+    values.update(overrides)
+    return Settings(**values)  # type: ignore[arg-type]
+
+
+def test_system_blockers_ignore_paper_live_data_but_not_broker_access() -> None:
+    paper_live = HistoricalResearchActivationService(
+        settings=_settings(paper_trading_use_live_data=True),
+        repository=InMemoryRepository(),
+        licenses={},
+    )
+    assert paper_live.system_blockers() == []
+
+    broker_access = HistoricalResearchActivationService(
+        settings=_settings(broker_order_access=True),
+        repository=InMemoryRepository(),
+        licenses={},
+    )
+    codes = [blocker.code for blocker in broker_access.system_blockers()]
+    assert "TRADING_SAFETY_GUARD_VIOLATION" in codes
+
+
 def test_fixture_dataset_is_not_real_historical_research_eligible() -> None:
     repository = InMemoryRepository()
     repository.dataset_versions["dataset-version-1"] = dataset_version(

@@ -192,6 +192,7 @@ const labelMap: Record<string, string> = {
   READ_ONLY: "Read-only",
   BROKER_ORDER_ACCESS_DISABLED: "Broker access disabled",
   PAPER_TRADING_USE_OF_ACTUAL_DATA_DISABLED: "Paper uses fixtures",
+  PAPER_TRADING_USE_OF_ACTUAL_DATA_ENABLED: "Paper uses real data",
   DATA_SOURCE_MODE: "Data mode",
   APPROVED_WITH_REDUCED_SIZE: "Approved at reduced size",
   CRITICAL_DIVERGENCE: "Critical divergence",

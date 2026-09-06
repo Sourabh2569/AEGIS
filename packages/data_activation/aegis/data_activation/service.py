@@ -235,7 +235,9 @@ class DataActivationService:
                     "NO_REAL_CAPITAL_DEPLOYED",
                     "BROKER_ORDER_ACCESS_DISABLED",
                     "LIVE_EXECUTION_LOCKED",
-                    "PAPER_TRADING_USE_OF_ACTUAL_DATA_DISABLED",
+                    "PAPER_TRADING_USE_OF_ACTUAL_DATA_ENABLED"
+                    if self.settings.paper_trading_use_live_data
+                    else "PAPER_TRADING_USE_OF_ACTUAL_DATA_DISABLED",
                 ],
             },
             "last_updated_at": datetime.now(UTC).isoformat(),
@@ -260,11 +262,11 @@ class DataActivationService:
                     "severity": "CRITICAL",
                 }
             )
-        if (
-            self.settings.broker_order_access
-            or self.settings.live_execution_enabled
-            or self.settings.paper_trading_use_live_data
-        ):
+        # paper_trading_use_live_data is deliberately not in this guard: it
+        # governs whether *simulated* paper positions use real prices, not
+        # real order placement or real capital -- see the comment on
+        # PAPER_TRADING_USE_LIVE_DATA in Settings.validate_startup().
+        if self.settings.broker_order_access or self.settings.live_execution_enabled:
             blockers.append(
                 {
                     "code": "SAFETY_GUARD_VIOLATION",

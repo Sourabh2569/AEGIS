@@ -129,8 +129,16 @@ class Settings:
             )
         if self.live_broker_connection_enabled:
             raise ValueError("LIVE_BROKER_CONNECTION_ENABLED must remain false.")
-        if self.paper_trading_use_live_data:
-            raise ValueError("PAPER_TRADING_USE_LIVE_DATA must remain false for Data Activation.")
+        # PAPER_TRADING_USE_LIVE_DATA / PAPER_TRADING_ENABLED were hard-blocked
+        # here during the Data Activation Sprint ("must remain false for Data
+        # Activation" -- i.e. not yet, this sprint). That sprint is done: real
+        # EOD prices and a real trading calendar now feed paper trading (see
+        # real_reference_prices() in main.py). Deliberately enabling these
+        # only lets *simulated* paper positions use real prices -- it does
+        # not touch LIVE_EXECUTION_ENABLED, BROKER_ORDER_ACCESS, or
+        # LIVE_BROKER_CONNECTION_ENABLED above, which remain unconditionally
+        # forced false. No real order, real broker connection, or real
+        # capital is reachable through this flag.
         if self.data_source_mode not in {
             "FIXTURE",
             "LOCAL_FIXTURE",
@@ -140,8 +148,6 @@ class Settings:
             "BLOCKED",
         }:
             raise ValueError(f"Unsupported DATA_SOURCE_MODE: {self.data_source_mode}")
-        if self.paper_trading_enabled:
-            raise ValueError("PAPER_TRADING_ENABLED must remain false.")
         if not self.human_approval_required:
             raise ValueError("HUMAN_APPROVAL_REQUIRED must remain true.")
         if self.auth_allow_insecure_header_fallback and self.environment not in {
