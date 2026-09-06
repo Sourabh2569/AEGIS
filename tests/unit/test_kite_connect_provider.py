@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -176,13 +177,39 @@ def test_fetch_historical_eod_bars_chunks_long_lookback_windows() -> None:
     client = FakeKiteClient()
     lookback_days = MAX_DAY_INTERVAL_DAYS_PER_REQUEST + 500
     provider = KiteConnectMarketDataProvider(
-        client=client, tradingsymbols=["RELIANCE"], lookback_days=lookback_days, configured=True
+        client=client,
+        tradingsymbols=["RELIANCE"],
+        lookback_days=lookback_days,
+        configured=True,
+        historical_data_min_interval_seconds=0,  # keep the test fast
     )
     provider.fetch_historical_eod_bars()
     assert len(client.historical_data_calls) == 2
     first_call = client.historical_data_calls[0]
     span_days = (first_call[2] - first_call[1]).days
     assert span_days <= MAX_DAY_INTERVAL_DAYS_PER_REQUEST
+
+
+def test_historical_requests_are_throttled_to_the_configured_interval() -> None:
+    """Kite's historical-data endpoint is rate-limited (3 req/s per Kite's
+    docs) -- with a 50-instrument universe and multi-year lookback, an
+    unthrottled adapter would trip it. Verify the delay is real, using a
+    small interval so the test itself stays fast."""
+    client = FakeKiteClient()
+    provider = KiteConnectMarketDataProvider(
+        client=client,
+        tradingsymbols=["RELIANCE", "TCS"],
+        lookback_days=30,
+        configured=True,
+        historical_data_min_interval_seconds=0.05,
+    )
+    start = time.monotonic()
+    provider.fetch_historical_eod_bars()
+    elapsed = time.monotonic() - start
+    assert len(client.historical_data_calls) == 2
+    # One throttle gap is expected between the two calls (none before the
+    # first). Allow slack for scheduling jitter but require it's not zero.
+    assert elapsed >= 0.04
 
 
 def test_market_calendar_and_corporate_actions_are_empty_not_fabricated() -> None:
@@ -229,6 +256,7 @@ def test_kite_provider_satisfies_generic_ingestion_pipeline(tmp_path: Path) -> N
         lookback_days=30,
         license_=approved_license,
         configured=True,
+        historical_data_min_interval_seconds=0,  # keep the test fast
     )
 
     health = service.check_provider_health(provider=provider, provider_id="provider-kite-connect")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Protocol
@@ -46,17 +47,38 @@ class CuratedInstrumentMetadata:
 
 # Kite Connect's instrument dump does not include ISIN, listing date, sector, or
 # industry. Those must come from AEGIS's governed instrument master, not be
-# fabricated here. Only add entries you have verified against an authoritative
-# source (e.g. the NSE instrument master / MCA filings) -- an unmapped symbol is
-# skipped and reported via metadata["unmapped_symbols"] rather than guessed.
+# fabricated here.
+#
+# This table is the Nifty 50 as of 2026-09, cross-verified against three
+# independent official sources before being added: NSE's official Nifty 50
+# constituent list (nsearchives.nseindia.com/content/indices/ind_nifty50list.csv),
+# NSE's official securities master (nsearchives.nseindia.com/content/equities/EQUITY_L.csv,
+# for listing dates and an ISIN cross-check), and Kite's own live NSE
+# instrument dump (to confirm every tradingsymbol actually resolves). All 50
+# ISINs matched exactly between the two independent NSE sources, and all 50
+# tradingsymbols resolved against Kite. Company names and listing dates are
+# NSE's own master data.
+#
+# NSE's public constituent list provides only one industry classification
+# tier, not a separate broader "sector" -- sector and industry below are
+# deliberately set to the same NSE-verified value rather than inventing a
+# second tier that hasn't been verified against anything.
+#
+# Nifty 50 membership itself changes periodically as NSE reconstitutes the
+# index; re-derive this table from the same two NSE URLs above rather than
+# hand-editing if it drifts.
+#
+# Only add entries you have verified against an authoritative source this
+# way -- an unmapped symbol is skipped and reported via
+# metadata["unmapped_symbols"] rather than guessed.
 CURATED_INSTRUMENT_METADATA: dict[str, CuratedInstrumentMetadata] = {
     "RELIANCE": CuratedInstrumentMetadata(
         isin="INE002A01018",
         company_legal_name="Reliance Industries Limited",
         security_type="EQUITY",
-        listing_date=date(1995, 1, 1),
-        sector="Energy",
-        industry="Oil, Gas and Consumable Fuels",
+        listing_date=date(1995, 11, 29),
+        sector="Oil Gas & Consumable Fuels",
+        industry="Oil Gas & Consumable Fuels",
         aegis_instrument_id="AEGIS-IN-000001",
     ),
     "TCS": CuratedInstrumentMetadata(
@@ -65,8 +87,440 @@ CURATED_INSTRUMENT_METADATA: dict[str, CuratedInstrumentMetadata] = {
         security_type="EQUITY",
         listing_date=date(2004, 8, 25),
         sector="Information Technology",
-        industry="IT Services",
+        industry="Information Technology",
         aegis_instrument_id="AEGIS-IN-000002",
+    ),
+    "ADANIENT": CuratedInstrumentMetadata(
+        isin="INE423A01024",
+        company_legal_name="Adani Enterprises Limited",
+        security_type="EQUITY",
+        listing_date=date(1997, 6, 4),
+        sector="Metals & Mining",
+        industry="Metals & Mining",
+        aegis_instrument_id="AEGIS-IN-000003",
+    ),
+    "ADANIPORTS": CuratedInstrumentMetadata(
+        isin="INE742F01042",
+        company_legal_name="Adani Ports and Special Economic Zone Limited",
+        security_type="EQUITY",
+        listing_date=date(2007, 11, 27),
+        sector="Services",
+        industry="Services",
+        aegis_instrument_id="AEGIS-IN-000004",
+    ),
+    "APOLLOHOSP": CuratedInstrumentMetadata(
+        isin="INE437A01024",
+        company_legal_name="Apollo Hospitals Enterprise Limited",
+        security_type="EQUITY",
+        listing_date=date(1996, 1, 10),
+        sector="Healthcare",
+        industry="Healthcare",
+        aegis_instrument_id="AEGIS-IN-000005",
+    ),
+    "ASIANPAINT": CuratedInstrumentMetadata(
+        isin="INE021A01026",
+        company_legal_name="Asian Paints Limited",
+        security_type="EQUITY",
+        listing_date=date(1995, 5, 31),
+        sector="Consumer Durables",
+        industry="Consumer Durables",
+        aegis_instrument_id="AEGIS-IN-000006",
+    ),
+    "AXISBANK": CuratedInstrumentMetadata(
+        isin="INE238A01034",
+        company_legal_name="Axis Bank Limited",
+        security_type="EQUITY",
+        listing_date=date(1998, 11, 16),
+        sector="Financial Services",
+        industry="Financial Services",
+        aegis_instrument_id="AEGIS-IN-000007",
+    ),
+    "BAJAJ-AUTO": CuratedInstrumentMetadata(
+        isin="INE917I01010",
+        company_legal_name="Bajaj Auto Limited",
+        security_type="EQUITY",
+        listing_date=date(2008, 5, 26),
+        sector="Automobile and Auto Components",
+        industry="Automobile and Auto Components",
+        aegis_instrument_id="AEGIS-IN-000008",
+    ),
+    "BAJFINANCE": CuratedInstrumentMetadata(
+        isin="INE296A01032",
+        company_legal_name="Bajaj Finance Limited",
+        security_type="EQUITY",
+        listing_date=date(2003, 4, 1),
+        sector="Financial Services",
+        industry="Financial Services",
+        aegis_instrument_id="AEGIS-IN-000009",
+    ),
+    "BAJAJFINSV": CuratedInstrumentMetadata(
+        isin="INE918I01026",
+        company_legal_name="Bajaj Finserv Limited",
+        security_type="EQUITY",
+        listing_date=date(2008, 5, 26),
+        sector="Financial Services",
+        industry="Financial Services",
+        aegis_instrument_id="AEGIS-IN-000010",
+    ),
+    "BEL": CuratedInstrumentMetadata(
+        isin="INE263A01024",
+        company_legal_name="Bharat Electronics Limited",
+        security_type="EQUITY",
+        listing_date=date(2000, 7, 19),
+        sector="Capital Goods",
+        industry="Capital Goods",
+        aegis_instrument_id="AEGIS-IN-000011",
+    ),
+    "BHARTIARTL": CuratedInstrumentMetadata(
+        isin="INE397D01024",
+        company_legal_name="Bharti Airtel Limited",
+        security_type="EQUITY",
+        listing_date=date(2002, 2, 15),
+        sector="Telecommunication",
+        industry="Telecommunication",
+        aegis_instrument_id="AEGIS-IN-000012",
+    ),
+    "CIPLA": CuratedInstrumentMetadata(
+        isin="INE059A01026",
+        company_legal_name="Cipla Limited",
+        security_type="EQUITY",
+        listing_date=date(1995, 2, 8),
+        sector="Healthcare",
+        industry="Healthcare",
+        aegis_instrument_id="AEGIS-IN-000013",
+    ),
+    "COALINDIA": CuratedInstrumentMetadata(
+        isin="INE522F01014",
+        company_legal_name="Coal India Limited",
+        security_type="EQUITY",
+        listing_date=date(2010, 11, 4),
+        sector="Oil Gas & Consumable Fuels",
+        industry="Oil Gas & Consumable Fuels",
+        aegis_instrument_id="AEGIS-IN-000014",
+    ),
+    "DRREDDY": CuratedInstrumentMetadata(
+        isin="INE089A01031",
+        company_legal_name="Dr. Reddy's Laboratories Limited",
+        security_type="EQUITY",
+        listing_date=date(2003, 5, 30),
+        sector="Healthcare",
+        industry="Healthcare",
+        aegis_instrument_id="AEGIS-IN-000015",
+    ),
+    "EICHERMOT": CuratedInstrumentMetadata(
+        isin="INE066A01021",
+        company_legal_name="Eicher Motors Limited",
+        security_type="EQUITY",
+        listing_date=date(2004, 9, 7),
+        sector="Automobile and Auto Components",
+        industry="Automobile and Auto Components",
+        aegis_instrument_id="AEGIS-IN-000016",
+    ),
+    "ETERNAL": CuratedInstrumentMetadata(
+        isin="INE758T01015",
+        company_legal_name="ETERNAL LIMITED",
+        security_type="EQUITY",
+        listing_date=date(2021, 7, 23),
+        sector="Consumer Services",
+        industry="Consumer Services",
+        aegis_instrument_id="AEGIS-IN-000017",
+    ),
+    "GRASIM": CuratedInstrumentMetadata(
+        isin="INE047A01021",
+        company_legal_name="Grasim Industries Limited",
+        security_type="EQUITY",
+        listing_date=date(1995, 5, 10),
+        sector="Construction Materials",
+        industry="Construction Materials",
+        aegis_instrument_id="AEGIS-IN-000018",
+    ),
+    "HCLTECH": CuratedInstrumentMetadata(
+        isin="INE860A01027",
+        company_legal_name="HCL Technologies Limited",
+        security_type="EQUITY",
+        listing_date=date(2000, 1, 6),
+        sector="Information Technology",
+        industry="Information Technology",
+        aegis_instrument_id="AEGIS-IN-000019",
+    ),
+    "HDFCBANK": CuratedInstrumentMetadata(
+        isin="INE040A01034",
+        company_legal_name="HDFC Bank Limited",
+        security_type="EQUITY",
+        listing_date=date(1995, 11, 8),
+        sector="Financial Services",
+        industry="Financial Services",
+        aegis_instrument_id="AEGIS-IN-000020",
+    ),
+    "HDFCLIFE": CuratedInstrumentMetadata(
+        isin="INE795G01014",
+        company_legal_name="HDFC Life Insurance Company Limited",
+        security_type="EQUITY",
+        listing_date=date(2017, 11, 17),
+        sector="Financial Services",
+        industry="Financial Services",
+        aegis_instrument_id="AEGIS-IN-000021",
+    ),
+    "HINDALCO": CuratedInstrumentMetadata(
+        isin="INE038A01020",
+        company_legal_name="Hindalco Industries Limited",
+        security_type="EQUITY",
+        listing_date=date(1997, 1, 8),
+        sector="Metals & Mining",
+        industry="Metals & Mining",
+        aegis_instrument_id="AEGIS-IN-000022",
+    ),
+    "HINDUNILVR": CuratedInstrumentMetadata(
+        isin="INE030A01027",
+        company_legal_name="Hindustan Unilever Limited",
+        security_type="EQUITY",
+        listing_date=date(1995, 7, 6),
+        sector="Fast Moving Consumer Goods",
+        industry="Fast Moving Consumer Goods",
+        aegis_instrument_id="AEGIS-IN-000023",
+    ),
+    "ICICIBANK": CuratedInstrumentMetadata(
+        isin="INE090A01021",
+        company_legal_name="ICICI Bank Limited",
+        security_type="EQUITY",
+        listing_date=date(1997, 9, 17),
+        sector="Financial Services",
+        industry="Financial Services",
+        aegis_instrument_id="AEGIS-IN-000024",
+    ),
+    "ITC": CuratedInstrumentMetadata(
+        isin="INE154A01025",
+        company_legal_name="ITC Limited",
+        security_type="EQUITY",
+        listing_date=date(1995, 8, 23),
+        sector="Fast Moving Consumer Goods",
+        industry="Fast Moving Consumer Goods",
+        aegis_instrument_id="AEGIS-IN-000025",
+    ),
+    "INFY": CuratedInstrumentMetadata(
+        isin="INE009A01021",
+        company_legal_name="Infosys Limited",
+        security_type="EQUITY",
+        listing_date=date(1995, 2, 8),
+        sector="Information Technology",
+        industry="Information Technology",
+        aegis_instrument_id="AEGIS-IN-000026",
+    ),
+    "INDIGO": CuratedInstrumentMetadata(
+        isin="INE646L01027",
+        company_legal_name="InterGlobe Aviation Limited",
+        security_type="EQUITY",
+        listing_date=date(2015, 11, 10),
+        sector="Services",
+        industry="Services",
+        aegis_instrument_id="AEGIS-IN-000027",
+    ),
+    "JSWSTEEL": CuratedInstrumentMetadata(
+        isin="INE019A01038",
+        company_legal_name="JSW Steel Limited",
+        security_type="EQUITY",
+        listing_date=date(2005, 3, 23),
+        sector="Metals & Mining",
+        industry="Metals & Mining",
+        aegis_instrument_id="AEGIS-IN-000028",
+    ),
+    "JIOFIN": CuratedInstrumentMetadata(
+        isin="INE758E01017",
+        company_legal_name="Jio Financial Services Limited",
+        security_type="EQUITY",
+        listing_date=date(2023, 8, 21),
+        sector="Financial Services",
+        industry="Financial Services",
+        aegis_instrument_id="AEGIS-IN-000029",
+    ),
+    "KOTAKBANK": CuratedInstrumentMetadata(
+        isin="INE237A01036",
+        company_legal_name="Kotak Mahindra Bank Limited",
+        security_type="EQUITY",
+        listing_date=date(1995, 12, 20),
+        sector="Financial Services",
+        industry="Financial Services",
+        aegis_instrument_id="AEGIS-IN-000030",
+    ),
+    "LT": CuratedInstrumentMetadata(
+        isin="INE018A01030",
+        company_legal_name="Larsen & Toubro Limited",
+        security_type="EQUITY",
+        listing_date=date(2004, 6, 23),
+        sector="Construction",
+        industry="Construction",
+        aegis_instrument_id="AEGIS-IN-000031",
+    ),
+    "M&M": CuratedInstrumentMetadata(
+        isin="INE101A01026",
+        company_legal_name="Mahindra & Mahindra Limited",
+        security_type="EQUITY",
+        listing_date=date(1996, 1, 3),
+        sector="Automobile and Auto Components",
+        industry="Automobile and Auto Components",
+        aegis_instrument_id="AEGIS-IN-000032",
+    ),
+    "MARUTI": CuratedInstrumentMetadata(
+        isin="INE585B01010",
+        company_legal_name="Maruti Suzuki India Limited",
+        security_type="EQUITY",
+        listing_date=date(2003, 7, 9),
+        sector="Automobile and Auto Components",
+        industry="Automobile and Auto Components",
+        aegis_instrument_id="AEGIS-IN-000033",
+    ),
+    "MAXHEALTH": CuratedInstrumentMetadata(
+        isin="INE027H01010",
+        company_legal_name="Max Healthcare Institute Limited",
+        security_type="EQUITY",
+        listing_date=date(2020, 8, 21),
+        sector="Healthcare",
+        industry="Healthcare",
+        aegis_instrument_id="AEGIS-IN-000034",
+    ),
+    "NTPC": CuratedInstrumentMetadata(
+        isin="INE733E01010",
+        company_legal_name="NTPC Limited",
+        security_type="EQUITY",
+        listing_date=date(2004, 11, 5),
+        sector="Power",
+        industry="Power",
+        aegis_instrument_id="AEGIS-IN-000035",
+    ),
+    "NESTLEIND": CuratedInstrumentMetadata(
+        isin="INE239A01024",
+        company_legal_name="Nestle India Limited",
+        security_type="EQUITY",
+        listing_date=date(2023, 8, 1),
+        sector="Fast Moving Consumer Goods",
+        industry="Fast Moving Consumer Goods",
+        aegis_instrument_id="AEGIS-IN-000036",
+    ),
+    "ONGC": CuratedInstrumentMetadata(
+        isin="INE213A01029",
+        company_legal_name="Oil & Natural Gas Corporation Limited",
+        security_type="EQUITY",
+        listing_date=date(1995, 7, 19),
+        sector="Oil Gas & Consumable Fuels",
+        industry="Oil Gas & Consumable Fuels",
+        aegis_instrument_id="AEGIS-IN-000037",
+    ),
+    "POWERGRID": CuratedInstrumentMetadata(
+        isin="INE752E01010",
+        company_legal_name="Power Grid Corporation of India Limited",
+        security_type="EQUITY",
+        listing_date=date(2007, 10, 5),
+        sector="Power",
+        industry="Power",
+        aegis_instrument_id="AEGIS-IN-000038",
+    ),
+    "SBILIFE": CuratedInstrumentMetadata(
+        isin="INE123W01016",
+        company_legal_name="SBI Life Insurance Company Limited",
+        security_type="EQUITY",
+        listing_date=date(2017, 10, 3),
+        sector="Financial Services",
+        industry="Financial Services",
+        aegis_instrument_id="AEGIS-IN-000039",
+    ),
+    "SHRIRAMFIN": CuratedInstrumentMetadata(
+        isin="INE721A01047",
+        company_legal_name="Shriram Finance Limited",
+        security_type="EQUITY",
+        listing_date=date(1996, 12, 11),
+        sector="Financial Services",
+        industry="Financial Services",
+        aegis_instrument_id="AEGIS-IN-000040",
+    ),
+    "SBIN": CuratedInstrumentMetadata(
+        isin="INE062A01020",
+        company_legal_name="State Bank of India",
+        security_type="EQUITY",
+        listing_date=date(1995, 3, 1),
+        sector="Financial Services",
+        industry="Financial Services",
+        aegis_instrument_id="AEGIS-IN-000041",
+    ),
+    "SUNPHARMA": CuratedInstrumentMetadata(
+        isin="INE044A01036",
+        company_legal_name="Sun Pharmaceutical Industries Limited",
+        security_type="EQUITY",
+        listing_date=date(1995, 2, 8),
+        sector="Healthcare",
+        industry="Healthcare",
+        aegis_instrument_id="AEGIS-IN-000042",
+    ),
+    "TATACONSUM": CuratedInstrumentMetadata(
+        isin="INE192A01025",
+        company_legal_name="TATA CONSUMER PRODUCTS LIMITED",
+        security_type="EQUITY",
+        listing_date=date(1998, 11, 18),
+        sector="Fast Moving Consumer Goods",
+        industry="Fast Moving Consumer Goods",
+        aegis_instrument_id="AEGIS-IN-000043",
+    ),
+    "TMPV": CuratedInstrumentMetadata(
+        isin="INE155A01022",
+        company_legal_name="Tata Motors Passenger Vehicles Limited",
+        security_type="EQUITY",
+        listing_date=date(1998, 7, 22),
+        sector="Automobile and Auto Components",
+        industry="Automobile and Auto Components",
+        aegis_instrument_id="AEGIS-IN-000044",
+    ),
+    "TATASTEEL": CuratedInstrumentMetadata(
+        isin="INE081A01020",
+        company_legal_name="Tata Steel Limited",
+        security_type="EQUITY",
+        listing_date=date(1998, 11, 18),
+        sector="Metals & Mining",
+        industry="Metals & Mining",
+        aegis_instrument_id="AEGIS-IN-000045",
+    ),
+    "TECHM": CuratedInstrumentMetadata(
+        isin="INE669C01036",
+        company_legal_name="Tech Mahindra Limited",
+        security_type="EQUITY",
+        listing_date=date(2006, 8, 28),
+        sector="Information Technology",
+        industry="Information Technology",
+        aegis_instrument_id="AEGIS-IN-000046",
+    ),
+    "TITAN": CuratedInstrumentMetadata(
+        isin="INE280A01028",
+        company_legal_name="Titan Company Limited",
+        security_type="EQUITY",
+        listing_date=date(2004, 9, 24),
+        sector="Consumer Durables",
+        industry="Consumer Durables",
+        aegis_instrument_id="AEGIS-IN-000047",
+    ),
+    "TRENT": CuratedInstrumentMetadata(
+        isin="INE849A01020",
+        company_legal_name="Trent Limited",
+        security_type="EQUITY",
+        listing_date=date(2004, 6, 7),
+        sector="Consumer Services",
+        industry="Consumer Services",
+        aegis_instrument_id="AEGIS-IN-000048",
+    ),
+    "ULTRACEMCO": CuratedInstrumentMetadata(
+        isin="INE481G01011",
+        company_legal_name="UltraTech Cement Limited",
+        security_type="EQUITY",
+        listing_date=date(2004, 8, 24),
+        sector="Construction Materials",
+        industry="Construction Materials",
+        aegis_instrument_id="AEGIS-IN-000049",
+    ),
+    "WIPRO": CuratedInstrumentMetadata(
+        isin="INE075A01022",
+        company_legal_name="Wipro Limited",
+        security_type="EQUITY",
+        listing_date=date(1995, 11, 8),
+        sector="Information Technology",
+        industry="Information Technology",
+        aegis_instrument_id="AEGIS-IN-000050",
     ),
 }
 
@@ -76,6 +530,12 @@ DEFAULT_BENCHMARK_TRADINGSYMBOL = "NIFTY 50"
 # single call for the "day" interval. Verify this against the current Kite Connect
 # API docs before relying on it -- it has changed across API versions.
 MAX_DAY_INTERVAL_DAYS_PER_REQUEST = 2000
+
+# Kite Connect's historical-data endpoint is rate-limited to 3 requests/second
+# (per Kite's developer forum, verify against current docs). A 50-instrument
+# universe with a multi-year lookback needs multiple chunked calls per
+# instrument -- comfortably enough to trip that limit without throttling.
+HISTORICAL_DATA_MIN_INTERVAL_SECONDS = 0.4
 
 
 class KiteConnectMarketDataProvider:
@@ -109,11 +569,13 @@ class KiteConnectMarketDataProvider:
         lookback_days: int = 3650,
         license_: ProviderLicense | None = None,
         configured: bool = False,
+        historical_data_min_interval_seconds: float = HISTORICAL_DATA_MIN_INTERVAL_SECONDS,
     ) -> None:
         self._client = client
         self._tradingsymbols = tradingsymbols or list(CURATED_INSTRUMENT_METADATA.keys())
         self._benchmark_tradingsymbol = benchmark_tradingsymbol
         self._lookback_days = lookback_days
+        self._historical_data_min_interval_seconds = historical_data_min_interval_seconds
         self.configured = configured and client is not None
         self._license = license_ or ProviderLicense(
             provider_id="kite-connect",
@@ -127,6 +589,7 @@ class KiteConnectMarketDataProvider:
             legal_review_status="PENDING_PROVIDER_SETUP",
         )
         self._instrument_cache: list[dict[str, Any]] | None = None
+        self._last_historical_request_at: float | None = None
 
     def __getattr__(self, name: str) -> Any:
         blocked = {
@@ -218,6 +681,14 @@ class KiteConnectMarketDataProvider:
             metadata={"unmapped_symbols": unmapped},
         )
 
+    def _throttle_historical_request(self) -> None:
+        if self._last_historical_request_at is not None:
+            elapsed = time.monotonic() - self._last_historical_request_at
+            remaining = self._historical_data_min_interval_seconds - elapsed
+            if remaining > 0:
+                time.sleep(remaining)
+        self._last_historical_request_at = time.monotonic()
+
     def _fetch_day_candles(self, instrument_token: int) -> list[dict[str, Any]]:
         to_date = datetime.now(UTC).date()
         from_date = to_date - timedelta(days=self._lookback_days)
@@ -227,6 +698,7 @@ class KiteConnectMarketDataProvider:
             chunk_end = min(
                 chunk_start + timedelta(days=MAX_DAY_INTERVAL_DAYS_PER_REQUEST), to_date
             )
+            self._throttle_historical_request()
             candles.extend(
                 self._client.historical_data(  # type: ignore[union-attr]
                     instrument_token, chunk_start, chunk_end, "day"
