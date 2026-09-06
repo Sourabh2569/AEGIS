@@ -4,9 +4,9 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-
 from aegis.audit.service import AuditLog
 from aegis.configuration.settings import Settings
+from aegis.corporate_actions.service import CorporateActionService
 from aegis.data_ingestion.service import (
     InMemoryRepository,
     LocalObjectStore,
@@ -28,7 +28,6 @@ from aegis.domain.models import (
     ValidationStatus,
     now_utc,
 )
-from aegis.corporate_actions.service import CorporateActionService
 from aegis.provider_adapters.mock_provider import MockMarketDataProvider
 
 
@@ -69,13 +68,13 @@ def test_duplicate_payload_does_not_create_second_dataset_version(tmp_path: Path
         repository=repo,
         audit_log=AuditLog(),
     )
-    kwargs = dict(
-        provider=MockMarketDataProvider(),
-        provider_id="provider-1",
-        dataset_id="dataset-1",
-        dataset_name="eod_prices",
-        known_instrument_ids={"AEGIS-IN-000001"},
-    )
+    kwargs = {
+        "provider": MockMarketDataProvider(),
+        "provider_id": "provider-1",
+        "dataset_id": "dataset-1",
+        "dataset_name": "eod_prices",
+        "known_instrument_ids": {"AEGIS-IN-000001"},
+    }
     first = service.ingest_eod_prices(**kwargs)
     second = service.ingest_eod_prices(**kwargs)
     assert first.status == IngestionStatus.COMPLETED

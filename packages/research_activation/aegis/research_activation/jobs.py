@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from enum import Enum
 from typing import Any
 from uuid import uuid4
@@ -30,7 +30,7 @@ class ActualResearchJob:
     feature_run_id: str | None = None
     job_id: str = field(default_factory=lambda: f"actual-research-job-{uuid4()}")
     status: str = "QUEUED"
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     completed_at: str | None = None
     result: dict[str, Any] = field(default_factory=dict)
 
@@ -64,7 +64,7 @@ class ActualResearchJobRunner:
             job_id=queued.job_id,
             status="BLOCKED" if readiness["overall_status"] == "BLOCKED" else "COMPLETED",
             created_at=queued.created_at,
-            completed_at=datetime.now(timezone.utc).isoformat(),
+            completed_at=datetime.now(UTC).isoformat(),
             result={
                 "readiness": readiness,
                 "paper_trading_activated": False,

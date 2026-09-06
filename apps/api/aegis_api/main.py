@@ -7,14 +7,11 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
 from aegis.audit.service import AuditLog
 from aegis.auth.service import AuthenticatedUser, AuthService
 from aegis.auth.tokens import TokenError
 from aegis.auth.users import UserStoreError
-from aegis.backtesting.domain import BacktestRunStatus, OrderSide, SPRINT_1A_LABELS
+from aegis.backtesting.domain import SPRINT_1A_LABELS, BacktestRunStatus, OrderSide
 from aegis.backtesting.engine import BacktestService
 from aegis.backtesting.fixtures import load_calendar, load_market_data
 from aegis.backtesting.repositories import BacktestRepository
@@ -40,13 +37,6 @@ from aegis.domain.models import (
     ValidationStatus,
 )
 from aegis.instrument_master.service import InstrumentMasterService
-from aegis.provider_adapters.csv_provider import CsvFileProvider
-from aegis.provider_adapters.kite_connect_provider import (
-    CURATED_INSTRUMENT_METADATA,
-    KiteConnectMarketDataProvider,
-)
-from aegis.provider_adapters.live_readonly_provider import LiveReadOnlyMarketDataProvider
-from aegis.provider_adapters.mock_provider import MockMarketDataProvider
 from aegis.paper_trading.domain import PAPER_LABELS, IncidentType, PaperPortfolioStatus
 from aegis.paper_trading.persistence import SqlitePaperTradingRepository
 from aegis.paper_trading.queue import PaperSessionJob, SqlitePaperSessionQueue
@@ -56,11 +46,19 @@ from aegis.paper_trading.services import (
     all_admission_evidence,
     all_readiness_green,
 )
-from aegis.research_registry.sprint2 import RESEARCH_LABELS
+from aegis.provider_adapters.csv_provider import CsvFileProvider
+from aegis.provider_adapters.kite_connect_provider import (
+    CURATED_INSTRUMENT_METADATA,
+    KiteConnectMarketDataProvider,
+)
+from aegis.provider_adapters.live_readonly_provider import LiveReadOnlyMarketDataProvider
+from aegis.provider_adapters.mock_provider import MockMarketDataProvider
 from aegis.research_activation.evidence_review import ResearchEvidenceReviewGate
 from aegis.research_activation.service import HistoricalResearchActivationService
+from aegis.research_registry.sprint2 import RESEARCH_LABELS
 from aegis.risk.engine import KillSwitchType, RiskProfileVersion
-
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 settings = Settings.from_env()
 settings.validate_startup()
@@ -1690,7 +1688,7 @@ def get_feature_run_quality(feature_run_id: str) -> dict[str, Any]:
     return {
         "feature_run_id": feature_run_id,
         "validation_status": record["validation_status"] if record else "NOT_FOUND_OR_FIXTURE_ONLY",
-        "point_in_time_pass": False if record is None else True,
+        "point_in_time_pass": record is not None,
         "same_close_execution_allowed": False,
     }
 
@@ -1970,7 +1968,7 @@ def run_paper_session(payload: dict[str, Any]) -> dict[str, Any]:
         paper_portfolio_id=payload["paper_portfolio_id"],
         session_date=date.fromisoformat(payload.get("session_date", "2026-06-26")),
         readiness_flags=all_readiness_green(),
-        reference_prices={"AEGIS-IN-000001": Decimal("112")},
+        reference_prices={"AEGIS-IN-000001": Decimal(112)},
     )
     return jsonable(session)
 

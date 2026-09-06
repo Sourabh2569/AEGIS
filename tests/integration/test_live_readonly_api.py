@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from aegis_api.main import app
+from fastapi.testclient import TestClient
 
 
 def test_live_readonly_sync_blocks_when_provider_is_not_configured() -> None:

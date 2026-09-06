@@ -5,7 +5,6 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-
 from aegis.backtesting.sprint2 import Sprint2ResearchScenarioRunner
 from aegis.feature_engine.engine import daily_return, ema, rsi, sma
 from aegis.research_registry.sprint2 import (
@@ -23,7 +22,6 @@ from aegis.risk.engine import (
     RiskProfileVersion,
     drawdown_state,
 )
-
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -103,13 +101,13 @@ def test_research_only_status_enforced() -> None:
 
 
 def test_feature_math_known_values() -> None:
-    values = [Decimal("1"), Decimal("2"), Decimal("3"), Decimal("4")]
-    assert daily_return(Decimal("100"), Decimal("110")) == Decimal("0.1000")
+    values = [Decimal(1), Decimal(2), Decimal(3), Decimal(4)]
+    assert daily_return(Decimal(100), Decimal(110)) == Decimal("0.1000")
     assert sma(values, 4) == Decimal("2.5000")
     assert ema(values, 2) is not None
-    assert rsi(
-        [Decimal("1"), Decimal("2"), Decimal("3"), Decimal("4"), Decimal("5")], 4
-    ) == Decimal("100.0000")
+    assert rsi([Decimal(1), Decimal(2), Decimal(3), Decimal(4), Decimal(5)], 4) == Decimal(
+        "100.0000"
+    )
 
 
 def test_risk_state_and_kill_switch_block() -> None:
@@ -118,21 +116,21 @@ def test_risk_state_and_kill_switch_block() -> None:
         portfolio_id="p",
         strategy_id="s",
         instrument_id="i",
-        portfolio_nav=Decimal("100000"),
-        available_cash=Decimal("100000"),
-        existing_position_value=Decimal("0"),
-        sector_value=Decimal("0"),
-        cluster_value=Decimal("0"),
-        gross_equity_value=Decimal("0"),
-        entry_price=Decimal("100"),
-        invalidation_price=Decimal("90"),
-        proposed_quantity=Decimal("100"),
+        portfolio_nav=Decimal(100000),
+        available_cash=Decimal(100000),
+        existing_position_value=Decimal(0),
+        sector_value=Decimal(0),
+        cluster_value=Decimal(0),
+        gross_equity_value=Decimal(0),
+        entry_price=Decimal(100),
+        invalidation_price=Decimal(90),
+        proposed_quantity=Decimal(100),
         sector="Financials",
         cluster="FINANCIALS",
         data_quality_status="GREEN",
         instrument_eligibility_status="ELIGIBLE",
         profile=RiskProfileVersion(),
-        current_drawdown=Decimal("0"),
+        current_drawdown=Decimal(0),
         kill_switches=[KillSwitch(KillSwitchType.GLOBAL_TRADING_KILL_SWITCH, "GLOBAL", True)],
     )
     assert assessment.approved_quantity == Decimal("0.000000")

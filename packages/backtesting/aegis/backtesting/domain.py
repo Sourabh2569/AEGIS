@@ -151,13 +151,13 @@ class BacktestRun:
     def labels(self) -> tuple[str, ...]:
         return SPRINT_1A_LABELS
 
-    def mark_running(self) -> "BacktestRun":
+    def mark_running(self) -> BacktestRun:
         return replace(self, status=BacktestRunStatus.RUNNING, started_at=utc_now())
 
-    def mark_completed(self) -> "BacktestRun":
+    def mark_completed(self) -> BacktestRun:
         return replace(self, status=BacktestRunStatus.COMPLETED, completed_at=utc_now())
 
-    def mark_failed(self, reason: str) -> "BacktestRun":
+    def mark_failed(self, reason: str) -> BacktestRun:
         return replace(
             self,
             status=BacktestRunStatus.FAILED,
@@ -190,9 +190,9 @@ class SimulatedPortfolio:
     name: str
     starting_cash: Decimal
     current_available_cash: Decimal
-    current_reserved_cash: Decimal = Decimal("0")
-    current_market_value: Decimal = Decimal("0")
-    current_nav: Decimal = Decimal("0")
+    current_reserved_cash: Decimal = Decimal(0)
+    current_market_value: Decimal = Decimal(0)
+    current_nav: Decimal = Decimal(0)
     currency: str = INR
     status: PortfolioStatus = PortfolioStatus.CREATED
     id: str = field(default_factory=lambda: new_id("pf"))
@@ -304,7 +304,7 @@ class SimulatedOrder:
     submitted_at: datetime
     eligible_execution_time: datetime
     requested_quantity: Decimal
-    filled_quantity: Decimal = Decimal("0")
+    filled_quantity: Decimal = Decimal(0)
     executed_at_nullable: datetime | None = None
     average_fill_price_nullable: Decimal | None = None
     gross_notional_nullable: Decimal | None = None
@@ -327,7 +327,7 @@ class SimulatedFill:
     gross_notional: Decimal
     currency: str
     net_cash_effect: Decimal
-    cost_total: Decimal = Decimal("0")
+    cost_total: Decimal = Decimal(0)
     settlement_model_version: str = "IMMEDIATE_SETTLEMENT_SIMULATION_V0"
     id: str = field(default_factory=lambda: new_id("fill"))
     created_at: datetime = field(default_factory=utc_now)

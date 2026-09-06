@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
+from itertools import pairwise
 from statistics import pstdev
 from typing import Any
 
@@ -91,10 +92,10 @@ def sma(values: list[Decimal], lookback: int) -> Decimal | None:
 def ema(values: list[Decimal], lookback: int) -> Decimal | None:
     if len(values) < lookback:
         return None
-    alpha = Decimal("2") / Decimal(lookback + 1)
+    alpha = Decimal(2) / Decimal(lookback + 1)
     current = values[0]
     for value in values[1:]:
-        current = (value * alpha) + (current * (Decimal("1") - alpha))
+        current = (value * alpha) + (current * (Decimal(1) - alpha))
     return money(current)
 
 
@@ -104,16 +105,16 @@ def rsi(closes: list[Decimal], lookback: int = 14) -> Decimal | None:
     gains: list[Decimal] = []
     losses: list[Decimal] = []
     window = closes[-(lookback + 1) :]
-    for previous, current in zip(window, window[1:]):
+    for previous, current in pairwise(window):
         change = current - previous
-        gains.append(max(change, Decimal("0")))
-        losses.append(abs(min(change, Decimal("0"))))
+        gains.append(max(change, Decimal(0)))
+        losses.append(abs(min(change, Decimal(0))))
     avg_gain = sum(gains) / Decimal(lookback)
     avg_loss = sum(losses) / Decimal(lookback)
     if avg_loss == 0:
         return money(100)
     rs = avg_gain / avg_loss
-    return money(Decimal("100") - (Decimal("100") / (Decimal("1") + rs)))
+    return money(Decimal(100) - (Decimal(100) / (Decimal(1) + rs)))
 
 
 def atr(

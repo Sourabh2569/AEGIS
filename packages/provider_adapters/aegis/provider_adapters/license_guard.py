@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 from aegis.domain.models import ProviderLicense, ProviderLicenseStatus
 
 
 class ProviderLicenseGuard:
-    blocked_statuses = {ProviderLicenseStatus.EXPIRED, ProviderLicenseStatus.REJECTED}
+    blocked_statuses: ClassVar[set[ProviderLicenseStatus]] = {
+        ProviderLicenseStatus.EXPIRED,
+        ProviderLicenseStatus.REJECTED,
+    }
 
     def assert_ingestion_allowed(self, license_: ProviderLicense | None) -> None:
         if license_ is None:

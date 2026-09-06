@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Protocol
 
 from aegis.domain.models import ProviderLicense, ProviderLicenseStatus
@@ -141,7 +141,7 @@ class KiteConnectMarketDataProvider:
         raise AttributeError(name)
 
     def _now(self) -> datetime:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
     def validate_read_only_scope(self) -> None:
         if self.broker_order_access:
@@ -212,7 +212,7 @@ class KiteConnectMarketDataProvider:
         )
 
     def _fetch_day_candles(self, instrument_token: int) -> list[dict[str, Any]]:
-        to_date = date.today()
+        to_date = datetime.now(UTC).date()
         from_date = to_date - timedelta(days=self._lookback_days)
         candles: list[dict[str, Any]] = []
         chunk_start = from_date

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 from aegis.backtesting.domain import BacktestRun, SimulationClassification
 from aegis.backtesting.repositories import MarketDataReader, TradingCalendarReader
 from aegis.domain.models import (
@@ -13,7 +15,10 @@ from aegis.shared.errors import EligibilityError
 
 
 class DatasetEligibilityGuard:
-    allowed_statuses = {ValidationStatus.GREEN, ValidationStatus.GREEN_CAUTION}
+    allowed_statuses: ClassVar[set[ValidationStatus]] = {
+        ValidationStatus.GREEN,
+        ValidationStatus.GREEN_CAUTION,
+    }
 
     def assert_eligible(self, version: DatasetVersion, license_: ProviderLicense) -> None:
         if version.validation_status not in self.allowed_statuses:

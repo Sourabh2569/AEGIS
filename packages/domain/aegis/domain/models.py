@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime, timezone
 from enum import Enum
 from typing import Any
 from uuid import uuid4
@@ -12,7 +12,7 @@ class StrEnum(str, Enum):
 
 
 def now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class ProviderLicenseStatus(StrEnum):
@@ -300,10 +300,10 @@ class ExperimentManifest:
     id: str = field(default_factory=lambda: str(uuid4()))
     created_at: datetime = field(default_factory=now_utc)
 
-    def freeze(self) -> "ExperimentManifest":
+    def freeze(self) -> ExperimentManifest:
         return replace(self, is_frozen=True, frozen_at=now_utc())
 
-    def update_metric(self, primary_metric: str) -> "ExperimentManifest":
+    def update_metric(self, primary_metric: str) -> ExperimentManifest:
         if self.is_frozen:
             raise ValueError("Experiment manifest is frozen and immutable.")
         return replace(self, primary_metric=primary_metric)

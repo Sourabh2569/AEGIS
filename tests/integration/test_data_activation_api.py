@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from aegis_api.main import app
+from fastapi.testclient import TestClient
 
 
 def test_data_activation_truth_endpoints_are_fail_closed() -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import fields, is_dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
@@ -87,7 +87,7 @@ def to_json(value: Any) -> str:
     return json.dumps(encode_value(value), sort_keys=True)
 
 
-def from_json(payload: str, cls: type[T]) -> T:
+def from_json[T](payload: str, cls: type[T]) -> T:
     raw = json.loads(payload)
     kwargs = {}
     dataclass_type = cast(Any, cls)
@@ -224,7 +224,7 @@ class SqlitePaperTradingRepository(PaperTradingRepository):
                     payload_json = excluded.payload_json,
                     updated_at = excluded.updated_at
                 """,
-                (entity_id, paper_portfolio_id, to_json(item), datetime.utcnow().isoformat()),
+                (entity_id, paper_portfolio_id, to_json(item), datetime.now(UTC).isoformat()),
             )
 
     def add_portfolio(self, portfolio: PaperPortfolio, config: PaperPortfolioConfiguration) -> None:

@@ -9,12 +9,12 @@ from aegis.domain.models import (
     RawDataObject,
     ValidationStatus,
 )
+from aegis.research_activation.evidence_review import ResearchEvidenceReviewGate
 from aegis.research_activation.jobs import (
     ActualResearchJob,
     ActualResearchJobRunner,
     ActualResearchJobType,
 )
-from aegis.research_activation.evidence_review import ResearchEvidenceReviewGate
 from aegis.research_activation.service import HistoricalResearchActivationService
 
 

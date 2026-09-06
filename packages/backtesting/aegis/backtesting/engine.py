@@ -540,7 +540,7 @@ class BacktestService:
             valuation_time=close_time,
             market_session_date=session,
             available_cash=portfolio.current_available_cash,
-            reserved_cash=Decimal("0"),
+            reserved_cash=Decimal(0),
             gross_market_value=market_value,
             net_market_value=market_value,
             position_quantity=qty,

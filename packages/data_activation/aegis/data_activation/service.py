@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from typing import Any
 
 from aegis.configuration.settings import Settings
@@ -12,7 +12,6 @@ from aegis.domain.models import (
     ProviderLicenseStatus,
     ValidationStatus,
 )
-
 
 PROVIDER_STATE_LABELS = {
     "NOT_CONFIGURED": "Provider setup required",
@@ -125,7 +124,7 @@ class DataActivationService:
             "provider_configured": self.provider_configured(),
             "read_only": True,
             "order_access_enabled": False,
-            "last_updated_at": datetime.now(timezone.utc).isoformat(),
+            "last_updated_at": datetime.now(UTC).isoformat(),
         }
 
     def capability(self, provider_id: str) -> ProviderCapability:
@@ -134,7 +133,7 @@ class DataActivationService:
         health = self.repository.provider_health.get(provider_id, {})
         latest_run = self.latest_successful_ingestion(provider_id)
         state = self.provider_state(provider_id)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         license_status = license_.license_status.value if license_ else "NOT_APPROVED"
         return ProviderCapability(
             provider_id=provider_id,
@@ -239,7 +238,7 @@ class DataActivationService:
                     "PAPER_TRADING_USE_OF_ACTUAL_DATA_DISABLED",
                 ],
             },
-            "last_updated_at": datetime.now(timezone.utc).isoformat(),
+            "last_updated_at": datetime.now(UTC).isoformat(),
         }
 
     def blockers(self) -> list[dict[str, Any]]:
@@ -252,7 +251,7 @@ class DataActivationService:
                     "severity": "WARNING",
                 }
             )
-        provider, license_ = self.selected_provider()
+        _provider, license_ = self.selected_provider()
         if license_ is None or license_.license_status != ProviderLicenseStatus.APPROVED:
             blockers.append(
                 {

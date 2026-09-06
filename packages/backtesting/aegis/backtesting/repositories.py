@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -116,16 +116,16 @@ class BacktestRepository:
     def realized_pnl(self, backtest_run_id: str) -> Decimal:
         return sum(
             (entry.realized_pnl_delta for entry in self.position_ledger.get(backtest_run_id, [])),
-            Decimal("0"),
+            Decimal(0),
         )
 
     def current_quantity(self, backtest_run_id: str) -> Decimal:
         entries = self.position_ledger.get(backtest_run_id, [])
-        return entries[-1].quantity_after if entries else Decimal("0")
+        return entries[-1].quantity_after if entries else Decimal(0)
 
     def current_cost_basis(self, backtest_run_id: str) -> Decimal:
         entries = self.position_ledger.get(backtest_run_id, [])
-        return entries[-1].cost_basis_after if entries else Decimal("0")
+        return entries[-1].cost_basis_after if entries else Decimal(0)
 
 
 class TradingCalendarReader:
@@ -138,17 +138,17 @@ class TradingCalendarReader:
         return [session for session in self.sessions if start_date <= session <= end_date]
 
     def next_session_after(self, decision_time: datetime) -> date | None:
-        local_date = decision_time.astimezone(timezone.utc).date()
+        local_date = decision_time.astimezone(UTC).date()
         for session in self.sessions:
             if session > local_date:
                 return session
         return None
 
     def session_open_time(self, session: date) -> datetime:
-        return datetime.combine(session, time(3, 45), tzinfo=timezone.utc)
+        return datetime.combine(session, time(3, 45), tzinfo=UTC)
 
     def session_close_time(self, session: date) -> datetime:
-        return datetime.combine(session, time(10, 0), tzinfo=timezone.utc)
+        return datetime.combine(session, time(10, 0), tzinfo=UTC)
 
 
 class MarketDataReader:

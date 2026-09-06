@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from aegis.audit.service import AuditLog
 from aegis.configuration.settings import Settings
 from aegis.data_ingestion.service import (

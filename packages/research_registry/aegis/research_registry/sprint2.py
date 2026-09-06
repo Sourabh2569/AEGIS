@@ -167,10 +167,10 @@ class ExperimentManifest:
     id: str = field(default_factory=lambda: new_id("manifest"))
     created_at: datetime = field(default_factory=utc_now)
 
-    def freeze(self) -> "ExperimentManifest":
+    def freeze(self) -> ExperimentManifest:
         return replace(self, is_frozen=True, frozen_at=utc_now())
 
-    def update_rebalance_frequency(self, value: str) -> "ExperimentManifest":
+    def update_rebalance_frequency(self, value: str) -> ExperimentManifest:
         if self.is_frozen:
             raise ValueError("Frozen experiment manifests are immutable.")
         return replace(self, rebalance_frequency=value)

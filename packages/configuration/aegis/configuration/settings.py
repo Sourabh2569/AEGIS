@@ -52,7 +52,7 @@ class Settings:
     auth_allow_insecure_header_fallback: bool = False
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         environment = os.getenv("ENVIRONMENT", "development")
         # Only development/test get the insecure header fallback by default,
         # and only when the operator hasn't set the flag explicitly.

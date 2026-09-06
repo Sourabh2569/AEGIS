@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid5, NAMESPACE_URL
+from uuid import NAMESPACE_URL, uuid5
 
 from aegis.research_activation.service import HistoricalResearchActivationService
-
 
 BASELINE_STRATEGY_VERSIONS = [
     "BuyAndHoldBenchmarkStrategyV0",
@@ -97,7 +96,7 @@ class ResearchEvidenceReviewGate:
         gate_summary = self._gate_summary(readiness, missing_evidence)
         review = BaselineEvidenceReview(
             review_id=self._review_id(strategy_version),
-            review_date=date.today().isoformat(),
+            review_date=datetime.now(UTC).date().isoformat(),
             strategy_name=strategy_version.removesuffix("StrategyV0").replace("V0", ""),
             strategy_version=strategy_version,
             experiment_id=None,

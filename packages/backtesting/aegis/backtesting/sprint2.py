@@ -88,8 +88,8 @@ def _latest_candidates(root: Path) -> list[Candidate]:
         momentum = money((closes[-1] - closes[0]) / closes[0])
         sma_50 = money(sum(closes) / Decimal(len(closes)) * Decimal("0.98"))
         sma_200 = money(sum(closes) / Decimal(len(closes)) * Decimal("0.95"))
-        atr = money(sum((bar["high"] - bar["low"] for bar in bars)) / Decimal(len(bars)))
-        adv = money(sum((bar["close"] * bar["volume"] for bar in bars)) / Decimal(len(bars)))
+        atr = money(sum(bar["high"] - bar["low"] for bar in bars) / Decimal(len(bars)))
+        adv = money(sum(bar["close"] * bar["volume"] for bar in bars) / Decimal(len(bars)))
         candidates.append(
             Candidate(
                 instrument_id=instrument_id,
@@ -115,12 +115,10 @@ class Sprint2ResearchScenarioRunner:
         self.cost_model = CostModel()
         self.cost_schedule = _load_cost_schedule(fixture_root)
         self.slippage = FixedBpsSlippageModelV0(
-            buy_slippage_bps=Decimal("5"), sell_slippage_bps=Decimal("5")
+            buy_slippage_bps=Decimal(5), sell_slippage_bps=Decimal(5)
         )
 
-    def run_equal_weight_scenario(
-        self, starting_cash: Decimal = Decimal("100000")
-    ) -> Sprint2Report:
+    def run_equal_weight_scenario(self, starting_cash: Decimal = Decimal(100000)) -> Sprint2Report:
         portfolio = ResearchPortfolio(portfolio_id="sprint2-scenario-a", cash=money(starting_cash))
         candidates = EqualWeightUniverseBenchmarkStrategyV0().rank_candidates(
             _latest_candidates(self.fixture_root)
@@ -133,7 +131,7 @@ class Sprint2ResearchScenarioRunner:
         cluster_values: dict[str, Decimal] = {}
         warnings = ["Historical simulation does not guarantee future results."]
         for candidate in candidates:
-            target_weight = targets.get(candidate.instrument_id, Decimal("0"))
+            target_weight = targets.get(candidate.instrument_id, Decimal(0))
             proposed_notional = money(starting_cash * target_weight)
             proposed_quantity = quantity(proposed_notional / candidate.close)
             assessment = self.risk_engine.assess(
@@ -142,15 +140,15 @@ class Sprint2ResearchScenarioRunner:
                 instrument_id=candidate.instrument_id,
                 portfolio_nav=starting_cash,
                 available_cash=portfolio.available_cash(),
-                existing_position_value=Decimal("0"),
-                sector_value=sector_values.get(candidate.sector, Decimal("0")),
-                cluster_value=cluster_values.get(candidate.cluster, Decimal("0")),
+                existing_position_value=Decimal(0),
+                sector_value=sector_values.get(candidate.sector, Decimal(0)),
+                cluster_value=cluster_values.get(candidate.cluster, Decimal(0)),
                 gross_equity_value=sum(
                     (
                         qty * _latest_price(self.fixture_root, inst)
                         for inst, qty in portfolio.positions.items()
                     ),
-                    Decimal("0"),
+                    Decimal(0),
                 ),
                 entry_price=candidate.close,
                 invalidation_price=money(candidate.close * Decimal("0.90")),
@@ -160,7 +158,7 @@ class Sprint2ResearchScenarioRunner:
                 data_quality_status="GREEN",
                 instrument_eligibility_status="ELIGIBLE",
                 profile=self.profile,
-                current_drawdown=Decimal("0"),
+                current_drawdown=Decimal(0),
             )
             assessments.append(assessment)
             if assessment.approved_quantity > 0:
@@ -174,10 +172,10 @@ class Sprint2ResearchScenarioRunner:
                     costs.total_cost,
                 )
                 sector_values[candidate.sector] = money(
-                    sector_values.get(candidate.sector, Decimal("0")) + notional
+                    sector_values.get(candidate.sector, Decimal(0)) + notional
                 )
                 cluster_values[candidate.cluster] = money(
-                    cluster_values.get(candidate.cluster, Decimal("0")) + notional
+                    cluster_values.get(candidate.cluster, Decimal(0)) + notional
                 )
         ending_nav = self._nav(portfolio)
         return Sprint2Report(
@@ -217,13 +215,13 @@ class Sprint2ResearchScenarioRunner:
         return self.run_equal_weight_scenario()
 
     def settlement_restriction_demo(self) -> str:
-        portfolio = ResearchPortfolio(portfolio_id="settlement-demo", cash=Decimal("100000"))
-        portfolio.buy("AEGIS-IN-000001", Decimal("100"), Decimal("100"), Decimal("0"))
+        portfolio = ResearchPortfolio(portfolio_id="settlement-demo", cash=Decimal(100000))
+        portfolio.buy("AEGIS-IN-000001", Decimal(100), Decimal(100), Decimal(0))
         portfolio.sell_t_plus_1(
-            "AEGIS-IN-000001", Decimal("100"), Decimal("110"), Decimal("0"), date(2026, 6, 30)
+            "AEGIS-IN-000001", Decimal(100), Decimal(110), Decimal(0), date(2026, 6, 30)
         )
         try:
-            portfolio.buy("AEGIS-IN-000002", Decimal("455"), Decimal("200"), Decimal("0"))
+            portfolio.buy("AEGIS-IN-000002", Decimal(455), Decimal(200), Decimal(0))
         except ValueError as exc:
             return str(exc)
         return "UNEXPECTEDLY_ALLOWED"
@@ -234,7 +232,7 @@ class Sprint2ResearchScenarioRunner:
                 quantity_value * _latest_price(self.fixture_root, instrument_id)
                 for instrument_id, quantity_value in portfolio.positions.items()
             ),
-            Decimal("0"),
+            Decimal(0),
         )
         return money(portfolio.cash + portfolio.unsettled_receivables + market_value)
 

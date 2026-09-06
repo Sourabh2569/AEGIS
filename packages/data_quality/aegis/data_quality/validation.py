@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime, timezone
 from typing import Any
 
 from aegis.domain.models import DataQualityResult, QualityCategory, Severity, ValidationStatus
@@ -152,15 +152,15 @@ def freshness_snapshot(
     max_age_seconds: int,
     checked_at: datetime | None = None,
 ) -> dict[str, Any]:
-    checked_at = checked_at or datetime.now(timezone.utc)
+    checked_at = checked_at or datetime.now(UTC)
     latest_available: datetime | None = None
     for record in records:
         raw = record.get("available_time")
         if not raw:
             continue
-        candidate = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        candidate = datetime.fromisoformat(str(raw))
         if candidate.tzinfo is None:
-            candidate = candidate.replace(tzinfo=timezone.utc)
+            candidate = candidate.replace(tzinfo=UTC)
         latest_available = (
             candidate if latest_available is None else max(latest_available, candidate)
         )
@@ -168,7 +168,7 @@ def freshness_snapshot(
     age_seconds = (
         None
         if latest_available is None
-        else max(0.0, (checked_at - latest_available.astimezone(timezone.utc)).total_seconds())
+        else max(0.0, (checked_at - latest_available.astimezone(UTC)).total_seconds())
     )
     status = (
         "UNKNOWN"

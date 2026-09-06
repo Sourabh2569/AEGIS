@@ -5,9 +5,8 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from fastapi.testclient import TestClient
-
 from aegis_api.main import app
+from fastapi.testclient import TestClient
 
 
 def test_paper_portfolio_queue_and_corporate_action_api_flow() -> None:

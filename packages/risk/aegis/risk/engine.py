@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from decimal import Decimal, ROUND_FLOOR
+from decimal import ROUND_FLOOR, Decimal
 from enum import Enum
 from typing import Any
 
@@ -54,8 +54,8 @@ class RiskProfileVersion:
     maximum_position_count: int = 8
     minimum_position_count_when_deployed: int = 5
     strategy_allocation_cap: Decimal = Decimal("0.80")
-    configured_gap_risk_amount: Decimal = Decimal("5")
-    minimum_trade_notional: Decimal = Decimal("500")
+    configured_gap_risk_amount: Decimal = Decimal(5)
+    minimum_trade_notional: Decimal = Decimal(500)
     effective_from: datetime = field(default_factory=utc_now)
     effective_to: datetime | None = None
 
@@ -123,7 +123,7 @@ def state_multiplier(state: PortfolioRiskState) -> Decimal:
 
 
 def floor_quantity(value: Decimal) -> Decimal:
-    return quantity(value.quantize(Decimal("1"), rounding=ROUND_FLOOR))
+    return quantity(value.quantize(Decimal(1), rounding=ROUND_FLOOR))
 
 
 class PositionSizingEngine:
@@ -185,7 +185,7 @@ class PositionSizingEngine:
         )
         if risk_per_share <= 0:
             reasons.append("INVALID_RISK_PER_SHARE")
-            risk_per_share = Decimal("999999999")
+            risk_per_share = Decimal(999999999)
 
         risk_budget = money(portfolio_nav * profile.maximum_risk_budget_per_position)
         qty_by_risk = floor_quantity(risk_budget / risk_per_share)
@@ -194,15 +194,15 @@ class PositionSizingEngine:
         )
         max_spend = max(
             money(available_cash - (portfolio_nav * profile.minimum_cash_weight_normal)),
-            Decimal("0"),
+            Decimal(0),
         )
         qty_by_cash = floor_quantity(max_spend / entry_price)
         qty_by_sector = floor_quantity(
-            max((portfolio_nav * profile.maximum_sector_weight) - sector_value, Decimal("0"))
+            max((portfolio_nav * profile.maximum_sector_weight) - sector_value, Decimal(0))
             / entry_price
         )
         qty_by_cluster = floor_quantity(
-            max((portfolio_nav * profile.maximum_cluster_weight) - cluster_value, Decimal("0"))
+            max((portfolio_nav * profile.maximum_cluster_weight) - cluster_value, Decimal(0))
             / entry_price
         )
         qty_by_strategy = floor_quantity(
@@ -211,7 +211,7 @@ class PositionSizingEngine:
         qty_by_exposure = floor_quantity(
             max(
                 (portfolio_nav * profile.maximum_gross_equity_exposure_normal) - gross_equity_value,
-                Decimal("0"),
+                Decimal(0),
             )
             / entry_price
         )
@@ -264,7 +264,7 @@ class PositionSizingEngine:
             cluster_weight_after=money(cluster_after / portfolio_nav),
             available_cash_before=money(available_cash),
             available_cash_after=available_cash_after,
-            risk_budget_before=money(Decimal("0")),
+            risk_budget_before=money(Decimal(0)),
             risk_budget_after=money(risk_budget),
             data_quality_status=data_quality_status,
             instrument_eligibility_status=instrument_eligibility_status,

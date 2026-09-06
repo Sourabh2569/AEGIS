@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
-
 from aegis.audit.service import AuditLog
 from aegis.backtesting.accounting import gross_notional, weighted_average_cost_basis
 from aegis.backtesting.domain import (
+    SPRINT_1A_LABELS,
     BacktestRunStatus,
     OrderSide,
     SimulatedOrderStatus,
-    SPRINT_1A_LABELS,
 )
 from aegis.backtesting.engine import BacktestService
 from aegis.backtesting.execution import reject_same_close_execution
@@ -26,7 +25,6 @@ from aegis.domain.models import (
     ValidationStatus,
 )
 from aegis.shared.errors import OrderRejected
-
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -93,16 +91,16 @@ def service_setup(market_file: str = "valid_eod_prices.csv"):
         instrument_id="AEGIS-IN-000001",
         start_date=date(2026, 6, 25),
         end_date=date(2026, 6, 29),
-        starting_cash=Decimal("100000"),
+        starting_cash=Decimal(100000),
         created_by="RESEARCHER",
     )
     return service, repo, audit, calendar, market_data, run
 
 
 def test_decimal_money_arithmetic_and_weighted_average_cost_basis() -> None:
-    assert gross_notional(Decimal("10"), Decimal("106.00")) == Decimal("1060.0000")
+    assert gross_notional(Decimal(10), Decimal("106.00")) == Decimal("1060.0000")
     assert weighted_average_cost_basis(
-        Decimal("10"), Decimal("100"), Decimal("10"), Decimal("110")
+        Decimal(10), Decimal(100), Decimal(10), Decimal(110)
     ) == Decimal("105.0000")
 
 
@@ -111,9 +109,9 @@ def test_scenario_a_single_buy_and_hold() -> None:
     service.create_order_intent(
         backtest_run_id=run.backtest_run_id,
         side=OrderSide.BUY,
-        requested_quantity=Decimal("100"),
-        decision_time=datetime(2026, 6, 25, 10, 45, tzinfo=timezone.utc),
-        available_data_cutoff=datetime(2026, 6, 25, 10, 30, tzinfo=timezone.utc),
+        requested_quantity=Decimal(100),
+        decision_time=datetime(2026, 6, 25, 10, 45, tzinfo=UTC),
+        available_data_cutoff=datetime(2026, 6, 25, 10, 30, tzinfo=UTC),
         created_by="RESEARCHER",
     )
     completed = service.start_run(
@@ -137,17 +135,17 @@ def test_scenario_b_buy_then_sell_realized_pnl() -> None:
     service.create_order_intent(
         backtest_run_id=run.backtest_run_id,
         side=OrderSide.BUY,
-        requested_quantity=Decimal("100"),
-        decision_time=datetime(2026, 6, 25, 10, 45, tzinfo=timezone.utc),
-        available_data_cutoff=datetime(2026, 6, 25, 10, 30, tzinfo=timezone.utc),
+        requested_quantity=Decimal(100),
+        decision_time=datetime(2026, 6, 25, 10, 45, tzinfo=UTC),
+        available_data_cutoff=datetime(2026, 6, 25, 10, 30, tzinfo=UTC),
         created_by="RESEARCHER",
     )
     service.create_order_intent(
         backtest_run_id=run.backtest_run_id,
         side=OrderSide.SELL,
-        requested_quantity=Decimal("100"),
-        decision_time=datetime(2026, 6, 26, 10, 45, tzinfo=timezone.utc),
-        available_data_cutoff=datetime(2026, 6, 26, 10, 30, tzinfo=timezone.utc),
+        requested_quantity=Decimal(100),
+        decision_time=datetime(2026, 6, 26, 10, 45, tzinfo=UTC),
+        available_data_cutoff=datetime(2026, 6, 26, 10, 30, tzinfo=UTC),
         created_by="RESEARCHER",
     )
     service.start_run(
@@ -167,9 +165,9 @@ def test_insufficient_cash_rejects_without_ledger_movement() -> None:
     service.create_order_intent(
         backtest_run_id=run.backtest_run_id,
         side=OrderSide.BUY,
-        requested_quantity=Decimal("10000"),
-        decision_time=datetime(2026, 6, 25, 10, 45, tzinfo=timezone.utc),
-        available_data_cutoff=datetime(2026, 6, 25, 10, 30, tzinfo=timezone.utc),
+        requested_quantity=Decimal(10000),
+        decision_time=datetime(2026, 6, 25, 10, 45, tzinfo=UTC),
+        available_data_cutoff=datetime(2026, 6, 25, 10, 30, tzinfo=UTC),
         created_by="RESEARCHER",
     )
     service.start_run(
@@ -190,13 +188,13 @@ def test_same_close_execution_rejected() -> None:
     intent = service.create_order_intent(
         backtest_run_id=run.backtest_run_id,
         side=OrderSide.BUY,
-        requested_quantity=Decimal("10"),
-        decision_time=datetime(2026, 6, 25, 10, 45, tzinfo=timezone.utc),
-        available_data_cutoff=datetime(2026, 6, 25, 10, 30, tzinfo=timezone.utc),
+        requested_quantity=Decimal(10),
+        decision_time=datetime(2026, 6, 25, 10, 45, tzinfo=UTC),
+        available_data_cutoff=datetime(2026, 6, 25, 10, 30, tzinfo=UTC),
         created_by="RESEARCHER",
     )
     with pytest.raises(OrderRejected):
-        reject_same_close_execution(intent, datetime(2026, 6, 25, 10, 0, tzinfo=timezone.utc))
+        reject_same_close_execution(intent, datetime(2026, 6, 25, 10, 0, tzinfo=UTC))
 
 
 def test_missing_next_open_rejects_order() -> None:
@@ -204,9 +202,9 @@ def test_missing_next_open_rejects_order() -> None:
     service.create_order_intent(
         backtest_run_id=run.backtest_run_id,
         side=OrderSide.BUY,
-        requested_quantity=Decimal("10"),
-        decision_time=datetime(2026, 6, 25, 10, 45, tzinfo=timezone.utc),
-        available_data_cutoff=datetime(2026, 6, 25, 10, 30, tzinfo=timezone.utc),
+        requested_quantity=Decimal(10),
+        decision_time=datetime(2026, 6, 25, 10, 45, tzinfo=UTC),
+        available_data_cutoff=datetime(2026, 6, 25, 10, 30, tzinfo=UTC),
         created_by="RESEARCHER",
     )
     service.start_run(
@@ -227,9 +225,9 @@ def test_oversell_rejected() -> None:
     service.create_order_intent(
         backtest_run_id=run.backtest_run_id,
         side=OrderSide.SELL,
-        requested_quantity=Decimal("10"),
-        decision_time=datetime(2026, 6, 25, 10, 45, tzinfo=timezone.utc),
-        available_data_cutoff=datetime(2026, 6, 25, 10, 30, tzinfo=timezone.utc),
+        requested_quantity=Decimal(10),
+        decision_time=datetime(2026, 6, 25, 10, 45, tzinfo=UTC),
+        available_data_cutoff=datetime(2026, 6, 25, 10, 30, tzinfo=UTC),
         created_by="RESEARCHER",
     )
     service.start_run(
@@ -244,7 +242,7 @@ def test_oversell_rejected() -> None:
 
 
 def test_red_dataset_blocks_run() -> None:
-    service, repo, _, calendar, market_data, run = service_setup()
+    service, _repo, _, calendar, market_data, run = service_setup()
     failed = service.start_run(
         backtest_run_id=run.backtest_run_id,
         dataset_version=dataset(ValidationStatus.RED),

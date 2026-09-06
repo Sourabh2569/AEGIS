@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import asdict, replace
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -357,14 +357,14 @@ class PaperMonitoringService:
         observed_signal_count: int,
     ) -> PaperDriftAssessment:
         ratio = (
-            Decimal("0")
+            Decimal(0)
             if expected_signal_count == 0
             else Decimal(observed_signal_count) / Decimal(expected_signal_count)
         )
-        if ratio <= Decimal("0.25") or ratio >= Decimal("3"):
+        if ratio <= Decimal("0.25") or ratio >= Decimal(3):
             state = DriftState.CRITICAL_DIVERGENCE
             action = "PAUSE_STRATEGY_AND_REVALIDATE"
-        elif ratio <= Decimal("0.50") or ratio >= Decimal("2"):
+        elif ratio <= Decimal("0.50") or ratio >= Decimal(2):
             state = DriftState.MATERIAL_DIVERGENCE
             action = "INITIATE_REVIEW"
         elif ratio <= Decimal("0.75") or ratio >= Decimal("1.50"):
@@ -392,7 +392,7 @@ class PaperTradingCalendarService:
         self.exchange = exchange
 
     @classmethod
-    def from_csv(cls, path: Path, exchange: str = "NSE") -> "PaperTradingCalendarService":
+    def from_csv(cls, path: Path, exchange: str = "NSE") -> PaperTradingCalendarService:
         with path.open(newline="", encoding="utf-8") as file:
             rows = list(csv.DictReader(file))
         sessions = [
@@ -412,7 +412,7 @@ class PaperTradingCalendarService:
     def open_time(self, session: date) -> datetime:
         if session not in self.sessions:
             raise ValueError(f"SESSION_NOT_OPEN:{session}")
-        return datetime.combine(session, time(3, 45), tzinfo=timezone.utc)
+        return datetime.combine(session, time(3, 45), tzinfo=UTC)
 
 
 class PaperCorporateActionReviewService:
@@ -498,13 +498,13 @@ class PaperTradingOrchestrator:
         self.cost_model = CostModel()
         self.cost_schedule = CostSchedule(
             version="PAPER_FIXTURE_COST_SCHEDULE_V0",
-            brokerage_bps_buy=Decimal("5"),
-            brokerage_bps_sell=Decimal("5"),
-            other_bps_buy=Decimal("2"),
-            other_bps_sell=Decimal("2"),
+            brokerage_bps_buy=Decimal(5),
+            brokerage_bps_sell=Decimal(5),
+            other_bps_buy=Decimal(2),
+            other_bps_sell=Decimal(2),
             verification_status="APPROVED_FIXTURE",
         )
-        self.slippage = FixedBpsSlippageModelV0(Decimal("5"), Decimal("5"))
+        self.slippage = FixedBpsSlippageModelV0(Decimal(5), Decimal(5))
 
     def create_portfolio(
         self, *, name: str, description: str, starting_capital: Decimal, created_by: str
@@ -663,26 +663,26 @@ class PaperTradingOrchestrator:
                 instrument_id=instrument_id,
                 portfolio_nav=self.repository.paper_portfolios[paper_portfolio_id].cash,
                 available_cash=self.repository.paper_portfolios[paper_portfolio_id].cash,
-                existing_position_value=Decimal("0"),
-                sector_value=Decimal("0"),
-                cluster_value=Decimal("0"),
-                gross_equity_value=Decimal("0"),
+                existing_position_value=Decimal(0),
+                sector_value=Decimal(0),
+                cluster_value=Decimal(0),
+                gross_equity_value=Decimal(0),
                 entry_price=price,
                 invalidation_price=money(price * Decimal("0.90")),
-                proposed_quantity=Decimal("100"),
+                proposed_quantity=Decimal(100),
                 sector="Financials",
                 cluster="FINANCIALS",
                 data_quality_status="GREEN",
                 instrument_eligibility_status="ELIGIBLE",
                 profile=self.profile,
-                current_drawdown=Decimal("0"),
+                current_drawdown=Decimal(0),
                 kill_switches=list(self.repository.kill_switches.values()),
             )
             if (
                 risk.decision in {RiskDecision.APPROVED, RiskDecision.APPROVED_WITH_REDUCED_SIZE}
                 and risk.approved_quantity > 0
             ):
-                decision_time = datetime.combine(session_date, time(10, 45), tzinfo=timezone.utc)
+                decision_time = datetime.combine(session_date, time(10, 45), tzinfo=UTC)
                 next_session = self.calendar.next_open_session_after(decision_time)
                 intent = PaperTradeIntent(
                     paper_portfolio_id=paper_portfolio_id,
@@ -690,12 +690,10 @@ class PaperTradingOrchestrator:
                     strategy_version_id=config.strategy_version_id,
                     instrument_id=instrument_id,
                     side="BUY",
-                    proposed_quantity=Decimal("100"),
+                    proposed_quantity=Decimal(100),
                     approved_quantity_nullable=risk.approved_quantity,
                     decision_time=decision_time,
-                    available_data_cutoff=datetime.combine(
-                        session_date, time(10, 30), tzinfo=timezone.utc
-                    ),
+                    available_data_cutoff=datetime.combine(session_date, time(10, 30), tzinfo=UTC),
                     eligible_execution_time=self.calendar.open_time(next_session),
                     risk_assessment_id=risk.risk_assessment_id,
                     configuration_version=config.paper_strategy_config_id,
@@ -741,8 +739,8 @@ class PaperTradingOrchestrator:
                     status=PaperOrderStatus.BLOCKED,
                     scheduled_execution_time=intent.eligible_execution_time,
                     eligible_execution_time=intent.eligible_execution_time,
-                    requested_quantity=intent.approved_quantity_nullable or Decimal("0"),
-                    remaining_quantity=intent.approved_quantity_nullable or Decimal("0"),
+                    requested_quantity=intent.approved_quantity_nullable or Decimal(0),
+                    remaining_quantity=intent.approved_quantity_nullable or Decimal(0),
                     execution_model_version="NEXT_ELIGIBLE_SESSION_OPEN_WITH_CONFIGURED_FRICTION_V0",
                     idempotency_key=f"{intent.idempotency_key}:approval-missing",
                     rejection_reason_nullable="APPROVAL_MISSING",
@@ -761,8 +759,8 @@ class PaperTradingOrchestrator:
                     status=PaperOrderStatus.BLOCKED,
                     scheduled_execution_time=intent.eligible_execution_time,
                     eligible_execution_time=intent.eligible_execution_time,
-                    requested_quantity=intent.approved_quantity_nullable or Decimal("0"),
-                    remaining_quantity=intent.approved_quantity_nullable or Decimal("0"),
+                    requested_quantity=intent.approved_quantity_nullable or Decimal(0),
+                    remaining_quantity=intent.approved_quantity_nullable or Decimal(0),
                     execution_model_version="NEXT_ELIGIBLE_SESSION_OPEN_WITH_CONFIGURED_FRICTION_V0",
                     idempotency_key=intent.idempotency_key,
                     rejection_reason_nullable="APPROVAL_MISSING_OR_EXPIRED",
@@ -777,11 +775,11 @@ class PaperTradingOrchestrator:
             if reference_price is None:
                 status = PaperOrderStatus.REJECTED
                 reason = "REFERENCE_PRICE_MISSING"
-                filled_quantity = Decimal("0")
+                filled_quantity = Decimal(0)
             else:
                 status = PaperOrderStatus.FILLED
                 reason = None
-                filled_quantity = intent.approved_quantity_nullable or Decimal("0")
+                filled_quantity = intent.approved_quantity_nullable or Decimal(0)
             order = PaperOrder(
                 paper_trade_intent_id=intent.paper_trade_intent_id,
                 paper_portfolio_id=paper_portfolio_id,
@@ -791,9 +789,9 @@ class PaperTradingOrchestrator:
                 eligible_execution_time=intent.eligible_execution_time,
                 submitted_at_nullable=execution_time,
                 executed_at_nullable=execution_time if status == PaperOrderStatus.FILLED else None,
-                requested_quantity=intent.approved_quantity_nullable or Decimal("0"),
+                requested_quantity=intent.approved_quantity_nullable or Decimal(0),
                 filled_quantity=filled_quantity,
-                remaining_quantity=Decimal("0")
+                remaining_quantity=Decimal(0)
                 if status == PaperOrderStatus.FILLED
                 else filled_quantity,
                 execution_model_version="NEXT_ELIGIBLE_SESSION_OPEN_WITH_CONFIGURED_FRICTION_V0",
@@ -871,19 +869,19 @@ class PaperTradingOrchestrator:
         paper = self.repository.paper_portfolios[paper_portfolio_id]
         market_value = money(
             sum(
-                (qty * prices.get(inst, Decimal("0")) for inst, qty in paper.positions.items()),
-                Decimal("0"),
+                (qty * prices.get(inst, Decimal(0)) for inst, qty in paper.positions.items()),
+                Decimal(0),
             )
         )
         nav = money(paper.cash + paper.unsettled_receivables + market_value)
-        observed = money(nav + (Decimal("1") if inject_failure else Decimal("0")))
+        observed = money(nav + (Decimal(1) if inject_failure else Decimal(0)))
         recon = self.reconciliation.reconcile(paper_portfolio_id, nav, observed, new_id("corr"))
         previous_hwm = max(
             [snap.high_water_mark for snap in self.repository.nav.get(paper_portfolio_id, [])],
             default=nav,
         )
         hwm = max(previous_hwm, nav)
-        drawdown = Decimal("0") if hwm == 0 else money((nav - hwm) / hwm)
+        drawdown = Decimal(0) if hwm == 0 else money((nav - hwm) / hwm)
         snapshot = PaperNavSnapshot(
             paper_portfolio_id=paper_portfolio_id,
             valuation_time=utc_now(),

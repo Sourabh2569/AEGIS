@@ -63,7 +63,10 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-ignore = ["F401", "F403"]
+# B008: FastAPI's Depends(...)-as-default-argument is the framework's own
+# documented pattern (apps/api/aegis_api/main.py uses it ~50 times), not a
+# bug -- FastAPI's own docs recommend ignoring this rule.
+ignore = ["F401", "F403", "B008"]
 
 [tool.mypy]
 python_version = "3.12"

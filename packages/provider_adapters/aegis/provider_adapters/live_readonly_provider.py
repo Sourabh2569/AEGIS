@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime, timezone
 from typing import Any
 
 from aegis.domain.models import ProviderLicense, ProviderLicenseStatus
@@ -45,7 +45,7 @@ class LiveReadOnlyMarketDataProvider:
         raise AttributeError(name)
 
     def _now(self) -> datetime:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
     def validate_read_only_scope(self) -> None:
         if self.broker_order_access:

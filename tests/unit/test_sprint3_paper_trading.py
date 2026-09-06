@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
-
 from aegis.audit.service import AuditLog
 from aegis.paper_trading.domain import (
     PAPER_LABELS,
@@ -34,7 +33,7 @@ def setup_active_orchestrator():
     portfolio = orch.create_portfolio(
         name="Paper Test",
         description="Paper-only fixture",
-        starting_capital=Decimal("100000"),
+        starting_capital=Decimal(100000),
         created_by="FOUNDER",
     )
     config = orch.create_strategy_config(portfolio.paper_portfolio_id)
@@ -49,7 +48,7 @@ def create_intent(orch, repo, portfolio):
         paper_portfolio_id=portfolio.paper_portfolio_id,
         session_date=date(2026, 6, 26),
         readiness_flags=all_readiness_green(),
-        reference_prices={"AEGIS-IN-000001": Decimal("112")},
+        reference_prices={"AEGIS-IN-000001": Decimal(112)},
     )
     return next(
         intent
@@ -88,7 +87,7 @@ def test_readiness_failure_blocks_new_order_and_freezes_on_red_dataset() -> None
         paper_portfolio_id=portfolio.paper_portfolio_id,
         session_date=date(2026, 6, 26),
         readiness_flags=flags,
-        reference_prices={"AEGIS-IN-000001": Decimal("112")},
+        reference_prices={"AEGIS-IN-000001": Decimal(112)},
     )
     assert session.decision_cycle_status == LifecycleStatus.BLOCKED
     assert repo.portfolios[portfolio.paper_portfolio_id].status == PaperPortfolioStatus.FROZEN
@@ -99,8 +98,8 @@ def test_order_cannot_execute_without_approval() -> None:
     create_intent(orch, repo, portfolio)
     orders = orch.execute_approved_orders(
         paper_portfolio_id=portfolio.paper_portfolio_id,
-        execution_time=datetime(2026, 6, 29, 3, 45, tzinfo=timezone.utc),
-        reference_prices={"AEGIS-IN-000001": Decimal("113")},
+        execution_time=datetime(2026, 6, 29, 3, 45, tzinfo=UTC),
+        reference_prices={"AEGIS-IN-000001": Decimal(113)},
     )
     assert orders[0].status == PaperOrderStatus.BLOCKED
     assert orders[0].rejection_reason_nullable == "APPROVAL_MISSING"
@@ -121,19 +120,19 @@ def test_successful_forward_cycle_and_duplicate_execution_impossible() -> None:
     orch.approvals.approve(
         intent.paper_trade_intent_id,
         "RISK_REVIEWER",
-        datetime(2026, 6, 26, 11, 0, tzinfo=timezone.utc),
+        datetime(2026, 6, 26, 11, 0, tzinfo=UTC),
     )
     orders = orch.execute_approved_orders(
         paper_portfolio_id=portfolio.paper_portfolio_id,
-        execution_time=datetime(2026, 6, 29, 3, 45, tzinfo=timezone.utc),
-        reference_prices={"AEGIS-IN-000001": Decimal("113")},
+        execution_time=datetime(2026, 6, 29, 3, 45, tzinfo=UTC),
+        reference_prices={"AEGIS-IN-000001": Decimal(113)},
     )
     assert orders[0].status == PaperOrderStatus.FILLED
     fill_count = len(repo.fills)
     second = orch.execute_approved_orders(
         paper_portfolio_id=portfolio.paper_portfolio_id,
-        execution_time=datetime(2026, 6, 29, 3, 46, tzinfo=timezone.utc),
-        reference_prices={"AEGIS-IN-000001": Decimal("113")},
+        execution_time=datetime(2026, 6, 29, 3, 46, tzinfo=UTC),
+        reference_prices={"AEGIS-IN-000001": Decimal(113)},
     )
     assert second == []
     assert len(repo.fills) == fill_count
@@ -167,7 +166,7 @@ def test_evidence_package_has_paper_classification() -> None:
 def test_exchange_calendar_governs_eligible_execution_time() -> None:
     orch, repo, _, portfolio, _ = setup_active_orchestrator()
     intent = create_intent(orch, repo, portfolio)
-    assert intent.eligible_execution_time == datetime(2026, 6, 29, 3, 45, tzinfo=timezone.utc)
+    assert intent.eligible_execution_time == datetime(2026, 6, 29, 3, 45, tzinfo=UTC)
 
 
 def test_sqlite_repository_persists_paper_tables(tmp_path) -> None:
@@ -178,7 +177,7 @@ def test_sqlite_repository_persists_paper_tables(tmp_path) -> None:
     portfolio = orch.create_portfolio(
         name="Persistent Paper",
         description="DB-backed fixture",
-        starting_capital=Decimal("100000"),
+        starting_capital=Decimal(100000),
         created_by="FOUNDER",
     )
     config = orch.create_strategy_config(portfolio.paper_portfolio_id)
@@ -198,7 +197,7 @@ def test_queue_backed_session_execution(tmp_path) -> None:
     portfolio = orch.create_portfolio(
         name="Queued Paper",
         description="Queue-backed fixture",
-        starting_capital=Decimal("100000"),
+        starting_capital=Decimal(100000),
         created_by="FOUNDER",
     )
     config = orch.create_strategy_config(portfolio.paper_portfolio_id)
@@ -210,7 +209,7 @@ def test_queue_backed_session_execution(tmp_path) -> None:
         PaperSessionJob(
             paper_portfolio_id=portfolio.paper_portfolio_id,
             session_date=date(2026, 6, 26),
-            reference_prices={"AEGIS-IN-000001": Decimal("112")},
+            reference_prices={"AEGIS-IN-000001": Decimal(112)},
         )
     )
     completed = queue.run_once(orch)
@@ -238,8 +237,8 @@ def test_corporate_action_review_freezes_unsupported_actions() -> None:
 
 def test_calendar_fixture_rejects_closed_session_execution() -> None:
     calendar = PaperTradingCalendarService(sessions=[date(2026, 6, 26), date(2026, 6, 29)])
-    assert calendar.next_open_session_after(
-        datetime(2026, 6, 26, 10, 45, tzinfo=timezone.utc)
-    ) == date(2026, 6, 29)
+    assert calendar.next_open_session_after(datetime(2026, 6, 26, 10, 45, tzinfo=UTC)) == date(
+        2026, 6, 29
+    )
     with pytest.raises(ValueError):
         calendar.open_time(date(2026, 6, 27))

@@ -145,15 +145,15 @@ class PaperPortfolio:
     def labels(self) -> tuple[str, ...]:
         return PAPER_LABELS
 
-    def activate(self) -> "PaperPortfolio":
+    def activate(self) -> PaperPortfolio:
         if self.status not in {PaperPortfolioStatus.READY, PaperPortfolioStatus.SETUP_PENDING}:
             raise ValueError("Paper portfolio must be READY or SETUP_PENDING before activation.")
         return replace(self, status=PaperPortfolioStatus.ACTIVE, activated_at_nullable=utc_now())
 
-    def freeze(self, reason: str) -> "PaperPortfolio":
+    def freeze(self, reason: str) -> PaperPortfolio:
         return replace(self, status=PaperPortfolioStatus.FROZEN, failure_reason_nullable=reason)
 
-    def pause(self, reason: str) -> "PaperPortfolio":
+    def pause(self, reason: str) -> PaperPortfolio:
         return replace(
             self,
             status=PaperPortfolioStatus.PAUSED,
@@ -182,10 +182,10 @@ class PaperPortfolioConfiguration:
     created_at: datetime = field(default_factory=utc_now)
     frozen_at_nullable: datetime | None = None
 
-    def freeze(self) -> "PaperPortfolioConfiguration":
+    def freeze(self) -> PaperPortfolioConfiguration:
         return replace(self, frozen_at_nullable=utc_now())
 
-    def update_cost_schedule(self, value: str) -> "PaperPortfolioConfiguration":
+    def update_cost_schedule(self, value: str) -> PaperPortfolioConfiguration:
         if self.frozen_at_nullable is not None:
             raise ValueError("Frozen paper portfolio configuration is immutable.")
         return replace(self, cost_schedule_version=value)
@@ -220,10 +220,10 @@ class PaperStrategyConfiguration:
     frozen_at_nullable: datetime | None = None
     approved_by_nullable: str | None = None
 
-    def freeze(self) -> "PaperStrategyConfiguration":
+    def freeze(self) -> PaperStrategyConfiguration:
         return replace(self, frozen_at_nullable=utc_now(), status=PaperStrategyConfigStatus.READY)
 
-    def activate(self, approved_by: str) -> "PaperStrategyConfiguration":
+    def activate(self, approved_by: str) -> PaperStrategyConfiguration:
         if self.frozen_at_nullable is None:
             raise ValueError("Paper strategy configuration must be frozen before activation.")
         return replace(
@@ -232,7 +232,7 @@ class PaperStrategyConfiguration:
             approved_by_nullable=approved_by,
         )
 
-    def update_strategy_version(self, value: str) -> "PaperStrategyConfiguration":
+    def update_strategy_version(self, value: str) -> PaperStrategyConfiguration:
         if self.frozen_at_nullable is not None:
             raise ValueError("Frozen paper strategy configuration is immutable.")
         return replace(self, strategy_version_id=value)
@@ -341,8 +341,8 @@ class PaperOrder:
     idempotency_key: str
     submitted_at_nullable: datetime | None = None
     executed_at_nullable: datetime | None = None
-    filled_quantity: Decimal = Decimal("0")
-    remaining_quantity: Decimal = Decimal("0")
+    filled_quantity: Decimal = Decimal(0)
+    remaining_quantity: Decimal = Decimal(0)
     rejection_reason_nullable: str | None = None
     id: str = field(default_factory=lambda: new_id("paper-order-row"))
     paper_order_id: str = field(default_factory=lambda: new_id("paper-order"))

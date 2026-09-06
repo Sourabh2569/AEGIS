@@ -89,13 +89,13 @@ class TrendFollowingBaselineStrategyV0(StrategyContract):
             and candidate.close > candidate.sma_50
             and candidate.sma_50 > candidate.sma_200
             and candidate.momentum_60 > 0
-            and candidate.average_daily_value_traded_20 > Decimal("100000")
+            and candidate.average_daily_value_traded_20 > Decimal(100000)
         ]
         return sorted(
             eligible,
             key=lambda item: (
-                -(item.momentum_60 or Decimal("0")),
-                -(item.price_to_sma_200 or Decimal("0")),
+                -(item.momentum_60 or Decimal(0)),
+                -(item.price_to_sma_200 or Decimal(0)),
                 item.instrument_id,
             ),
         )
@@ -112,4 +112,4 @@ class TrendFollowingBaselineStrategyV0(StrategyContract):
     def invalidation_price(self, candidate: Candidate) -> Decimal:
         if candidate.atr_14 is None:
             raise ValueError("TrendFollowingBaselineStrategyV0 requires ATR_14.")
-        return candidate.close - (Decimal("2") * candidate.atr_14)
+        return candidate.close - (Decimal(2) * candidate.atr_14)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from enum import Enum
 from typing import Any
 from uuid import uuid4
@@ -14,7 +14,6 @@ from aegis.domain.models import (
     ProviderLicenseStatus,
     ValidationStatus,
 )
-
 
 HISTORICAL_RESEARCH_LABELS = [
     "ACTUAL_HISTORICAL_RESEARCH_ONLY",
@@ -54,7 +53,7 @@ class FixtureIsolationGuard:
 
 
 class ActualResearchEligibilityGuard:
-    def __init__(self, service: "HistoricalResearchActivationService") -> None:
+    def __init__(self, service: HistoricalResearchActivationService) -> None:
         self.service = service
 
     def assert_dataset_eligible(self, dataset_version_id: str) -> None:
@@ -86,7 +85,7 @@ class ResearchActivationManifest:
     blockers: list[ResearchActivationBlocker]
     paper_trading_ready: bool = False
     live_trading_ready: bool = False
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
 class HistoricalResearchActivationService:
@@ -167,9 +166,9 @@ class HistoricalResearchActivationService:
             "eligible_datasets": eligible,
             "reason_codes": [blocker.code for blocker in blockers],
             "blockers": [asdict(blocker) for blocker in blockers],
-            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "checked_at": datetime.now(UTC).isoformat(),
             "correlation_id": f"readiness-{uuid4()}",
-            "last_updated_at": datetime.now(timezone.utc).isoformat(),
+            "last_updated_at": datetime.now(UTC).isoformat(),
         }
 
     def eligible_dataset_versions(self) -> list[dict[str, Any]]:
