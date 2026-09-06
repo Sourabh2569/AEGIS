@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import asdict, replace
 from datetime import date, datetime
 from decimal import Decimal
@@ -91,7 +92,7 @@ paper_store_path = Path("work/paper_trading.sqlite")
 paper_store_path.parent.mkdir(parents=True, exist_ok=True)
 paper_queue_path = Path("work/paper_session_queue.sqlite")
 paper_calendar = PaperTradingCalendarService.from_csv(
-    Path("sample_data/sprint_3/forward_market_calendar.csv")
+    Path("sample_data/market_calendar/market_calendar.csv")
 )
 paper_repo = SqlitePaperTradingRepository(paper_store_path)
 paper_orchestrator = PaperTradingOrchestrator(paper_repo, audit_log, calendar=paper_calendar)
@@ -340,6 +341,21 @@ def current_market_data_provider_id() -> str:
     Kite-sourced activity gets misattributed to the wrong provider record."""
     provider, _ = activation_service().selected_provider()
     return provider.id if provider else live_readonly_provider_record.id
+
+
+def real_reference_prices(instrument_ids: Iterable[str]) -> dict[str, Decimal]:
+    """Latest real EOD close per instrument, from repo.latest_eod_prices --
+    populated only by an actual provider ingestion (see
+    ProviderIngestionService.ingest_eod_prices). Silently skips any
+    instrument with no real price yet rather than fabricating one; callers
+    must handle a partial or empty result, never assume every id is present.
+    """
+    prices: dict[str, Decimal] = {}
+    for instrument_id in instrument_ids:
+        record = repo.latest_eod_prices.get(instrument_id)
+        if record is not None:
+            prices[instrument_id] = Decimal(str(record["close"]))
+    return prices
 
 
 def jsonable(value: Any) -> Any:
@@ -1951,16 +1967,18 @@ def paper_session_jobs() -> list[dict[str, Any]]:
 
 @app.post("/api/v1/paper-session-jobs")
 def enqueue_paper_session_job(payload: dict[str, Any]) -> dict[str, Any]:
+    if "reference_prices" in payload:
+        reference_prices = {
+            instrument_id: Decimal(str(price))
+            for instrument_id, price in payload["reference_prices"].items()
+        }
+    else:
+        reference_prices = real_reference_prices(instrument_master.known_aegis_ids())
     job = PaperSessionJob(
         paper_portfolio_id=payload["paper_portfolio_id"],
         session_date=date.fromisoformat(payload.get("session_date", "2026-06-26")),
         readiness_flags=payload.get("readiness_flags", all_readiness_green()),
-        reference_prices={
-            instrument_id: Decimal(str(price))
-            for instrument_id, price in payload.get(
-                "reference_prices", {"AEGIS-IN-000001": "112"}
-            ).items()
-        },
+        reference_prices=reference_prices,
     )
     return jsonable(paper_session_queue.enqueue(job))
 
@@ -1975,11 +1993,18 @@ def run_next_paper_session_job() -> dict[str, Any]:
 
 @app.post("/api/v1/paper-trading-sessions/run")
 def run_paper_session(payload: dict[str, Any]) -> dict[str, Any]:
+    if "reference_prices" in payload:
+        reference_prices = {
+            instrument_id: Decimal(str(price))
+            for instrument_id, price in payload["reference_prices"].items()
+        }
+    else:
+        reference_prices = real_reference_prices(instrument_master.known_aegis_ids())
     session = paper_orchestrator.run_decision_cycle(
         paper_portfolio_id=payload["paper_portfolio_id"],
         session_date=date.fromisoformat(payload.get("session_date", "2026-06-26")),
         readiness_flags=all_readiness_green(),
-        reference_prices={"AEGIS-IN-000001": Decimal(112)},
+        reference_prices=reference_prices,
     )
     return jsonable(session)
 

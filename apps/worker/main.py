@@ -13,7 +13,7 @@ def main() -> None:
     paper_store_path = Path("work/paper_trading.sqlite")
     paper_store_path.parent.mkdir(parents=True, exist_ok=True)
     calendar = PaperTradingCalendarService.from_csv(
-        Path("sample_data/sprint_3/forward_market_calendar.csv")
+        Path("sample_data/market_calendar/market_calendar.csv")
     )
     repository = SqlitePaperTradingRepository(paper_store_path)
     orchestrator = PaperTradingOrchestrator(repository, AuditLog(), calendar=calendar)

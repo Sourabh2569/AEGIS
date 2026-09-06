@@ -77,8 +77,11 @@ class CsvFileProvider:
             self.name,
             "fetch_market_calendar",
             "market_calendar.v1",
-            [],
-            "sample_data/market_calendar/not-configured",
+            self._read_csv(
+                "market_calendar/market_calendar.csv",
+                {"exchange", "session_date", "is_open"},
+            ),
+            "sample_data/market_calendar/market_calendar.csv",
         )
 
     def fetch_corporate_actions(self) -> ProviderResponseEnvelope:

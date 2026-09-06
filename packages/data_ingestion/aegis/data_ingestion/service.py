@@ -72,6 +72,12 @@ class InMemoryRepository:
         self.data_freshness: dict[str, dict[str, Any]] = {}
         self.live_quotes: dict[str, dict[str, Any]] = {}
         self.market_calendar: dict[str, dict[str, Any]] = {}
+        # Latest accepted EOD bar per instrument, by trade_date -- the only
+        # queryable record of ingested EOD prices. ingest_eod_prices() writes
+        # accepted bars to the object store too, but that's file-only; nothing
+        # before this could answer "what's the latest real close for X"
+        # without reading raw JSON off disk.
+        self.latest_eod_prices: dict[str, dict[str, Any]] = {}
 
 
 class ProviderIngestionService:
@@ -179,6 +185,11 @@ class ProviderIngestionService:
             )
             self.repository.quality_results[dataset_version.id] = quality_results
             self.repository.idempotency_keys.add(idempotency_key)
+            for record in accepted:
+                instrument_id = str(record["aegis_instrument_id"])
+                existing = self.repository.latest_eod_prices.get(instrument_id)
+                if existing is None or record["trade_date"] > existing["trade_date"]:
+                    self.repository.latest_eod_prices[instrument_id] = record
             normalized_uri, curated_uri = self._capture_normalized_and_curated(
                 provider_id, envelope.endpoint, payload_hash, accepted
             )

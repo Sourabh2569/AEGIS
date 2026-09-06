@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -137,6 +138,41 @@ def test_adapter_dataset_origins_are_correctly_classified(tmp_path: Path) -> Non
     approved-file path -- is distinct from a live provider connection."""
     assert MockMarketDataProvider().dataset_origin == "TEST_DATA"
     assert CsvFileProvider(tmp_path).dataset_origin == "APPROVED_FILE_IMPORT"
+
+
+def test_ingestion_records_latest_eod_price_per_instrument(tmp_path: Path) -> None:
+    """repo.latest_eod_prices is the only queryable record of ingested EOD
+    prices (everything else lands only in the file-backed object store).
+    Paper trading's real-price lookup depends on this being kept accurate:
+    the most recent trade_date per instrument, not just whatever arrived
+    last in the payload."""
+    repo = InMemoryRepository()
+    service = ProviderIngestionService(
+        object_store=LocalObjectStore(tmp_path), repository=repo, audit_log=AuditLog()
+    )
+
+    class TwoDayHistoryProvider(MockMarketDataProvider):
+        def fetch_eod_prices(self):
+            envelope = super().fetch_eod_prices()
+            older = dict(envelope.payload[0])
+            newer = dict(envelope.payload[0])
+            older["trade_date"] = "2026-06-24"
+            older["close"] = 2900.0
+            newer["trade_date"] = "2026-06-25"
+            newer["close"] = 2920.0
+            # Intentionally out of order -- the older record arrives second.
+            return replace(envelope, payload=[newer, older])
+
+    service.ingest_eod_prices(
+        provider=TwoDayHistoryProvider(),
+        provider_id="provider-1",
+        dataset_id="dataset-1",
+        dataset_name="eod_prices",
+        known_instrument_ids={"AEGIS-IN-000001"},
+    )
+    latest = repo.latest_eod_prices["AEGIS-IN-000001"]
+    assert latest["trade_date"] == "2026-06-25"
+    assert latest["close"] == 2920.0
 
 
 def test_invalid_ohlc_record_is_rejected_and_red() -> None:
