@@ -93,6 +93,13 @@ class KiteConnectMarketDataProvider:
     data_source_mode = "LIVE_READONLY"
     broker_order_access = False
 
+    @property
+    def dataset_origin(self) -> str:
+        # Only claim real data once there's an actual configured client behind
+        # it. _assert_configured() already blocks every fetch_* call before
+        # this matters, but stay honest defensively too.
+        return "ACTUAL_PROVIDER_DATA" if self.configured else "FIXTURE_DATA"
+
     def __init__(
         self,
         *,

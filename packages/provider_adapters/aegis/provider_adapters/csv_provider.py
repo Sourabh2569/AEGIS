@@ -10,6 +10,7 @@ from aegis.provider_adapters.base import ProviderHealthResult, ProviderResponseE
 
 class CsvFileProvider:
     name = "csv_file_provider"
+    dataset_origin = "APPROVED_FILE_IMPORT"
 
     def __init__(self, base_path: Path, license_: ProviderLicense | None = None) -> None:
         self.base_path = base_path

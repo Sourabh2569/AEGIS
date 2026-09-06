@@ -174,6 +174,9 @@ class ProviderIngestionService:
                 id=dataset_version.id,
             )
             self.repository.dataset_versions[dataset_version.id] = dataset_version
+            self.repository.dataset_origins[dataset_version.id] = getattr(
+                provider, "dataset_origin", "FIXTURE_DATA"
+            )
             self.repository.quality_results[dataset_version.id] = quality_results
             self.repository.idempotency_keys.add(idempotency_key)
             normalized_uri, curated_uri = self._capture_normalized_and_curated(
@@ -374,6 +377,9 @@ class ProviderIngestionService:
             id=dataset_version.id,
         )
         self.repository.dataset_versions[version.id] = version
+        self.repository.dataset_origins[version.id] = getattr(
+            provider, "dataset_origin", "FIXTURE_DATA"
+        )
         self.repository.quality_results[version.id] = quality_results
         normalized_uri, curated_uri = self._capture_normalized_and_curated(
             provider_id, envelope.endpoint, payload_hash, accepted

@@ -11,6 +11,11 @@ class LiveReadOnlyMarketDataProvider:
     name = "live_readonly_market_data"
     data_source_mode = "LIVE_READONLY"
     broker_order_access = False
+    # This adapter fabricates every payload it returns (see fetch_eod_prices
+    # etc. below) regardless of self.configured -- it has never been wired to
+    # a real backend. Must never claim ACTUAL_PROVIDER_DATA just because
+    # "configured" is true; that flag only means credentials look present.
+    dataset_origin = "FIXTURE_DATA"
 
     def __init__(
         self, license_: ProviderLicense | None = None, *, configured: bool = False

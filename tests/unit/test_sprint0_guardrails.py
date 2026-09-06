@@ -28,6 +28,7 @@ from aegis.domain.models import (
     ValidationStatus,
     now_utc,
 )
+from aegis.provider_adapters.csv_provider import CsvFileProvider
 from aegis.provider_adapters.mock_provider import MockMarketDataProvider
 
 
@@ -80,6 +81,62 @@ def test_duplicate_payload_does_not_create_second_dataset_version(tmp_path: Path
     assert first.status == IngestionStatus.COMPLETED
     assert second.status == IngestionStatus.BLOCKED
     assert len(repo.dataset_versions) == 1
+
+
+def test_ingestion_defaults_dataset_origin_to_fixture_when_undeclared(tmp_path: Path) -> None:
+    """A provider that never declares dataset_origin must default to
+    FIXTURE_DATA (fail closed) -- ingestion must never assume data is real."""
+    repo = InMemoryRepository()
+    service = ProviderIngestionService(
+        object_store=LocalObjectStore(tmp_path), repository=repo, audit_log=AuditLog()
+    )
+
+    class UndeclaredOriginProvider:
+        name = "undeclared-origin-provider"
+
+        def get_license_status(self) -> ProviderLicense:
+            return license_with(ProviderLicenseStatus.APPROVED)
+
+        def fetch_eod_prices(self):
+            return MockMarketDataProvider().fetch_eod_prices()
+
+    run = service.ingest_eod_prices(
+        provider=UndeclaredOriginProvider(),
+        provider_id="provider-1",
+        dataset_id="dataset-1",
+        dataset_name="eod_prices",
+        known_instrument_ids={"AEGIS-IN-000001"},
+    )
+    version_id = run.validation_summary["dataset_version_id"]
+    assert repo.dataset_origins[version_id] == "FIXTURE_DATA"
+
+
+def test_ingestion_tags_dataset_origin_as_declared_by_provider(tmp_path: Path) -> None:
+    repo = InMemoryRepository()
+    service = ProviderIngestionService(
+        object_store=LocalObjectStore(tmp_path), repository=repo, audit_log=AuditLog()
+    )
+
+    class RealDataProvider(MockMarketDataProvider):
+        dataset_origin = "ACTUAL_PROVIDER_DATA"
+
+    run = service.ingest_eod_prices(
+        provider=RealDataProvider(),
+        provider_id="provider-1",
+        dataset_id="dataset-1",
+        dataset_name="eod_prices",
+        known_instrument_ids={"AEGIS-IN-000001"},
+    )
+    version_id = run.validation_summary["dataset_version_id"]
+    assert repo.dataset_origins[version_id] == "ACTUAL_PROVIDER_DATA"
+
+
+def test_adapter_dataset_origins_are_correctly_classified(tmp_path: Path) -> None:
+    """Each adapter type must self-declare the right dataset_origin: mock/test
+    fixtures never masquerade as real, and CSV import -- the designated
+    approved-file path -- is distinct from a live provider connection."""
+    assert MockMarketDataProvider().dataset_origin == "TEST_DATA"
+    assert CsvFileProvider(tmp_path).dataset_origin == "APPROVED_FILE_IMPORT"
 
 
 def test_invalid_ohlc_record_is_rejected_and_red() -> None:

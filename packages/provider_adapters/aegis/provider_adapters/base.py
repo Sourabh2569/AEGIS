@@ -29,6 +29,14 @@ class ProviderResponseEnvelope:
 
 class MarketDataProvider(Protocol):
     name: str
+    # One of "ACTUAL_PROVIDER_DATA", "APPROVED_FILE_IMPORT", "FIXTURE_DATA", or
+    # "TEST_DATA" (see research_activation's DataOrigin). Declared honestly by
+    # each adapter -- an adapter that fabricates data (e.g. a stub that
+    # returns hardcoded values even when "configured") must never claim
+    # ACTUAL_PROVIDER_DATA just because it looks live. Ingestion uses this to
+    # tag every DatasetVersion it creates; only ACTUAL_PROVIDER_DATA/
+    # APPROVED_FILE_IMPORT are eligible for actual historical research.
+    dataset_origin: str
 
     def fetch_instruments(self) -> ProviderResponseEnvelope: ...
     def fetch_historical_eod_bars(self) -> ProviderResponseEnvelope: ...

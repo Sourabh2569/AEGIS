@@ -127,6 +127,14 @@ def test_fails_closed_when_unconfigured() -> None:
         assert not hasattr(provider, forbidden)
 
 
+def test_dataset_origin_is_actual_provider_data_only_when_configured() -> None:
+    unconfigured = KiteConnectMarketDataProvider()
+    assert unconfigured.dataset_origin == "FIXTURE_DATA"
+
+    configured = KiteConnectMarketDataProvider(client=FakeKiteClient(), configured=True)
+    assert configured.dataset_origin == "ACTUAL_PROVIDER_DATA"
+
+
 def test_health_check_uses_profile_and_reports_latency() -> None:
     provider = KiteConnectMarketDataProvider(client=FakeKiteClient(), configured=True)
     health = provider.get_health_status()
@@ -240,3 +248,5 @@ def test_kite_provider_satisfies_generic_ingestion_pipeline(tmp_path: Path) -> N
     assert instruments.status == IngestionStatus.COMPLETED
     assert eod.status == IngestionStatus.COMPLETED
     assert len(instrument_master.instruments) == 2
+    eod_version_id = eod.validation_summary["dataset_version_id"]
+    assert repo.dataset_origins[eod_version_id] == "ACTUAL_PROVIDER_DATA"

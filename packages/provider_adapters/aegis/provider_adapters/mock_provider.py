@@ -8,6 +8,7 @@ from aegis.provider_adapters.base import ProviderHealthResult, ProviderResponseE
 
 class MockMarketDataProvider:
     name = "mock_market_data"
+    dataset_origin = "TEST_DATA"
 
     def __init__(self, license_: ProviderLicense | None = None) -> None:
         self._license = license_ or ProviderLicense(

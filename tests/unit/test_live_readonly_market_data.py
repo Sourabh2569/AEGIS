@@ -33,6 +33,15 @@ def test_broker_order_access_is_rejected_at_startup() -> None:
         settings.validate_startup()
 
 
+def test_live_readonly_provider_never_claims_real_data_even_when_configured() -> None:
+    """This adapter fabricates every payload it returns -- it has never been
+    wired to a real backend. configured=True only means credentials look
+    present, never that the data is real. Getting this wrong would let
+    fabricated data pass as ACTUAL_PROVIDER_DATA into real research."""
+    assert LiveReadOnlyMarketDataProvider(configured=False).dataset_origin == "FIXTURE_DATA"
+    assert LiveReadOnlyMarketDataProvider(configured=True).dataset_origin == "FIXTURE_DATA"
+
+
 def test_live_readonly_provider_exposes_no_order_methods() -> None:
     provider = LiveReadOnlyMarketDataProvider()
     assert provider.data_source_mode == "LIVE_READONLY"
@@ -97,3 +106,4 @@ def test_live_readonly_ingestion_creates_governed_layers(tmp_path: Path) -> None
     assert any(
         event.event_type == "LIVE_QUOTES_INGESTED_READONLY" for event in audit_log.list_events()
     )
+    assert set(repo.dataset_origins.values()) == {"FIXTURE_DATA"}
