@@ -40,24 +40,27 @@ It is read-only: it never calls order, holdings, margin, or position endpoints
 1. Subscribe to Kite Connect at https://kite.trade (₹2,000/month, requires an
    existing Zerodha trading/demat account).
 2. Create a Connect app in the Kite developer console to get an `api_key` and
-   `api_secret`.
-3. Complete the daily login flow to obtain an `access_token`:
-   - Redirect to `https://kite.zerodha.com/connect/login?api_key=<api_key>&v=3`,
-     log in, and capture the `request_token` from the redirect.
-   - Exchange it server-side: `KiteConnect(api_key).generate_session(request_token, api_secret=api_secret)`
-     returns an `access_token`.
-   - **This token expires daily** (Kite invalidates it every login cycle). A
-     manual or scripted re-login is required each trading day before
-     ingestion runs — there is no long-lived refresh token in the standard
-     Kite Connect plan.
-4. Set backend-only environment variables (never in frontend code):
+   `api_secret`. Set its **Redirect URL** to exactly
+   `http://127.0.0.1:8765/kite/callback` (matches `kite_login.py` below).
+3. In `.env`, set:
    ```
    MARKET_DATA_PROVIDER_NAME=kite_connect
    MARKET_DATA_PROVIDER_ENVIRONMENT=production
    MARKET_DATA_PROVIDER_API_KEY=<api_key>
    MARKET_DATA_PROVIDER_CLIENT_SECRET=<api_secret>
-   MARKET_DATA_PROVIDER_ACCESS_TOKEN=<access_token, refreshed daily>
    ```
+4. Complete the daily login flow to obtain an `access_token`:
+   ```
+   make kite-login
+   ```
+   This opens the Kite login page in your browser (you enter your Zerodha
+   password/2FA yourself -- that step cannot be automated), catches the
+   redirect locally, exchanges the resulting `request_token` for an
+   `access_token`, verifies it against your real account via `profile()`,
+   and writes `MARKET_DATA_PROVIDER_ACCESS_TOKEN` into `.env` for you.
+   **This token expires daily** (Kite invalidates it every login cycle) --
+   there is no long-lived refresh token on the standard plan, so re-run
+   `make kite-login` each trading morning before ingestion.
 5. Record the license/rights review per
    [source_rights_checklist.md](source_rights_checklist.md) — confirm Kite
    Connect's terms actually permit automation, backtesting, and dashboard

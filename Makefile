@@ -15,6 +15,9 @@ typecheck:
 hash-password:
 	PYTHONPATH=packages/auth python infrastructure/scripts/hash_password.py
 
+kite-login:
+	python infrastructure/scripts/kite_login.py
+
 mock-ingest:
 	PYTHONPATH=packages/shared:packages/domain:packages/configuration:packages/audit:packages/data_quality:packages/provider_adapters:packages/data_ingestion:packages/backtesting python infrastructure/scripts/run_mock_ingestion.py
 
