@@ -15,6 +15,7 @@ from aegis.auth.users import UserStoreError
 from aegis.backtesting.domain import SPRINT_1A_LABELS, BacktestRunStatus, OrderSide
 from aegis.backtesting.engine import BacktestService
 from aegis.backtesting.fixtures import load_calendar, load_market_data
+from aegis.backtesting.momentum_research import RealMomentumResearchRunner, load_real_eod_bars
 from aegis.backtesting.repositories import BacktestRepository
 from aegis.backtesting.sprint2 import Sprint2ResearchScenarioRunner
 from aegis.configuration.settings import Settings
@@ -58,6 +59,10 @@ from aegis.research_activation.evidence_review import ResearchEvidenceReviewGate
 from aegis.research_activation.service import HistoricalResearchActivationService
 from aegis.research_registry.sprint2 import RESEARCH_LABELS
 from aegis.risk.engine import KillSwitchType, RiskProfileVersion
+from aegis.strategies.baselines import (
+    EqualWeightUniverseBenchmarkStrategyV0,
+    TrendFollowingBaselineStrategyV0,
+)
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -207,6 +212,11 @@ repo.dataset_origins[seed_dataset_version.id] = "FIXTURE_DATA"
 backtest_service.attach_calendar_for_intent_creation(fixture_calendar)
 sprint2_runner = Sprint2ResearchScenarioRunner(Path("sample_data/sprint_2"))
 sprint2_reports: list[dict[str, Any]] = []
+real_momentum_reports: list[dict[str, Any]] = []
+sector_by_instrument_id: dict[str, str] = {
+    metadata.aegis_instrument_id: metadata.sector
+    for metadata in CURATED_INSTRUMENT_METADATA.values()
+}
 research_activation_manifests: dict[str, dict[str, Any]] = {}
 actual_feature_runs: dict[str, dict[str, Any]] = {}
 actual_experiments: dict[str, dict[str, Any]] = {}
@@ -1801,6 +1811,52 @@ def run_sprint2_scenario_a(
 @app.get("/api/v1/sprint-2/reports")
 def get_sprint2_reports() -> list[dict[str, Any]]:
     return sprint2_reports
+
+
+@app.post("/api/v1/research/momentum/run")
+def run_real_momentum_backtest(
+    role: Role = Depends(require_role(Role.FOUNDER, Role.RESEARCHER, Role.DATA_STEWARD)),
+) -> dict[str, Any]:
+    capture = load_real_eod_bars(object_store.root)
+    if capture is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "state": "NO_REAL_HISTORICAL_DATA_CAPTURED",
+                "label": "No real historical EOD data has been captured yet",
+                "remediation": "Run a provider sync (POST /api/v1/data-source/live-readonly/sync) first.",
+            },
+        )
+    runner = RealMomentumResearchRunner(capture, sector_by_instrument_id)
+    momentum_report = jsonable(
+        runner.run(TrendFollowingBaselineStrategyV0(), "Real Nifty 50 Trend-Following Momentum")
+    )
+    benchmark_report = jsonable(
+        runner.run(EqualWeightUniverseBenchmarkStrategyV0(), "Real Nifty 50 Equal-Weight Benchmark")
+    )
+    real_momentum_reports.append(momentum_report)
+    real_momentum_reports.append(benchmark_report)
+    audit_log.record(
+        event_type="REAL_MOMENTUM_BACKTEST_COMPLETED",
+        entity_type="ResearchBacktest",
+        entity_id="real-momentum",
+        actor_type="USER",
+        actor_id=role.value,
+        action="RUN_RESEARCH_ONLY_SCENARIO",
+        before_state=None,
+        after_state={
+            "raw_snapshot_hash": capture.raw_snapshot_hash,
+            "bar_count": capture.bar_count,
+            "instrument_count": capture.instrument_count,
+        },
+        correlation_id=str(uuid4()),
+    )
+    return {"momentum": momentum_report, "benchmark": benchmark_report}
+
+
+@app.get("/api/v1/research/momentum/reports")
+def get_real_momentum_reports() -> list[dict[str, Any]]:
+    return real_momentum_reports
 
 
 @app.get("/api/v1/paper-portfolios")

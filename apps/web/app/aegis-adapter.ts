@@ -57,6 +57,25 @@ export type Sprint2Report = {
   total_transaction_cost: string;
   position_count: number;
 };
+export type RealMomentumReport = {
+  scenario: string;
+  strategy_name: string;
+  dataset_origin: string;
+  start_date: string;
+  end_date: string;
+  starting_cash: string;
+  ending_nav: string;
+  total_return: string;
+  max_drawdown: string;
+  rebalance_count: number;
+  position_count: number;
+  total_transaction_cost: string;
+  universe_size: number;
+  bar_count: number;
+  raw_snapshot_hash: string;
+  equity_curve: Array<{ date: string; nav: string }>;
+  warnings: string[];
+};
 export type PaperPortfolio = {
   paper_portfolio_id: string;
   name: string;
@@ -147,6 +166,7 @@ export type DashboardData = {
   audits: AuditEvent[];
   backtests: BacktestRun[];
   sprint2Reports: Sprint2Report[];
+  realMomentumReports: RealMomentumReport[];
   paperPortfolios: PaperPortfolio[];
   paperIntents: PaperIntent[];
   paperIncidents: PaperIncident[];

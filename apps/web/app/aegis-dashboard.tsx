@@ -446,6 +446,95 @@ function UniversePage({ data }: { data: DashboardData }) {
   );
 }
 
+function formatReturn(value: string | number): string {
+  // Always a plain fraction from the real momentum backend (never pre-scaled),
+  // unlike percent()'s heuristic which misreads returns over 100% (e.g. a real
+  // 283% gain as "2.8%") because it can't tell a large fraction from an
+  // already-scaled percentage.
+  return `${(Number(value) * 100).toFixed(1)}%`;
+}
+
+function RealMomentumSection({ data }: { data: DashboardData }) {
+  const momentumReports = data.realMomentumReports.filter((report) => report.scenario.includes("Trend-Following"));
+  const benchmarkReports = data.realMomentumReports.filter((report) => report.scenario.includes("Equal-Weight Benchmark"));
+  const momentum = momentumReports[momentumReports.length - 1];
+  const benchmark = benchmarkReports[benchmarkReports.length - 1];
+
+  if (!momentum || !benchmark) {
+    return (
+      <ChartCard title="Real Nifty 50 momentum backtest" subtitle="First investment thesis, evaluated against real captured data">
+        <AlertCard
+          tone="info"
+          title="No real backtest run yet"
+          body="POST /api/v1/research/momentum/run against real captured Kite data to populate this section."
+        />
+      </ChartCard>
+    );
+  }
+
+  const momentumBase = Number(momentum.equity_curve[0]?.nav ?? momentum.starting_cash);
+  const benchmarkBase = Number(benchmark.equity_curve[0]?.nav ?? benchmark.starting_cash);
+  const sampleEvery = Math.max(1, Math.ceil(momentum.equity_curve.length / 24));
+  const comparisonSeries = momentum.equity_curve
+    .filter((_, index) => index % sampleEvery === 0)
+    .map((point, sampledIndex) => {
+      const rawIndex = sampledIndex * sampleEvery;
+      const benchmarkPoint = benchmark.equity_curve[rawIndex];
+      return {
+        label: point.date.slice(0, 7),
+        portfolio: momentumBase ? (Number(point.nav) / momentumBase) * 100 : 100,
+        benchmark: benchmarkPoint && benchmarkBase ? (Number(benchmarkPoint.nav) / benchmarkBase) * 100 : 100,
+      };
+    });
+
+  const rows = [
+    [
+      momentum.scenario,
+      momentum.strategy_name,
+      formatReturn(momentum.total_return),
+      formatReturn(momentum.max_drawdown),
+      String(momentum.rebalance_count),
+      String(momentum.position_count),
+      currency(Number(momentum.total_transaction_cost)),
+    ],
+    [
+      benchmark.scenario,
+      benchmark.strategy_name,
+      formatReturn(benchmark.total_return),
+      formatReturn(benchmark.max_drawdown),
+      String(benchmark.rebalance_count),
+      String(benchmark.position_count),
+      currency(Number(benchmark.total_transaction_cost)),
+    ],
+  ];
+
+  return (
+    <>
+      <KpiGrid>
+        <KpiCard label="Momentum total return" value={formatReturn(momentum.total_return)} hint={`${momentum.start_date} to ${momentum.end_date}, real Kite data`} tone={Number(momentum.total_return) >= 0 ? "success" : "danger"} />
+        <KpiCard label="Benchmark total return" value={formatReturn(benchmark.total_return)} hint="Equal-weight, same universe and window" tone="info" />
+        <KpiCard label="Momentum max drawdown" value={formatReturn(momentum.max_drawdown)} hint="Platform's own conservative risk profile applied" tone="warning" />
+        <KpiCard label="Real universe" value={`${momentum.universe_size} stocks`} hint={`${momentum.bar_count.toLocaleString()} real EOD bars, hash ${momentum.raw_snapshot_hash.slice(0, 10)}…`} tone="success" />
+      </KpiGrid>
+      <section className="hero-grid single">
+        <ChartCard title="Momentum vs. equal-weight benchmark" subtitle="Indexed to 100 at inception, quarterly-sampled from the real equity curve" note="Real Kite-sourced EOD data -- see warnings below for modeling assumptions">
+          <LineChart data={comparisonSeries} />
+        </ChartCard>
+      </section>
+      <DataTable
+        title="Real Nifty 50 momentum backtest -- ACTUAL_PROVIDER_DATA"
+        headers={["Scenario", "Strategy", "Return", "Max drawdown", "Rebalances", "Positions held", "Transaction cost"]}
+        rows={rows}
+      />
+      <ChartCard title="Modeling assumptions and findings" subtitle="Disclosed, not hidden">
+        {momentum.warnings.map((warning) => (
+          <AlertCard key={warning} tone="info" title={warning} body="" />
+        ))}
+      </ChartCard>
+    </>
+  );
+}
+
 function ResearchPage({ data, model }: { data: DashboardData; model: ReturnType<typeof buildModel> }) {
   const activation = data.researchActivation ?? {};
   const blockers = Array.isArray(activation.blockers) ? activation.blockers : [];
@@ -459,6 +548,7 @@ function ResearchPage({ data, model }: { data: DashboardData; model: ReturnType<
     : [["No eligible dataset", model.researchActivationLabel, "0", "Actual historical research only", "Provider or licensed file required"]];
   return (
     <>
+      <RealMomentumSection data={data} />
       <KpiGrid>
         <KpiCard label="Historical activation" value={model.researchActivationLabel} hint="Real data must pass license, lineage, and quality gates" trend={model.researchActivationStatus} tone={toneFor(model.researchActivationStatus)} />
         <KpiCard label="Eligible datasets" value={String(model.researchEligibleDatasetCount)} hint="Only non-fixture raw snapshots qualify" tone={model.researchEligibleDatasetCount > 0 ? "success" : "warning"} />
@@ -474,7 +564,7 @@ function ResearchPage({ data, model }: { data: DashboardData; model: ReturnType<
         <DataTable title="Historical activation blockers" headers={["Gate", "State", "Severity", "Remediation"]} rows={blockerRows} />
         <DataTable title="Research-eligible datasets" headers={["Dataset version", "Validation", "Quality", "Classification", "Trading use"]} rows={eligibleRows} />
       </section>
-      <DataTable title="Backtest vs paper observation" headers={["Scenario", "Return", "Exposure", "Cost drag", "Classification"]} rows={rows} />
+      <DataTable title="Fixture demo (Sprint 2) -- not real data" headers={["Scenario", "Return", "Exposure", "Cost drag", "Classification"]} rows={rows} />
     </>
   );
 }
