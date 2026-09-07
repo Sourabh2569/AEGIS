@@ -166,11 +166,14 @@ class RealMomentumResearchRunner:
             ),
             (
                 "Uses the platform's existing conservative risk profile (RiskProfileVersion): "
-                "new-position sizing is set to zero once drawdown from the running high-water-mark "
-                "reaches -8% (CAPITAL_PRESERVATION) or -10% (FROZEN). A portfolio that is fully in "
-                "cash cannot make a new high on its own, so this can persist for an extended period "
-                "once triggered -- a real, first-observed interaction, since prior fixture scenarios "
-                "always passed a hardcoded zero drawdown into this risk engine."
+                "new-position sizing is progressively throttled as drawdown from the running "
+                "high-water-mark deepens -- 10% of otherwise-approved size at -8% "
+                "(CAPITAL_PRESERVATION), 5% at -10% (FROZEN) -- but never zeroed automatically. "
+                "This is the first code path to feed a live, evolving drawdown into this risk "
+                "engine across many periods -- prior fixture scenarios always passed a hardcoded "
+                "zero drawdown -- and running it live surfaced and fixed a real deadlock: sizing "
+                "used to drop straight to zero at -8%, and since a fully-cash portfolio can never "
+                "make a new high on its own, it could never self-recover once triggered."
             ),
         ]
 

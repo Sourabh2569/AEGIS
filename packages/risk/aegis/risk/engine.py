@@ -112,12 +112,28 @@ def drawdown_state(drawdown: Decimal) -> PortfolioRiskState:
 
 
 def state_multiplier(state: PortfolioRiskState) -> Decimal:
+    """New-position size as a fraction of what would otherwise be approved.
+
+    CAUTION/DEFENSIVE/CAPITAL_PRESERVATION/FROZEN throttle size
+    progressively but all stay non-zero: `drawdown_state()` derives every one
+    of these purely from drawdown-vs-high-water-mark math, and that drawdown
+    can only ever improve through new gains -- a fully-cash (zero-multiplier)
+    portfolio can never make a new high on its own, so any automatically
+    reachable state that zeroes sizing traps the portfolio there forever
+    once triggered. Only EMERGENCY_EXIT is a true hard stop: `drawdown_state`
+    never returns it, so it is never triggered by this ladder -- it is
+    reserved for an explicit, externally-triggered override (e.g. a future
+    kill-switch-style mechanism), which is exactly the scenario where a
+    permanent zero is appropriate. assess() escalates that case for human
+    review rather than rejecting it outright, since nothing in this state
+    machine can clear it automatically.
+    """
     return {
         PortfolioRiskState.NORMAL: Decimal("1.00"),
         PortfolioRiskState.CAUTION: Decimal("0.50"),
         PortfolioRiskState.DEFENSIVE: Decimal("0.25"),
-        PortfolioRiskState.CAPITAL_PRESERVATION: Decimal("0.00"),
-        PortfolioRiskState.FROZEN: Decimal("0.00"),
+        PortfolioRiskState.CAPITAL_PRESERVATION: Decimal("0.10"),
+        PortfolioRiskState.FROZEN: Decimal("0.05"),
         PortfolioRiskState.EMERGENCY_EXIT: Decimal("0.00"),
     }[state]
 
@@ -173,11 +189,8 @@ class PositionSizingEngine:
             }:
                 reasons.append(f"KILL_SWITCH_ACTIVE:{switch.switch_type}")
                 active_blocking_kill_switch = True
-        if state in {
-            PortfolioRiskState.CAPITAL_PRESERVATION,
-            PortfolioRiskState.FROZEN,
-            PortfolioRiskState.EMERGENCY_EXIT,
-        }:
+        risk_state_blocks_exposure = state is PortfolioRiskState.EMERGENCY_EXIT
+        if risk_state_blocks_exposure:
             reasons.append(f"RISK_STATE_BLOCKS_NEW_EXPOSURE:{state}")
 
         risk_per_share = max(
@@ -238,8 +251,15 @@ class PositionSizingEngine:
         sector_after = money(sector_value + (approved * entry_price))
         cluster_after = money(cluster_value + (approved * entry_price))
         if approved <= 0:
-            decision = RiskDecision.REJECTED if reasons else RiskDecision.DEFERRED
-            if not reasons:
+            if risk_state_blocks_exposure:
+                # EMERGENCY_EXIT is never set automatically and has no
+                # automatic reset -- escalate rather than silently rejecting
+                # forever.
+                decision = RiskDecision.ESCALATED_FOR_REVIEW
+            elif reasons:
+                decision = RiskDecision.REJECTED
+            else:
+                decision = RiskDecision.DEFERRED
                 reasons.append("NO_TRADE_ZERO_SIZE")
         elif approved < proposed_quantity:
             decision = RiskDecision.APPROVED_WITH_REDUCED_SIZE
