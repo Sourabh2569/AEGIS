@@ -50,15 +50,22 @@ class RealBarCapture:
 
 
 def load_real_eod_bars(object_store_root: Path) -> RealBarCapture | None:
-    """Loads the fullest real historical EOD capture from the durable object
+    """Loads the freshest real historical EOD capture from the durable object
     store -- the platform's own immutable raw-evidence layer -- rather than
     the ephemeral in-memory repository, which only keeps the latest bar per
     instrument and resets on restart. Returns None if nothing has been
-    captured yet (fresh clone, CI, before any provider sync)."""
+    captured yet (fresh clone, CI, before any provider sync).
+
+    "Freshest" is ranked by the most recent trade_date actually present, not
+    by row count: a same-universe daily resync slides a fixed lookback
+    window forward and can have a similar or even slightly smaller row count
+    than an older capture, so picking the largest file would keep serving a
+    stale sync forever. Universe size (instrument count) and then row count
+    are only used to break ties on the same latest date."""
     raw_root = object_store_root / "raw"
     if not raw_root.exists():
         return None
-    best: tuple[int, Path, list[dict[str, Any]]] | None = None
+    best: tuple[str, int, int, Path, list[dict[str, Any]]] | None = None
     for path in sorted(raw_root.glob("*/fetch_historical_eod_bars/*.json")):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -66,11 +73,14 @@ def load_real_eod_bars(object_store_root: Path) -> RealBarCapture | None:
             continue
         if not isinstance(payload, list) or not payload:
             continue
-        if best is None or len(payload) > best[0]:
-            best = (len(payload), path, payload)
+        max_date = max(bar["trade_date"] for bar in payload)
+        instrument_count = len({bar["aegis_instrument_id"] for bar in payload})
+        key = (max_date, instrument_count, len(payload))
+        if best is None or key > best[:3]:
+            best = (*key, path, payload)
     if best is None:
         return None
-    _, path, payload = best
+    *_, path, payload = best
     by_instrument: dict[str, list[dict[str, Any]]] = {}
     for bar in payload:
         by_instrument.setdefault(bar["aegis_instrument_id"], []).append(bar)

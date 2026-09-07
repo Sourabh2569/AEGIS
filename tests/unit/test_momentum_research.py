@@ -39,8 +39,8 @@ def _bar(instrument_id: str, trade_date: date, close: float, volume: int = 1_000
     }
 
 
-def _synthetic_payload(num_days: int = 320) -> list[dict]:
-    dates = _trading_dates(date(2024, 1, 1), num_days)
+def _synthetic_payload(num_days: int = 320, start: date = date(2024, 1, 1)) -> list[dict]:
+    dates = _trading_dates(start, num_days)
     payload: list[dict] = []
     for index, trade_date in enumerate(dates):
         # UPTREND steadily compounds; DOWNTREND steadily declines; FLAT barely moves.
@@ -62,7 +62,7 @@ def test_load_real_eod_bars_returns_none_when_nothing_captured(tmp_path: Path) -
     assert load_real_eod_bars(tmp_path) is None
 
 
-def test_load_real_eod_bars_picks_the_fullest_capture(tmp_path: Path) -> None:
+def test_load_real_eod_bars_picks_the_widest_universe_when_dates_tie(tmp_path: Path) -> None:
     small_payload = _synthetic_payload(num_days=50)
     big_payload = _synthetic_payload(num_days=320)
     _write_capture(tmp_path, small_payload, provider_id="earlier-partial-sync")
@@ -74,6 +74,28 @@ def test_load_real_eod_bars_picks_the_fullest_capture(tmp_path: Path) -> None:
     assert capture.bar_count == len(big_payload)
     assert capture.instrument_count == 3
     assert set(capture.bars_by_instrument.keys()) == {"UPTREND", "DOWNTREND", "FLAT"}
+
+
+def test_load_real_eod_bars_prefers_the_freshest_date_over_more_rows(tmp_path: Path) -> None:
+    """A daily resync slides a fixed lookback window forward -- it can have
+    the SAME or even fewer rows than an older, larger capture, since it's the
+    same 3-instrument universe just shifted a few days later. Picking by row
+    count alone would keep serving stale data forever after the very first
+    big sync; freshness (latest trade_date) must win instead."""
+    older_larger_payload = _synthetic_payload(num_days=320, start=date(2024, 1, 1))
+    fresher_smaller_payload = _synthetic_payload(num_days=250, start=date(2024, 6, 1))
+    older_end_date = _trading_dates(date(2024, 1, 1), 320)[-1]
+    fresher_end_date = _trading_dates(date(2024, 6, 1), 250)[-1]
+    assert fresher_end_date > older_end_date
+    assert len(fresher_smaller_payload) < len(older_larger_payload)
+    _write_capture(tmp_path, older_larger_payload, provider_id="old-sync")
+    _write_capture(tmp_path, fresher_smaller_payload, provider_id="new-sync")
+
+    capture = load_real_eod_bars(tmp_path)
+
+    assert capture is not None
+    assert capture.bar_count == len(fresher_smaller_payload)
+    assert capture.end_date == fresher_end_date
 
 
 def test_load_real_eod_bars_ignores_malformed_files(tmp_path: Path) -> None:
