@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -96,6 +97,49 @@ def test_load_real_eod_bars_prefers_the_freshest_date_over_more_rows(tmp_path: P
     assert capture is not None
     assert capture.bar_count == len(fresher_smaller_payload)
     assert capture.end_date == fresher_end_date
+
+
+def test_load_real_eod_bars_prefers_the_more_recently_synced_file_when_dates_tie(
+    tmp_path: Path,
+) -> None:
+    """Re-running kite-login and re-syncing later the same real trading day
+    is the common case, and it always ties on max trade_date. Two such syncs
+    can differ by a few rows of historical padding at the start of the fixed
+    lookback window (Kite's actual returned coverage varies slightly run to
+    run) -- that padding says nothing about which sync is more recent, so
+    row count must not be the tiebreaker. The file that was actually written
+    later (mtime) must win, even if it happens to have fewer rows."""
+    all_dates = _trading_dates(date(2024, 1, 1), 320)
+    same_day_payload = [
+        bar
+        for trade_date in all_dates
+        for bar in (
+            _bar("UPTREND", trade_date, 100.0),
+            _bar("DOWNTREND", trade_date, 100.0),
+            _bar("FLAT", trade_date, 100.0),
+        )
+    ]
+    fewer_rows_but_more_recent = [
+        bar
+        for trade_date in all_dates[5:]  # same end date, 5 fewer days of history
+        for bar in (
+            _bar("UPTREND", trade_date, 100.0),
+            _bar("DOWNTREND", trade_date, 100.0),
+            _bar("FLAT", trade_date, 100.0),
+        )
+    ]
+    assert len(fewer_rows_but_more_recent) < len(same_day_payload)
+    assert max(b["trade_date"] for b in fewer_rows_but_more_recent) == max(
+        b["trade_date"] for b in same_day_payload
+    )
+    _write_capture(tmp_path, same_day_payload, provider_id="earlier-today-sync")
+    time.sleep(0.05)
+    _write_capture(tmp_path, fewer_rows_but_more_recent, provider_id="later-today-resync")
+
+    capture = load_real_eod_bars(tmp_path)
+
+    assert capture is not None
+    assert capture.bar_count == len(fewer_rows_but_more_recent)
 
 
 def test_load_real_eod_bars_ignores_malformed_files(tmp_path: Path) -> None:

@@ -67,12 +67,18 @@ def load_real_eod_bars(object_store_root: Path) -> RealBarCapture | None:
     by row count: a same-universe daily resync slides a fixed lookback
     window forward and can have a similar or even slightly smaller row count
     than an older capture, so picking the largest file would keep serving a
-    stale sync forever. Universe size (instrument count) and then row count
-    are only used to break ties on the same latest date."""
+    stale sync forever. Universe size (instrument count) breaks ties on the
+    same latest date; file mtime (which sync actually ran most recently)
+    breaks any further tie -- row count is *not* used as a final tiebreaker,
+    since two syncs run on the same trading day (the common case: re-running
+    kite-login and re-syncing later the same day) can genuinely tie on date
+    while differing by a few rows of historical padding at the start of the
+    lookback window, and that padding says nothing about which sync is
+    actually the more recent, trustworthy one."""
     raw_root = object_store_root / "raw"
     if not raw_root.exists():
         return None
-    best: tuple[str, int, int, Path, list[dict[str, Any]]] | None = None
+    best: tuple[str, int, float, Path, list[dict[str, Any]]] | None = None
     for path in sorted(raw_root.glob("*/fetch_historical_eod_bars/*.json")):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -82,7 +88,7 @@ def load_real_eod_bars(object_store_root: Path) -> RealBarCapture | None:
             continue
         max_date = max(bar["trade_date"] for bar in payload)
         instrument_count = len({bar["aegis_instrument_id"] for bar in payload})
-        key = (max_date, instrument_count, len(payload))
+        key = (max_date, instrument_count, path.stat().st_mtime)
         if best is None or key > best[:3]:
             best = (*key, path, payload)
     if best is None:
