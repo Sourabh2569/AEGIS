@@ -206,25 +206,41 @@ seed_dataset_version = DatasetVersion(
     lineage_record_exists=True,
     id="dataset-version-1",
 )
-seed_instrument = Instrument(
-    aegis_instrument_id="AEGIS-IN-000001",
-    isin="INE002A01018",
-    company_legal_name="Reliance Industries Limited",
-    security_type="EQUITY",
-    current_symbol="RELIANCE",
-    primary_exchange="NSE",
-    # Matches CURATED_INSTRUMENT_METADATA["RELIANCE"] exactly (verified
-    # against NSE's official securities master, see the Kite adapter's
-    # module comment). This is registered before any real sync runs, and
-    # sync_instrument_master() skips instruments it already knows about --
-    # so a placeholder value here would never get corrected by real data.
-    listing_date=date(1995, 11, 29),
-    trading_status="ACTIVE",
-    sector="Oil Gas & Consumable Fuels",
-    industry="Oil Gas & Consumable Fuels",
-    mapping_confidence_score=0.99,
-)
-instrument_master.add_instrument(seed_instrument)
+# Seeded from CURATED_INSTRUMENT_METADATA -- the same NSE-cross-verified
+# Nifty 50 table (see the Kite adapter's module comment for provenance) that
+# sector_by_instrument_id and the paper-trading/research universe already
+# draw from. instrument_master is in-memory and reset on every restart, so
+# this must seed the *whole* real universe up front: seeding only RELIANCE
+# here left every other real, already-ingested instrument (their EOD bars
+# exist for real in the durable object store) permanently invisible to
+# GET /api/v1/instruments and every endpoint that resolves a symbol through
+# it, even though the backend could compute real signals for all 50.
+# sync_instrument_master() skips instruments it already knows about, so a
+# wrong value here would never get corrected by a later real sync -- these
+# are exactly the same verified values as CURATED_INSTRUMENT_METADATA, not
+# placeholders.
+curated_instruments: dict[str, Instrument] = {
+    symbol: Instrument(
+        aegis_instrument_id=metadata.aegis_instrument_id,
+        isin=metadata.isin,
+        company_legal_name=metadata.company_legal_name,
+        security_type=metadata.security_type,
+        current_symbol=symbol,
+        primary_exchange="NSE",
+        listing_date=metadata.listing_date,
+        trading_status="ACTIVE",
+        sector=metadata.sector,
+        industry=metadata.industry,
+        mapping_confidence_score=0.99,
+    )
+    for symbol, metadata in CURATED_INSTRUMENT_METADATA.items()
+}
+for instrument in curated_instruments.values():
+    instrument_master.add_instrument(instrument)
+# RELIANCE is the example instrument behind the Sprint 1a fixture-CSV
+# backtest flow further down (sample_data/backtesting/valid_eod_prices.csv)
+# -- keep a direct reference for those defaults.
+seed_instrument = curated_instruments["RELIANCE"]
 fixture_calendar = load_calendar(Path("sample_data/backtesting/market_calendar.csv"))
 fixture_market_data = load_market_data(
     Path("sample_data/backtesting/valid_eod_prices.csv"), "dataset-version-1"

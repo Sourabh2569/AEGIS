@@ -162,6 +162,11 @@ class RealMomentumResearchRunner:
             }
         )
 
+    @property
+    def trading_dates(self) -> list[date]:
+        """Every real trading day present in the capture, sorted ascending."""
+        return self._all_dates
+
     def run(self, strategy: StrategyContract, scenario_name: str) -> RealMomentumReport:
         portfolio = ResearchPortfolio(
             portfolio_id=f"real-momentum-{scenario_name}", cash=money(STARTING_CASH)
@@ -281,7 +286,14 @@ class RealMomentumResearchRunner:
             idx = bisect.bisect_right(bar_dates, as_of)
             if idx < MINIMUM_HISTORY_DAYS:
                 continue
-            bars = self.capture.bars_by_instrument[instrument_id][:idx]
+            # Every metric below only ever looks at a trailing window of at
+            # most MINIMUM_HISTORY_DAYS (sma_200 is the largest). Slicing to
+            # that window instead of the full since-inception history avoids
+            # re-converting thousands of bars to Decimal on every call --
+            # this is called once per trading date by the rule-events/
+            # indicators endpoints, so the full-history version made those
+            # effectively hang once years of real data had accumulated.
+            bars = self.capture.bars_by_instrument[instrument_id][idx - MINIMUM_HISTORY_DAYS : idx]
             closes = [Decimal(str(bar["close"])) for bar in bars]
             highs = [Decimal(str(bar["high"])) for bar in bars]
             lows = [Decimal(str(bar["low"])) for bar in bars]
