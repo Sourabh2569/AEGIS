@@ -67,6 +67,12 @@ def seeded_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient
     _seed_object_store(store_root)
     monkeypatch.setattr(app_main, "object_store", LocalObjectStore(store_root))
     monkeypatch.setattr(app_main, "real_momentum_reports", [])
+    # paper_repo is a module-level singleton shared across the whole pytest
+    # session -- clear it so portfolios/configs created by one test (here or
+    # in test_strategy_detail.py) can't leak into another test's live rollup.
+    app_main.paper_repo.portfolios.clear()
+    app_main.paper_repo.strategy_configs.clear()
+    app_main.paper_repo.nav.clear()
     return TestClient(app)
 
 

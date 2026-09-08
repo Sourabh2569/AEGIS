@@ -1930,13 +1930,59 @@ STRATEGY_LEADERBOARD_IDS = (
 )
 
 
+def _latest_momentum_reports_by_strategy() -> dict[str, dict[str, Any]]:
+    """real_momentum_reports is append-only across every POST .../run call --
+    the last matching entry for a strategy_name is its latest real run."""
+    latest: dict[str, dict[str, Any]] = {}
+    for report in real_momentum_reports:
+        latest[report["strategy_name"]] = report
+    return latest
+
+
+def _return_to_drawdown_ratio(report: dict[str, Any]) -> Decimal | None:
+    total_return = Decimal(report["total_return"])
+    max_drawdown = Decimal(report["max_drawdown"])
+    return money(total_return / abs(max_drawdown)) if max_drawdown != 0 else None
+
+
+def _strategy_rule_descriptions() -> dict[str, dict[str, str]]:
+    max_positions = RiskProfileVersion().maximum_position_count
+    return {
+        "TrendFollowingBaselineStrategyV0": {
+            "eligibility": (
+                "close > SMA_50 > SMA_200, and 60-day momentum > 0, minimum 20-day "
+                "average value traded ₹100,000"
+            ),
+            "selection": (
+                "eligible instruments ranked by descending 60-day momentum, then "
+                "descending distance above SMA_200"
+            ),
+            "sizing": f"top {max_positions} ranked instruments, 80% of equity split equally",
+            "stop": "close - 2 x ATR_14",
+        },
+        "EqualWeightUniverseBenchmarkStrategyV0": {
+            "eligibility": "any instrument with at least 200 real trading days of history -- no other filter",
+            "selection": f"every eligible instrument, capped at {max_positions} positions",
+            "sizing": "80% of equity split equally across the selected instruments",
+            "stop": "not applicable -- this strategy carries no per-position stop",
+        },
+        "BuyAndHoldBenchmarkStrategyV0": {
+            "eligibility": "any instrument with at least 200 real trading days of history -- no other filter",
+            "selection": (
+                "exactly one instrument: whichever eligible candidate sorts first by its "
+                "internal instrument id (in practice, the same one every period once it "
+                "has enough history) -- a simple benchmark construction, not a claim to "
+                "track the Nifty 50 index itself"
+            ),
+            "sizing": "80% of equity in that single instrument",
+            "stop": "not applicable -- this strategy carries no per-position stop",
+        },
+    }
+
+
 @app.get("/api/v1/strategies/leaderboard")
 def get_strategy_leaderboard() -> list[dict[str, Any]]:
-    # real_momentum_reports is append-only across every POST .../run call --
-    # the last matching entry for a strategy_name is its latest real run.
-    latest_report_by_strategy: dict[str, dict[str, Any]] = {}
-    for report in real_momentum_reports:
-        latest_report_by_strategy[report["strategy_name"]] = report
+    latest_report_by_strategy = _latest_momentum_reports_by_strategy()
 
     rows: list[dict[str, Any]] = []
     for strategy_id in STRATEGY_LEADERBOARD_IDS:
@@ -1944,9 +1990,7 @@ def get_strategy_leaderboard() -> list[dict[str, Any]]:
         backtest: dict[str, Any] | None = None
         ratio: Decimal | None = None
         if report is not None:
-            total_return = Decimal(report["total_return"])
-            max_drawdown = Decimal(report["max_drawdown"])
-            ratio = money(total_return / abs(max_drawdown)) if max_drawdown != 0 else None
+            ratio = _return_to_drawdown_ratio(report)
             backtest = {
                 "scenario": report["scenario"],
                 "dataset_origin": report["dataset_origin"],
@@ -2012,6 +2056,71 @@ def get_strategy_leaderboard() -> list[dict[str, Any]]:
         reverse=True,
     )
     return rows
+
+
+@app.get("/api/v1/strategies/{strategy_id}/detail")
+def get_strategy_detail(strategy_id: str) -> dict[str, Any]:
+    if strategy_id not in STRATEGY_LEADERBOARD_IDS:
+        raise HTTPException(status_code=404, detail=f"Unknown strategy_id: {strategy_id}")
+
+    latest_report_by_strategy = _latest_momentum_reports_by_strategy()
+    report = latest_report_by_strategy.get(strategy_id)
+    backtest: dict[str, Any] | None = None
+    ratio: Decimal | None = None
+    if report is not None:
+        ratio = _return_to_drawdown_ratio(report)
+        backtest = {
+            "scenario": report["scenario"],
+            "dataset_origin": report["dataset_origin"],
+            "start_date": report["start_date"],
+            "end_date": report["end_date"],
+            "total_return": report["total_return"],
+            "max_drawdown": report["max_drawdown"],
+            "rebalance_count": report["rebalance_count"],
+            "position_count": report["position_count"],
+            "universe_size": report["universe_size"],
+            "bar_count": report["bar_count"],
+            "raw_snapshot_hash": report["raw_snapshot_hash"],
+            "warnings": report["warnings"],
+            "equity_curve": report["equity_curve"],
+        }
+
+    # The natural benchmark overlay -- skipped when detailing the benchmark
+    # itself, since comparing its line to a copy of itself says nothing.
+    benchmark_equity_curve: list[dict[str, str]] | None = None
+    if strategy_id != "EqualWeightUniverseBenchmarkStrategyV0":
+        benchmark_report = latest_report_by_strategy.get("EqualWeightUniverseBenchmarkStrategyV0")
+        if benchmark_report is not None:
+            benchmark_equity_curve = benchmark_report["equity_curve"]
+
+    live_portfolios: list[dict[str, Any]] = []
+    for config in paper_repo.strategy_configs.values():
+        if config.strategy_id != strategy_id:
+            continue
+        portfolio = paper_repo.portfolios[config.paper_portfolio_id]
+        snapshots = paper_repo.nav.get(config.paper_portfolio_id, [])
+        live_portfolios.append(
+            {
+                "paper_portfolio_id": config.paper_portfolio_id,
+                "name": portfolio.name,
+                "status": portfolio.status,
+                "starting_capital": str(portfolio.starting_capital),
+                "session_count": len(snapshots),
+                "latest_nav": str(snapshots[-1].nav) if snapshots else None,
+                "latest_drawdown": str(snapshots[-1].drawdown) if snapshots else None,
+                "run_status": "HAS_RUN" if snapshots else "HAS_NOT_RUN_YET",
+            }
+        )
+
+    return {
+        "strategy_id": strategy_id,
+        "return_to_drawdown_ratio": str(ratio) if ratio is not None else None,
+        "backtest": backtest,
+        "backtest_status": "AVAILABLE" if backtest is not None else "NOT_RUN_YET",
+        "benchmark_equity_curve": benchmark_equity_curve,
+        "rules": _strategy_rule_descriptions()[strategy_id],
+        "live_portfolios": live_portfolios,
+    }
 
 
 # ---------------------------------------------------------------------------

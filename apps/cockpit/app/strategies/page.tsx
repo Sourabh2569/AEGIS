@@ -129,7 +129,9 @@ function Leaderboard() {
               <div key={row.strategy_id} className="panel leaderboard-card">
                 <div className="panel-head">
                   <span className="leaderboard-rank">#{index + 1}</span>
-                  <span className="leaderboard-name">{row.strategy_id}</span>
+                  <Link href={`/strategies/${row.strategy_id}`} className="leaderboard-name">
+                    {row.strategy_id}
+                  </Link>
                   <span
                     className={`leaderboard-ratio ${
                       row.return_to_drawdown_ratio === null
