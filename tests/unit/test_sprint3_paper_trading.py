@@ -26,10 +26,25 @@ from aegis.paper_trading.services import (
 from aegis.risk.engine import KillSwitchType
 
 
+def _stub_target_resolver(
+    strategy_id: str, session_date: date
+) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
+    """Deterministic stand-in for a real strategy signal -- these tests
+    exercise approval/execution/idempotency/kill-switch mechanics, not
+    strategy selection, so a fixed 10% target weight is enough to produce a
+    real, risk-sized BUY intent without depending on real market data."""
+    return {"AEGIS-IN-000001": Decimal("0.10")}, {"AEGIS-IN-000001": Decimal(100)}
+
+
 def setup_active_orchestrator():
     repo = PaperTradingRepository()
     audit = AuditLog()
-    orch = PaperTradingOrchestrator(repo, audit)
+    orch = PaperTradingOrchestrator(
+        repo,
+        audit,
+        sector_by_instrument={"AEGIS-IN-000001": "Financials"},
+        strategy_target_resolver=_stub_target_resolver,
+    )
     portfolio = orch.create_portfolio(
         name="Paper Test",
         description="Paper-only fixture",
@@ -173,7 +188,7 @@ def test_sqlite_repository_persists_paper_tables(tmp_path) -> None:
     db_path = tmp_path / "paper.sqlite"
     repo = SqlitePaperTradingRepository(db_path)
     audit = AuditLog()
-    orch = PaperTradingOrchestrator(repo, audit)
+    orch = PaperTradingOrchestrator(repo, audit)  # persistence-only fixture, no decision cycle run
     portfolio = orch.create_portfolio(
         name="Persistent Paper",
         description="DB-backed fixture",
@@ -193,7 +208,12 @@ def test_queue_backed_session_execution(tmp_path) -> None:
     db_path = tmp_path / "paper.sqlite"
     queue_path = tmp_path / "queue.sqlite"
     repo = SqlitePaperTradingRepository(db_path)
-    orch = PaperTradingOrchestrator(repo, AuditLog())
+    orch = PaperTradingOrchestrator(
+        repo,
+        AuditLog(),
+        sector_by_instrument={"AEGIS-IN-000001": "Financials"},
+        strategy_target_resolver=_stub_target_resolver,
+    )
     portfolio = orch.create_portfolio(
         name="Queued Paper",
         description="Queue-backed fixture",
@@ -242,3 +262,188 @@ def test_calendar_fixture_rejects_closed_session_execution() -> None:
     )
     with pytest.raises(ValueError):
         calendar.open_time(date(2026, 6, 27))
+
+
+def test_run_decision_cycle_creates_one_intent_per_instrument_in_target_weights() -> None:
+    """The old placeholder could only ever propose one instrument. A real
+    strategy's target weights can span several -- the bridge must create one
+    real, risk-sized intent per instrument that actually needs a trade."""
+    repo = PaperTradingRepository()
+    orch = PaperTradingOrchestrator(
+        repo,
+        AuditLog(),
+        sector_by_instrument={
+            "AEGIS-IN-000001": "Financials",
+            "AEGIS-IN-000002": "Information Technology",
+        },
+        strategy_target_resolver=lambda strategy_id, session_date: (
+            {"AEGIS-IN-000001": Decimal("0.10"), "AEGIS-IN-000002": Decimal("0.10")},
+            {},
+        ),
+    )
+    portfolio = orch.create_portfolio(
+        name="Multi",
+        description="multi-instrument",
+        starting_capital=Decimal(100000),
+        created_by="FOUNDER",
+    )
+    config = orch.create_strategy_config(portfolio.paper_portfolio_id)
+    orch.admit_and_activate_strategy(
+        config.paper_strategy_config_id, all_admission_evidence(), "FOUNDER"
+    )
+
+    orch.run_decision_cycle(
+        paper_portfolio_id=portfolio.paper_portfolio_id,
+        session_date=date(2026, 6, 26),
+        readiness_flags=all_readiness_green(),
+        reference_prices={"AEGIS-IN-000001": Decimal(112), "AEGIS-IN-000002": Decimal(220)},
+    )
+
+    portfolio_intents = [
+        intent
+        for intent in repo.intents.values()
+        if intent.paper_portfolio_id == portfolio.paper_portfolio_id
+    ]
+    assert {intent.instrument_id for intent in portfolio_intents} == {
+        "AEGIS-IN-000001",
+        "AEGIS-IN-000002",
+    }
+    assert all(intent.side == "BUY" for intent in portfolio_intents)
+
+
+def test_run_decision_cycle_sells_a_position_dropped_from_target_weights() -> None:
+    """A real strategy rotates: an instrument that was bought last cycle can
+    legitimately fall out of the target this cycle. The bridge must propose
+    a real SELL sized to the actual holding, not just ever-growing BUYs."""
+    repo = PaperTradingRepository()
+    weights: dict[str, Decimal] = {"AEGIS-IN-000001": Decimal("0.10")}
+    orch = PaperTradingOrchestrator(
+        repo,
+        AuditLog(),
+        calendar=PaperTradingCalendarService(
+            sessions=[
+                date(2026, 6, 26),
+                date(2026, 6, 29),
+                date(2026, 6, 30),
+                date(2026, 7, 1),
+            ]
+        ),
+        sector_by_instrument={"AEGIS-IN-000001": "Financials"},
+        strategy_target_resolver=lambda strategy_id, session_date: (weights, {}),
+    )
+    portfolio = orch.create_portfolio(
+        name="SellTest",
+        description="drop from target",
+        starting_capital=Decimal(100000),
+        created_by="FOUNDER",
+    )
+    config = orch.create_strategy_config(portfolio.paper_portfolio_id)
+    orch.admit_and_activate_strategy(
+        config.paper_strategy_config_id, all_admission_evidence(), "FOUNDER"
+    )
+
+    orch.run_decision_cycle(
+        paper_portfolio_id=portfolio.paper_portfolio_id,
+        session_date=date(2026, 6, 26),
+        readiness_flags=all_readiness_green(),
+        reference_prices={"AEGIS-IN-000001": Decimal(112)},
+    )
+    buy_intent = next(
+        intent
+        for intent in repo.intents.values()
+        if intent.paper_portfolio_id == portfolio.paper_portfolio_id
+    )
+    orch.approvals.approve(
+        buy_intent.paper_trade_intent_id, "RISK_REVIEWER", datetime(2026, 6, 26, 11, 0, tzinfo=UTC)
+    )
+    orch.execute_approved_orders(
+        paper_portfolio_id=portfolio.paper_portfolio_id,
+        execution_time=datetime(2026, 6, 29, 3, 45, tzinfo=UTC),
+        reference_prices={"AEGIS-IN-000001": Decimal(113)},
+    )
+    held_qty = repo.paper_portfolios[portfolio.paper_portfolio_id].positions.get(
+        "AEGIS-IN-000001", Decimal(0)
+    )
+    assert held_qty > 0
+
+    weights.clear()  # the strategy no longer wants this instrument
+    orch.run_decision_cycle(
+        paper_portfolio_id=portfolio.paper_portfolio_id,
+        session_date=date(2026, 6, 30),
+        readiness_flags=all_readiness_green(),
+        reference_prices={"AEGIS-IN-000001": Decimal(115)},
+    )
+
+    sell_intents = [
+        intent
+        for intent in repo.intents.values()
+        if intent.paper_portfolio_id == portfolio.paper_portfolio_id and intent.side == "SELL"
+    ]
+    assert sell_intents
+    assert sell_intents[0].approved_quantity_nullable == held_qty
+
+
+def test_run_decision_cycle_skips_cleanly_when_resolver_has_no_signal() -> None:
+    """A resolver returning None (no real data captured yet, or an unknown
+    strategy_id) must never be treated as 'trade zero' -- it must skip
+    without fabricating any intent."""
+    repo = PaperTradingRepository()
+    orch = PaperTradingOrchestrator(
+        repo,
+        AuditLog(),
+        sector_by_instrument={"AEGIS-IN-000001": "Financials"},
+        strategy_target_resolver=lambda strategy_id, session_date: None,
+    )
+    portfolio = orch.create_portfolio(
+        name="NoSignal",
+        description="no real data",
+        starting_capital=Decimal(100000),
+        created_by="FOUNDER",
+    )
+    config = orch.create_strategy_config(portfolio.paper_portfolio_id)
+    orch.admit_and_activate_strategy(
+        config.paper_strategy_config_id, all_admission_evidence(), "FOUNDER"
+    )
+
+    session = orch.run_decision_cycle(
+        paper_portfolio_id=portfolio.paper_portfolio_id,
+        session_date=date(2026, 6, 26),
+        readiness_flags=all_readiness_green(),
+        reference_prices={"AEGIS-IN-000001": Decimal(112)},
+    )
+
+    assert session.decision_cycle_status == LifecycleStatus.COMPLETED
+    assert not any(
+        intent.paper_portfolio_id == portfolio.paper_portfolio_id
+        for intent in repo.intents.values()
+    )
+
+
+def test_run_decision_cycle_is_idempotent_per_portfolio_and_session_date() -> None:
+    orch, repo, _, portfolio, _ = setup_active_orchestrator()
+    first = create_intent(orch, repo, portfolio)
+    session_before = next(
+        session
+        for session in repo.sessions.values()
+        if session.paper_portfolio_id == portfolio.paper_portfolio_id
+    )
+
+    orch.run_decision_cycle(
+        paper_portfolio_id=portfolio.paper_portfolio_id,
+        session_date=date(2026, 6, 26),
+        readiness_flags=all_readiness_green(),
+        reference_prices={"AEGIS-IN-000001": Decimal(112)},
+    )
+
+    portfolio_intents = [
+        intent
+        for intent in repo.intents.values()
+        if intent.paper_portfolio_id == portfolio.paper_portfolio_id
+    ]
+    assert portfolio_intents == [first]
+    session_after = next(
+        session
+        for session in repo.sessions.values()
+        if session.paper_portfolio_id == portfolio.paper_portfolio_id
+    )
+    assert session_after.paper_trading_session_id == session_before.paper_trading_session_id

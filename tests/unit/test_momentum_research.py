@@ -119,7 +119,7 @@ def test_build_candidates_uses_no_future_data(tmp_path: Path) -> None:
     all_dates = runner._all_dates
     # Pick an early-ish date where only ~210 days of history exist.
     as_of = all_dates[210]
-    candidates = runner._build_candidates(as_of)
+    candidates = runner.build_candidates(as_of)
     by_id = {c.instrument_id: c for c in candidates}
 
     # The close used for ranking must match the bar at `as_of`, never a later bar.
@@ -128,7 +128,7 @@ def test_build_candidates_uses_no_future_data(tmp_path: Path) -> None:
 
     # Candidates from a later date must differ (proves no accidental caching of
     # a single global answer / lookahead leakage across calls).
-    later_candidates = runner._build_candidates(all_dates[300])
+    later_candidates = runner.build_candidates(all_dates[300])
     later_close = {c.instrument_id: c.close for c in later_candidates}
     assert later_close["UPTREND"] != by_id["UPTREND"].close
 

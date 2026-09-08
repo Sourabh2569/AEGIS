@@ -15,7 +15,11 @@ from aegis.auth.users import UserStoreError
 from aegis.backtesting.domain import SPRINT_1A_LABELS, BacktestRunStatus, OrderSide
 from aegis.backtesting.engine import BacktestService
 from aegis.backtesting.fixtures import load_calendar, load_market_data
-from aegis.backtesting.momentum_research import RealMomentumResearchRunner, load_real_eod_bars
+from aegis.backtesting.momentum_research import (
+    RealMomentumResearchRunner,
+    build_paper_strategy_resolver,
+    load_real_eod_bars,
+)
 from aegis.backtesting.repositories import BacktestRepository
 from aegis.backtesting.sprint2 import Sprint2ResearchScenarioRunner
 from aegis.configuration.settings import Settings
@@ -100,7 +104,6 @@ paper_calendar = PaperTradingCalendarService.from_csv(
     Path("sample_data/market_calendar/market_calendar.csv")
 )
 paper_repo = SqlitePaperTradingRepository(paper_store_path)
-paper_orchestrator = PaperTradingOrchestrator(paper_repo, audit_log, calendar=paper_calendar)
 paper_session_queue = SqlitePaperSessionQueue(paper_queue_path)
 
 providers: dict[str, DataProvider] = {}
@@ -217,6 +220,14 @@ sector_by_instrument_id: dict[str, str] = {
     metadata.aegis_instrument_id: metadata.sector
     for metadata in CURATED_INSTRUMENT_METADATA.values()
 }
+paper_strategy_resolver = build_paper_strategy_resolver(object_store.root, sector_by_instrument_id)
+paper_orchestrator = PaperTradingOrchestrator(
+    paper_repo,
+    audit_log,
+    calendar=paper_calendar,
+    sector_by_instrument=sector_by_instrument_id,
+    strategy_target_resolver=paper_strategy_resolver,
+)
 research_activation_manifests: dict[str, dict[str, Any]] = {}
 actual_feature_runs: dict[str, dict[str, Any]] = {}
 actual_experiments: dict[str, dict[str, Any]] = {}
@@ -1978,7 +1989,12 @@ def paper_strategy_configurations() -> list[dict[str, Any]]:
 
 @app.post("/api/v1/paper-strategy-configurations")
 def create_paper_strategy_configuration(payload: dict[str, Any]) -> dict[str, Any]:
-    return jsonable(paper_orchestrator.create_strategy_config(payload["paper_portfolio_id"]))
+    kwargs = {}
+    if "strategy_id" in payload:
+        kwargs["strategy_id"] = payload["strategy_id"]
+    return jsonable(
+        paper_orchestrator.create_strategy_config(payload["paper_portfolio_id"], **kwargs)
+    )
 
 
 @app.post("/api/v1/paper-strategy-configurations/{paper_strategy_config_id}/admission-review")

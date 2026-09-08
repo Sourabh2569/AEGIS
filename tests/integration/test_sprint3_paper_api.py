@@ -1,12 +1,26 @@
 from __future__ import annotations
 
+from datetime import date
+from decimal import Decimal
+
 import pytest
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
+import aegis_api.main as app_main
 from aegis_api.main import app
 from fastapi.testclient import TestClient
+
+
+def _stub_target_resolver(
+    strategy_id: str, session_date: date
+) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
+    """Deterministic stand-in for the real strategy resolver, so this test
+    stays independent of real on-disk Kite data (which won't exist in CI or
+    a fresh clone -- see test_momentum_research_api.py for the same
+    principle applied to the momentum-backtest endpoint)."""
+    return {"AEGIS-IN-000001": Decimal("0.10")}, {"AEGIS-IN-000001": Decimal(100)}
 
 
 def test_paper_session_job_uses_real_ingested_price_when_none_supplied() -> None:
@@ -46,7 +60,12 @@ def test_paper_session_job_uses_real_ingested_price_when_none_supplied() -> None
     assert drained.json()["status"] == "COMPLETED"
 
 
-def test_paper_portfolio_queue_and_corporate_action_api_flow() -> None:
+def test_paper_portfolio_queue_and_corporate_action_api_flow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        app_main.paper_orchestrator, "strategy_target_resolver", _stub_target_resolver
+    )
     client = TestClient(app)
     headers = {"X-Aegis-Role": "FOUNDER"}
 

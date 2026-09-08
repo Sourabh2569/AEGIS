@@ -105,3 +105,68 @@ def test_normal_state_is_unaffected() -> None:
     assert assessment.portfolio_risk_state == PortfolioRiskState.NORMAL
     assert assessment.decision == RiskDecision.APPROVED
     assert assessment.reason_codes == []
+
+
+def test_sell_is_not_capped_by_buy_capacity_constraints() -> None:
+    """A SELL reduces exposure -- it must not be artificially shrunk by caps
+    meant to gate new risk-taking (cash available, sector/cluster/strategy
+    room, gross exposure headroom). Found via the paper-trading bridge: a
+    real full-exit SELL of 44 shares was silently clamped to 43 because the
+    engine applied buy-capacity math to every trade regardless of side."""
+    assessment = PositionSizingEngine().assess(
+        portfolio_id="p",
+        strategy_id="s",
+        instrument_id="i",
+        portfolio_nav=Decimal(1_000_000),
+        # Deliberately starved cash/sector/exposure room -- a BUY of this
+        # size would be heavily constrained by qty_by_cash/qty_by_sector/
+        # qty_by_exposure; a SELL must ignore all of that.
+        available_cash=Decimal(0),
+        existing_position_value=Decimal(500_000),
+        sector_value=Decimal(900_000),
+        cluster_value=Decimal(900_000),
+        gross_equity_value=Decimal(950_000),
+        entry_price=Decimal(100),
+        invalidation_price=Decimal(90),
+        proposed_quantity=Decimal(5000),
+        sector="Financials",
+        cluster="FINANCIALS",
+        data_quality_status="GREEN",
+        instrument_eligibility_status="ELIGIBLE",
+        profile=RiskProfileVersion(),
+        current_drawdown=Decimal(
+            "-0.08"
+        ),  # CAPITAL_PRESERVATION -- must not throttle a sell either
+        side="SELL",
+    )
+
+    assert assessment.approved_quantity == Decimal("5000.000000")
+    assert assessment.decision == RiskDecision.APPROVED
+
+
+def test_buy_is_still_capped_by_capacity_constraints() -> None:
+    """The side-aware change must not weaken BUY sizing -- only SELL skips
+    the capacity caps."""
+    assessment = PositionSizingEngine().assess(
+        portfolio_id="p",
+        strategy_id="s",
+        instrument_id="i",
+        portfolio_nav=Decimal(1_000_000),
+        available_cash=Decimal(0),
+        existing_position_value=Decimal(0),
+        sector_value=Decimal(0),
+        cluster_value=Decimal(0),
+        gross_equity_value=Decimal(0),
+        entry_price=Decimal(100),
+        invalidation_price=Decimal(90),
+        proposed_quantity=Decimal(5000),
+        sector="Financials",
+        cluster="FINANCIALS",
+        data_quality_status="GREEN",
+        instrument_eligibility_status="ELIGIBLE",
+        profile=RiskProfileVersion(),
+        current_drawdown=Decimal(0),
+        side="BUY",
+    )
+
+    assert assessment.approved_quantity == Decimal("0.000000")

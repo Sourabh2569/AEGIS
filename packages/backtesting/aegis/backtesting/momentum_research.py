@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import bisect
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
@@ -19,7 +20,13 @@ from aegis.portfolio.sprint2 import (
 from aegis.research_registry.sprint2 import RESEARCH_LABELS
 from aegis.risk.engine import PositionSizingEngine, RiskProfileVersion
 from aegis.shared.money import money, quantity
-from aegis.strategies.baselines import Candidate, StrategyContract
+from aegis.strategies.baselines import (
+    BuyAndHoldBenchmarkStrategyV0,
+    Candidate,
+    EqualWeightUniverseBenchmarkStrategyV0,
+    StrategyContract,
+    TrendFollowingBaselineStrategyV0,
+)
 
 # Transaction-cost assumption used for this research runner -- matches the
 # bps rates already used by the platform's sprint-2 research fixture (5bps
@@ -184,7 +191,7 @@ class RealMomentumResearchRunner:
             execution_date = self._all_dates[idx]
             portfolio.settle_due(execution_date)
 
-            candidates = self._build_candidates(decision_date)
+            candidates = self.build_candidates(decision_date)
             if not candidates:
                 continue
             ranked = strategy.rank_candidates(candidates)
@@ -262,7 +269,7 @@ class RealMomentumResearchRunner:
                 result.append(current)
         return result
 
-    def _build_candidates(self, as_of: date) -> list[Candidate]:
+    def build_candidates(self, as_of: date) -> list[Candidate]:
         candidates: list[Candidate] = []
         for instrument_id, bar_dates in self._dates_by_instrument.items():
             idx = bisect.bisect_right(bar_dates, as_of)
@@ -433,3 +440,48 @@ class RealMomentumResearchRunner:
         cluster_values[candidate.cluster] = money(
             cluster_values.get(candidate.cluster, Decimal(0)) + notional_with_cost
         )
+
+
+PAPER_STRATEGY_REGISTRY: dict[str, StrategyContract] = {
+    "EqualWeightUniverseBenchmarkStrategyV0": EqualWeightUniverseBenchmarkStrategyV0(),
+    "TrendFollowingBaselineStrategyV0": TrendFollowingBaselineStrategyV0(),
+    "BuyAndHoldBenchmarkStrategyV0": BuyAndHoldBenchmarkStrategyV0(),
+}
+
+
+def build_paper_strategy_resolver(
+    object_store_root: Path, sector_by_instrument: dict[str, str]
+) -> Callable[[str, date], tuple[dict[str, Decimal], dict[str, Decimal]] | None]:
+    """Builds the callable paper trading injects to turn a strategy_id label
+    into a real trading decision. Returns None (never fabricates a signal)
+    when no real historical capture exists yet or strategy_id isn't a
+    strategy this platform actually implements."""
+
+    def resolve(
+        strategy_id: str, as_of: date
+    ) -> tuple[dict[str, Decimal], dict[str, Decimal]] | None:
+        strategy = PAPER_STRATEGY_REGISTRY.get(strategy_id)
+        if strategy is None:
+            return None
+        capture = load_real_eod_bars(object_store_root)
+        if capture is None:
+            return None
+        runner = RealMomentumResearchRunner(capture, sector_by_instrument)
+        candidates = runner.build_candidates(as_of)
+        if not candidates:
+            return None
+        ranked = strategy.rank_candidates(candidates)
+        if not ranked:
+            return {}, {}
+        targets = strategy.propose_target_weights(
+            ranked, RiskProfileVersion().maximum_position_count
+        )
+        invalidation_prices: dict[str, Decimal] = {}
+        for candidate in ranked:
+            if hasattr(strategy, "invalidation_price"):
+                invalidation_prices[candidate.instrument_id] = strategy.invalidation_price(
+                    candidate
+                )
+        return targets, invalidation_prices
+
+    return resolve

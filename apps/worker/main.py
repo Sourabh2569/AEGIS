@@ -4,9 +4,11 @@ import time
 from pathlib import Path
 
 from aegis.audit.service import AuditLog
+from aegis.backtesting.momentum_research import build_paper_strategy_resolver
 from aegis.paper_trading.persistence import SqlitePaperTradingRepository
 from aegis.paper_trading.queue import SqlitePaperSessionQueue
 from aegis.paper_trading.services import PaperTradingCalendarService, PaperTradingOrchestrator
+from aegis.provider_adapters.kite_connect_provider import CURATED_INSTRUMENT_METADATA
 
 
 def main() -> None:
@@ -16,7 +18,20 @@ def main() -> None:
         Path("sample_data/market_calendar/market_calendar.csv")
     )
     repository = SqlitePaperTradingRepository(paper_store_path)
-    orchestrator = PaperTradingOrchestrator(repository, AuditLog(), calendar=calendar)
+    object_store_root = Path("work/object_store")
+    sector_by_instrument_id = {
+        metadata.aegis_instrument_id: metadata.sector
+        for metadata in CURATED_INSTRUMENT_METADATA.values()
+    }
+    orchestrator = PaperTradingOrchestrator(
+        repository,
+        AuditLog(),
+        calendar=calendar,
+        sector_by_instrument=sector_by_instrument_id,
+        strategy_target_resolver=build_paper_strategy_resolver(
+            object_store_root, sector_by_instrument_id
+        ),
+    )
     queue = SqlitePaperSessionQueue(Path("work/paper_session_queue.sqlite"))
     print(
         "AEGIS worker started. Paper session queue is active. No broker or live execution jobs are registered."

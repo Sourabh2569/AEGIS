@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from collections.abc import Callable
 from dataclasses import asdict, replace
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from decimal import Decimal
@@ -480,9 +481,15 @@ class PaperTradingOrchestrator:
         repository: PaperTradingRepository,
         audit_log: AuditLog,
         calendar: PaperTradingCalendarService | None = None,
+        sector_by_instrument: dict[str, str] | None = None,
+        strategy_target_resolver: (
+            Callable[[str, date], tuple[dict[str, Decimal], dict[str, Decimal]] | None] | None
+        ) = None,
     ) -> None:
         self.repository = repository
         self.audit_log = audit_log
+        self.sector_by_instrument = sector_by_instrument or {}
+        self.strategy_target_resolver = strategy_target_resolver
         self.admission = PaperAdmissionService()
         self.readiness = PaperDataReadinessService()
         self.approvals = PaperApprovalService(repository, audit_log)
@@ -538,11 +545,15 @@ class PaperTradingOrchestrator:
         persist_if_supported(self.repository)
         return portfolio
 
-    def create_strategy_config(self, paper_portfolio_id: str) -> PaperStrategyConfiguration:
+    def create_strategy_config(
+        self,
+        paper_portfolio_id: str,
+        strategy_id: str = "EqualWeightUniverseBenchmarkStrategyV0",
+    ) -> PaperStrategyConfiguration:
         config = PaperStrategyConfiguration(
             paper_portfolio_id=paper_portfolio_id,
-            strategy_id="EqualWeightUniverseBenchmarkStrategyV0",
-            strategy_version_id="EqualWeightUniverseBenchmarkStrategyV0:V0",
+            strategy_id=strategy_id,
+            strategy_version_id=f"{strategy_id}:V0",
             research_family_id="AEGIS_TEST_RESEARCH_FAMILY",
             risk_profile_version_id=self.profile.profile_version,
             dataset_version_policy="GREEN_OR_GREEN_CAUTION_ONLY",
@@ -656,52 +667,129 @@ class PaperTradingOrchestrator:
             persist_if_supported(self.repository)
             return self.repository.sessions[session.paper_trading_session_id]
         for config in self.repository.active_strategy_configs(paper_portfolio_id):
-            instrument_id, price = next(iter(reference_prices.items()))
-            risk = self.risk_engine.assess(
-                portfolio_id=paper_portfolio_id,
-                strategy_id=config.strategy_id,
-                instrument_id=instrument_id,
-                portfolio_nav=self.repository.paper_portfolios[paper_portfolio_id].cash,
-                available_cash=self.repository.paper_portfolios[paper_portfolio_id].cash,
-                existing_position_value=Decimal(0),
-                sector_value=Decimal(0),
-                cluster_value=Decimal(0),
-                gross_equity_value=Decimal(0),
-                entry_price=price,
-                invalidation_price=money(price * Decimal("0.90")),
-                proposed_quantity=Decimal(100),
-                sector="Financials",
-                cluster="FINANCIALS",
-                data_quality_status="GREEN",
-                instrument_eligibility_status="ELIGIBLE",
-                profile=self.profile,
-                current_drawdown=Decimal(0),
-                kill_switches=list(self.repository.kill_switches.values()),
-            )
-            if (
-                risk.decision in {RiskDecision.APPROVED, RiskDecision.APPROVED_WITH_REDUCED_SIZE}
-                and risk.approved_quantity > 0
-            ):
-                decision_time = datetime.combine(session_date, time(10, 45), tzinfo=UTC)
-                next_session = self.calendar.next_open_session_after(decision_time)
-                intent = PaperTradeIntent(
-                    paper_portfolio_id=paper_portfolio_id,
-                    paper_strategy_config_id=config.paper_strategy_config_id,
-                    strategy_version_id=config.strategy_version_id,
-                    instrument_id=instrument_id,
-                    side="BUY",
-                    proposed_quantity=Decimal(100),
-                    approved_quantity_nullable=risk.approved_quantity,
-                    decision_time=decision_time,
-                    available_data_cutoff=datetime.combine(session_date, time(10, 30), tzinfo=UTC),
-                    eligible_execution_time=self.calendar.open_time(next_session),
-                    risk_assessment_id=risk.risk_assessment_id,
-                    configuration_version=config.paper_strategy_config_id,
-                    idempotency_key=f"{paper_portfolio_id}:{session_date}:{instrument_id}:BUY",
+            if self.strategy_target_resolver is None:
+                self.audit_log.record(
+                    event_type="PAPER_DECISION_SKIPPED",
+                    entity_type="PaperStrategyConfiguration",
+                    entity_id=config.paper_strategy_config_id,
+                    actor_type="SYSTEM_SERVICE",
+                    actor_id="paper-trading-orchestrator",
+                    action="SKIP_NO_STRATEGY_SIGNAL",
+                    before_state=None,
+                    after_state={"reason": "NO_STRATEGY_TARGET_RESOLVER_CONFIGURED"},
                     correlation_id=correlation_id,
-                    reason_codes_json=risk.reason_codes,
                 )
-                self.repository.intents[intent.paper_trade_intent_id] = intent
+                continue
+            resolved = self.strategy_target_resolver(config.strategy_id, session_date)
+            if resolved is None:
+                self.audit_log.record(
+                    event_type="PAPER_DECISION_SKIPPED",
+                    entity_type="PaperStrategyConfiguration",
+                    entity_id=config.paper_strategy_config_id,
+                    actor_type="SYSTEM_SERVICE",
+                    actor_id="paper-trading-orchestrator",
+                    action="SKIP_NO_STRATEGY_SIGNAL",
+                    before_state=None,
+                    after_state={
+                        "reason": "NO_REAL_DATA_OR_UNKNOWN_STRATEGY",
+                        "strategy_id": config.strategy_id,
+                    },
+                    correlation_id=correlation_id,
+                )
+                continue
+            target_weights, invalidation_prices = resolved
+
+            research_portfolio = self.repository.paper_portfolios[paper_portfolio_id]
+            market_value = money(
+                sum(
+                    (
+                        qty * reference_prices.get(inst, Decimal(0))
+                        for inst, qty in research_portfolio.positions.items()
+                    ),
+                    Decimal(0),
+                )
+            )
+            portfolio_nav = money(
+                research_portfolio.cash + research_portfolio.unsettled_receivables + market_value
+            )
+            available_cash = research_portfolio.available_cash()
+            sector_values: dict[str, Decimal] = {}
+            for inst, qty in research_portfolio.positions.items():
+                if qty <= 0:
+                    continue
+                sector = self.sector_by_instrument.get(inst, "UNKNOWN")
+                notional = money(qty * reference_prices.get(inst, Decimal(0)))
+                sector_values[sector] = money(sector_values.get(sector, Decimal(0)) + notional)
+
+            instrument_ids = set(target_weights) | set(research_portfolio.positions)
+            for instrument_id in instrument_ids:
+                price = reference_prices.get(instrument_id)
+                if price is None or portfolio_nav <= 0:
+                    continue  # never fabricate a price or size against a zero/negative NAV
+                held_qty = research_portfolio.positions.get(instrument_id, Decimal(0))
+                target_weight = target_weights.get(instrument_id, Decimal(0))
+                target_qty = (
+                    quantity(money(portfolio_nav * target_weight) / price)
+                    if price > 0
+                    else Decimal(0)
+                )
+                if target_qty == held_qty:
+                    continue
+                side = "BUY" if target_qty > held_qty else "SELL"
+                proposed_quantity = abs(target_qty - held_qty)
+                sector = self.sector_by_instrument.get(instrument_id, "UNKNOWN")
+                invalidation_price = invalidation_prices.get(
+                    instrument_id, money(price * Decimal("0.90"))
+                )
+                risk = self.risk_engine.assess(
+                    portfolio_id=paper_portfolio_id,
+                    strategy_id=config.strategy_id,
+                    instrument_id=instrument_id,
+                    portfolio_nav=portfolio_nav,
+                    available_cash=available_cash,
+                    existing_position_value=money(held_qty * price),
+                    sector_value=sector_values.get(sector, Decimal(0)),
+                    cluster_value=sector_values.get(sector, Decimal(0)),
+                    gross_equity_value=market_value,
+                    entry_price=price,
+                    invalidation_price=invalidation_price,
+                    proposed_quantity=proposed_quantity,
+                    sector=sector,
+                    cluster=sector,
+                    data_quality_status="GREEN",
+                    instrument_eligibility_status="ELIGIBLE",
+                    profile=self.profile,
+                    current_drawdown=Decimal(0),
+                    kill_switches=list(self.repository.kill_switches.values()),
+                    side=side,
+                )
+                if (
+                    risk.decision
+                    in {RiskDecision.APPROVED, RiskDecision.APPROVED_WITH_REDUCED_SIZE}
+                    and risk.approved_quantity > 0
+                ):
+                    decision_time = datetime.combine(session_date, time(10, 45), tzinfo=UTC)
+                    next_session = self.calendar.next_open_session_after(decision_time)
+                    intent = PaperTradeIntent(
+                        paper_portfolio_id=paper_portfolio_id,
+                        paper_strategy_config_id=config.paper_strategy_config_id,
+                        strategy_version_id=config.strategy_version_id,
+                        instrument_id=instrument_id,
+                        side=side,
+                        proposed_quantity=proposed_quantity,
+                        approved_quantity_nullable=risk.approved_quantity,
+                        decision_time=decision_time,
+                        available_data_cutoff=datetime.combine(
+                            session_date, time(10, 30), tzinfo=UTC
+                        ),
+                        eligible_execution_time=self.calendar.open_time(next_session),
+                        risk_assessment_id=risk.risk_assessment_id,
+                        configuration_version=config.paper_strategy_config_id,
+                        idempotency_key=f"{paper_portfolio_id}:{session_date}:{instrument_id}:{side}",
+                        correlation_id=correlation_id,
+                        reason_codes_json=risk.reason_codes,
+                    )
+                    self.repository.intents[intent.paper_trade_intent_id] = intent
         completed = replace(
             session,
             decision_cycle_status=LifecycleStatus.COMPLETED,
@@ -805,12 +893,32 @@ class PaperTradingOrchestrator:
                 slippage_amount = money(abs(fill_price - reference_price) * filled_quantity)
                 gross = money(fill_price * filled_quantity)
                 costs = self.cost_model.calculate(gross, intent.side, self.cost_schedule)
-                self.repository.paper_portfolios[paper_portfolio_id].buy(
-                    intent.instrument_id,
-                    filled_quantity,
-                    fill_price,
-                    costs.total_cost,
-                )
+                research_portfolio = self.repository.paper_portfolios[paper_portfolio_id]
+                if intent.side == "SELL":
+                    # T+1 settlement: proceeds land in unsettled_receivables,
+                    # not cash, until settle_due() runs -- matches the real
+                    # momentum backtest's accounting (packages/backtesting/
+                    # aegis/backtesting/momentum_research.py) and this
+                    # portfolio's own settlement_model_version.
+                    settlement_date = execution_time.date() + timedelta(days=1)
+                    research_portfolio.sell_t_plus_1(
+                        intent.instrument_id,
+                        filled_quantity,
+                        fill_price,
+                        costs.total_cost,
+                        settlement_date,
+                    )
+                    net_cash_effect = money(gross - costs.total_cost)
+                    slippage_bps = self.slippage.sell_slippage_bps
+                else:
+                    research_portfolio.buy(
+                        intent.instrument_id,
+                        filled_quantity,
+                        fill_price,
+                        costs.total_cost,
+                    )
+                    net_cash_effect = money(-(gross + costs.total_cost))
+                    slippage_bps = self.slippage.buy_slippage_bps
                 fill = PaperFill(
                     paper_order_id=order.paper_order_id,
                     paper_portfolio_id=paper_portfolio_id,
@@ -822,9 +930,9 @@ class PaperTradingOrchestrator:
                     simulated_fill_price=fill_price,
                     gross_notional=gross,
                     slippage_amount=slippage_amount,
-                    slippage_bps=self.slippage.buy_slippage_bps,
+                    slippage_bps=slippage_bps,
                     cost_total=costs.total_cost,
-                    net_cash_effect=money(-(gross + costs.total_cost)),
+                    net_cash_effect=net_cash_effect,
                     settlement_date=execution_time.date(),
                     fill_status="FILLED",
                 )

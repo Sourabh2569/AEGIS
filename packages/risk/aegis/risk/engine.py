@@ -166,11 +166,21 @@ class PositionSizingEngine:
         current_drawdown: Decimal,
         kill_switches: list[KillSwitch] | None = None,
         market_regime: str = "NORMAL",
+        side: str = "BUY",
     ) -> RiskAssessment:
+        """`side="SELL"` reduces exposure rather than adding it, so none of
+        the capacity caps below (cash, sector/cluster/strategy room, gross
+        exposure headroom, per-position risk budget) or the drawdown-state
+        size throttle apply -- they exist to gate *new* risk-taking, and
+        applying them to an exit would artificially block or shrink a
+        strategy's own decision to reduce a position, exactly when a
+        portfolio in a drawdown state most needs to be free to de-risk.
+        Kill switches, unknown sector/cluster, data quality, and eligibility
+        checks still apply to both sides."""
         kill_switches = kill_switches or []
         reasons: list[str] = []
         state = drawdown_state(current_drawdown)
-        multiplier = state_multiplier(state)
+        multiplier = state_multiplier(state) if side == "BUY" else Decimal("1.00")
         active_blocking_kill_switch = False
         if sector == "UNKNOWN":
             reasons.append("REJECTED_UNKNOWN_SECTOR_RISK")
@@ -189,55 +199,60 @@ class PositionSizingEngine:
             }:
                 reasons.append(f"KILL_SWITCH_ACTIVE:{switch.switch_type}")
                 active_blocking_kill_switch = True
-        risk_state_blocks_exposure = state is PortfolioRiskState.EMERGENCY_EXIT
+        risk_state_blocks_exposure = side == "BUY" and state is PortfolioRiskState.EMERGENCY_EXIT
         if risk_state_blocks_exposure:
             reasons.append(f"RISK_STATE_BLOCKS_NEW_EXPOSURE:{state}")
 
-        risk_per_share = max(
-            money(entry_price - invalidation_price), money(profile.configured_gap_risk_amount)
-        )
-        if risk_per_share <= 0:
-            reasons.append("INVALID_RISK_PER_SHARE")
-            risk_per_share = Decimal(999999999)
+        if side != "BUY":
+            constrained = quantity(proposed_quantity)
+            risk_budget = Decimal(0)
+        else:
+            risk_per_share = max(
+                money(entry_price - invalidation_price), money(profile.configured_gap_risk_amount)
+            )
+            if risk_per_share <= 0:
+                reasons.append("INVALID_RISK_PER_SHARE")
+                risk_per_share = Decimal(999999999)
 
-        risk_budget = money(portfolio_nav * profile.maximum_risk_budget_per_position)
-        qty_by_risk = floor_quantity(risk_budget / risk_per_share)
-        qty_by_notional = floor_quantity(
-            (portfolio_nav * profile.maximum_single_position_weight) / entry_price
-        )
-        max_spend = max(
-            money(available_cash - (portfolio_nav * profile.minimum_cash_weight_normal)),
-            Decimal(0),
-        )
-        qty_by_cash = floor_quantity(max_spend / entry_price)
-        qty_by_sector = floor_quantity(
-            max((portfolio_nav * profile.maximum_sector_weight) - sector_value, Decimal(0))
-            / entry_price
-        )
-        qty_by_cluster = floor_quantity(
-            max((portfolio_nav * profile.maximum_cluster_weight) - cluster_value, Decimal(0))
-            / entry_price
-        )
-        qty_by_strategy = floor_quantity(
-            (portfolio_nav * profile.strategy_allocation_cap) / entry_price
-        )
-        qty_by_exposure = floor_quantity(
-            max(
-                (portfolio_nav * profile.maximum_gross_equity_exposure_normal) - gross_equity_value,
+            risk_budget = money(portfolio_nav * profile.maximum_risk_budget_per_position)
+            qty_by_risk = floor_quantity(risk_budget / risk_per_share)
+            qty_by_notional = floor_quantity(
+                (portfolio_nav * profile.maximum_single_position_weight) / entry_price
+            )
+            max_spend = max(
+                money(available_cash - (portfolio_nav * profile.minimum_cash_weight_normal)),
                 Decimal(0),
             )
-            / entry_price
-        )
-        constrained = min(
-            quantity(proposed_quantity),
-            qty_by_risk,
-            qty_by_notional,
-            qty_by_cash,
-            qty_by_sector,
-            qty_by_cluster,
-            qty_by_strategy,
-            qty_by_exposure,
-        )
+            qty_by_cash = floor_quantity(max_spend / entry_price)
+            qty_by_sector = floor_quantity(
+                max((portfolio_nav * profile.maximum_sector_weight) - sector_value, Decimal(0))
+                / entry_price
+            )
+            qty_by_cluster = floor_quantity(
+                max((portfolio_nav * profile.maximum_cluster_weight) - cluster_value, Decimal(0))
+                / entry_price
+            )
+            qty_by_strategy = floor_quantity(
+                (portfolio_nav * profile.strategy_allocation_cap) / entry_price
+            )
+            qty_by_exposure = floor_quantity(
+                max(
+                    (portfolio_nav * profile.maximum_gross_equity_exposure_normal)
+                    - gross_equity_value,
+                    Decimal(0),
+                )
+                / entry_price
+            )
+            constrained = min(
+                quantity(proposed_quantity),
+                qty_by_risk,
+                qty_by_notional,
+                qty_by_cash,
+                qty_by_sector,
+                qty_by_cluster,
+                qty_by_strategy,
+                qty_by_exposure,
+            )
         approved = floor_quantity(constrained * multiplier)
         if active_blocking_kill_switch:
             approved = Decimal("0.000000")
