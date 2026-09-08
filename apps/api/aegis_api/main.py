@@ -68,6 +68,7 @@ from aegis.strategies.baselines import (
     TrendFollowingBaselineStrategyV0,
 )
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 settings = Settings.from_env()
@@ -86,6 +87,16 @@ except UserStoreError as exc:
 bearer_scheme = HTTPBearer(auto_error=False)
 
 app = FastAPI(title="AEGIS Sprint 0 API", version="0.1.0")
+# Scoped to the known local dev web origins -- the dashboard's first
+# browser-initiated (not server-to-server) call, so a real cross-origin
+# request now exists where none did before. Not a wildcard: only these
+# specific dev origins may call the API from a browser.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3001", "http://127.0.0.1:3001"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["X-Aegis-Role", "Content-Type"],
+)
 audit_log = AuditLog()
 repo = InMemoryRepository()
 backtest_repo = BacktestRepository()

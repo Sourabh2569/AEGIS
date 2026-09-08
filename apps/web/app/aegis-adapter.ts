@@ -93,6 +93,10 @@ export type PaperIntent = {
   intent_status: string;
   approval_status: string;
   reason_codes_json: string[];
+  proposed_quantity?: string;
+  approved_quantity_nullable?: string | null;
+  eligible_execution_time?: string;
+  created_at?: string;
 };
 export type PaperIncident = {
   id: string;

@@ -26,11 +26,15 @@ import {
   Workflow,
   X,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
-import { buildModel, compactNumber, currency, percent, shortDate, toneFor, uiLabel, type DashboardData, type Tone } from "./aegis-adapter";
+import { buildModel, compactNumber, currency, percent, shortDate, toneFor, uiLabel, type DashboardData, type PaperIntent, type Tone } from "./aegis-adapter";
 
 export type { DashboardData } from "./aegis-adapter";
+
+const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+const APPROVER_ROLES = ["FOUNDER", "RISK_REVIEWER", "PAPER_TRADING_OPERATOR"] as const;
 
 type SectionId =
   | "command"
@@ -582,11 +586,151 @@ function CorporatePage({ data, failClosed }: { data: DashboardData; failClosed: 
   return <VisualEvidencePage kpis={[["Coverage", "2 supported", "Split and dividend", "success"], ["Unsupported", String(rows.filter((row) => row.join(" ").includes("Unsupported")).length), "Fail closed", "warning"], ["Ledger impact", "Modeled", "Cash and position paths", "info"], ["Portfolio response", failClosed ? "Frozen" : "Review", "Safety first", failClosed ? "danger" : "warning"]]} primary={<ChartCard title="Corporate-action coverage" subtitle="Supported versus unsupported action model"><DonutChart center="Coverage" data={[{ label: "Supported", value: 70, tone: "success" }, { label: "Review", value: 20, tone: "warning" }, { label: "Unsupported", value: 10, tone: "danger" }]} /></ChartCard>} secondary={<DataTable title="Pending review queue" headers={["Action", "Instrument", "Effective date", "Support", "Ledger decision"]} rows={rows} />} />;
 }
 
+function IntentApprovalPanel({ intents }: { intents: PaperIntent[] }) {
+  const router = useRouter();
+  const [role, setRole] = useState<(typeof APPROVER_ROLES)[number]>("FOUNDER");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [errorById, setErrorById] = useState<Record<string, string>>({});
+
+  const pending = intents.filter((intent) => intent.intent_status === "PENDING_APPROVAL");
+
+  async function callAction(id: string, path: string, body?: Record<string, string>) {
+    setBusyId(id);
+    setErrorById((prev) => ({ ...prev, [id]: "" }));
+    try {
+      const response = await fetch(`${apiBase}${path}`, {
+        method: "POST",
+        headers: { "X-Aegis-Role": role, "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        const detail =
+          typeof payload.detail === "string" ? payload.detail : response.statusText || "Request failed";
+        setErrorById((prev) => ({ ...prev, [id]: detail }));
+        return;
+      }
+      setRejectingId(null);
+      setRejectReason("");
+      router.refresh();
+    } catch (error) {
+      setErrorById((prev) => ({ ...prev, [id]: error instanceof Error ? error.message : "Request failed" }));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <section className="table-card">
+      <div className="table-toolbar">
+        <div>
+          <h3>Pending intent approvals</h3>
+          <p>Human review required before any simulated fill</p>
+        </div>
+        <label>
+          <span>Acting as</span>
+          <select value={role} onChange={(event) => setRole(event.target.value as typeof role)}>
+            {APPROVER_ROLES.map((option) => (
+              <option key={option} value={option}>
+                {uiLabel(option)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Instrument</th>
+              <th>Side</th>
+              <th>Proposed</th>
+              <th>Risk-approved</th>
+              <th>Reason</th>
+              <th>Eligible execution</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pending.length === 0 ? (
+              <tr>
+                <td colSpan={7}>No pending intents</td>
+              </tr>
+            ) : (
+              pending.map((intent) => {
+                const id = intent.paper_trade_intent_id;
+                const busy = busyId === id;
+                return (
+                  <tr key={id}>
+                    <td>{intent.instrument_id}</td>
+                    <td>
+                      <StatusChip label={intent.side} raw={intent.side} tone={intent.side === "SELL" ? "warning" : "info"} />
+                    </td>
+                    <td>{intent.proposed_quantity ?? "-"}</td>
+                    <td>{intent.approved_quantity_nullable ?? "-"}</td>
+                    <td>{intent.reason_codes_json.map(uiLabel).join(", ") || "None"}</td>
+                    <td>{shortDate(intent.eligible_execution_time)}</td>
+                    <td>
+                      {rejectingId === id ? (
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <input
+                            value={rejectReason}
+                            onChange={(event) => setRejectReason(event.target.value)}
+                            placeholder="Reason (required)"
+                          />
+                          <button
+                            disabled={busy || !rejectReason.trim()}
+                            onClick={() =>
+                              callAction(id, `/api/v1/paper-trade-intents/${id}/reject`, {
+                                reason: rejectReason.trim(),
+                              })
+                            }
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            onClick={() => {
+                              setRejectingId(null);
+                              setRejectReason("");
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button
+                            disabled={busy}
+                            onClick={() => callAction(id, `/api/v1/paper-trade-intents/${id}/approve`)}
+                          >
+                            {busy ? "Approving…" : "Approve"}
+                          </button>
+                          <button className="danger-link" disabled={busy} onClick={() => setRejectingId(id)}>
+                            Reject
+                          </button>
+                        </div>
+                      )}
+                      {errorById[id] && <div style={{ color: "var(--danger-700)", fontSize: 12, marginTop: 4 }}>{errorById[id]}</div>}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function PaperPage({ data, model, setFailClosed, setPaperDay, paperDay }: { data: DashboardData; model: ReturnType<typeof buildModel>; setFailClosed: (value: boolean) => void; setPaperDay: (value: number | ((value: number) => number)) => void; paperDay: number }) {
   const rows = data.paperJobs.length ? data.paperJobs.map((job) => [job.id.slice(0, 10), job.session_date, uiLabel(job.status), String(job.attempts), job.failure_reason ?? "Ready"]) : [["job-forward", "2026-06-26", "Completed", "1", "Intent generated"]];
   return (
     <>
       <div className="guarded-actions"><button onClick={() => setPaperDay((value) => value + 1)}>Advance paper day</button><button className="danger-link" onClick={() => setFailClosed(true)}>Trigger fail-closed review</button><span>Guarded paper-only simulation controls</span></div>
+      <IntentApprovalPanel intents={data.paperIntents} />
       <VisualEvidencePage kpis={[["Paper status", "Ready", "Forward-only simulation", "success"], ["Current NAV", currency(model.nav + paperDay * 19), "Paper portfolio", "success"], ["Pending approvals", String(model.pendingApprovals), "Human review required", "warning"], ["Reconciliation", "Ready", "NAV matched expected state", "success"]]} primary={<ChartCard title="Paper-trading lifecycle" subtitle="Intent to evidence package"><Funnel items={["Ready", "Decision", "Approval", "Paper fill", "Settlement", "Reconcile", "Evidence"]} /></ChartCard>} secondary={<><section className="analytics-grid two"><ChartCard title="NAV versus benchmark" subtitle="Paper observation line"><LineChart data={model.equityCurve} /></ChartCard><ChartCard title="Order outcome mix" subtitle="Paper orders only"><DonutChart center="Paper" data={[{ label: "Filled", value: 70, tone: "success" }, { label: "Queued", value: 20, tone: "warning" }, { label: "Rejected", value: 10, tone: "danger" }]} /></ChartCard></section><DataTable title="Paper session jobs" headers={["Record", "Session", "Status", "Attempts", "Note"]} rows={rows} /></>} />
     </>
   );
