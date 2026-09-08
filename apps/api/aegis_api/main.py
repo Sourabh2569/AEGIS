@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable
 from dataclasses import asdict, replace
 from datetime import date, datetime
@@ -100,7 +101,14 @@ app.add_middleware(
 audit_log = AuditLog()
 repo = InMemoryRepository()
 backtest_repo = BacktestRepository()
-object_store = LocalObjectStore(Path("work/object_store"))
+# Overridable so tests (see tests/conftest.py) can point every persistent
+# file this module owns at an isolated temp directory instead of the real
+# dev/production one -- otherwise `from aegis_api.main import app` (used by
+# every integration test) shares actual paper-trading/object-store state
+# with the running dev server, permanently leaving test-only portfolios,
+# intents, and frozen-by-design test fixtures in real data.
+work_dir = Path(os.environ.get("AEGIS_WORK_DIR", "work"))
+object_store = LocalObjectStore(work_dir / "object_store")
 ingestion_service = ProviderIngestionService(
     object_store=object_store,
     repository=repo,
@@ -108,9 +116,9 @@ ingestion_service = ProviderIngestionService(
 )
 instrument_master = InstrumentMasterService()
 backtest_service = BacktestService(backtest_repo, audit_log)
-paper_store_path = Path("work/paper_trading.sqlite")
+paper_store_path = work_dir / "paper_trading.sqlite"
 paper_store_path.parent.mkdir(parents=True, exist_ok=True)
-paper_queue_path = Path("work/paper_session_queue.sqlite")
+paper_queue_path = work_dir / "paper_session_queue.sqlite"
 paper_calendar = PaperTradingCalendarService.from_csv(
     Path("sample_data/market_calendar/market_calendar.csv")
 )
