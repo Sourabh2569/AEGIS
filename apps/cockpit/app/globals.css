@@ -474,3 +474,86 @@ main.content {
   padding: 40px 0;
   text-align: center;
 }
+
+/* ---------- Strategy leaderboard ---------- */
+
+.leaderboard-title {
+  font-size: 20px;
+  margin: 0 0 4px;
+}
+
+.leaderboard-run {
+  text-align: right;
+}
+
+.leaderboard-run .action-status {
+  margin-top: 8px;
+}
+
+.leaderboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.leaderboard-card .panel-head {
+  gap: 14px;
+}
+
+.leaderboard-rank {
+  font-family: var(--font-mono);
+  color: var(--text-faint);
+  font-size: 13px;
+  flex: none;
+}
+
+.leaderboard-name {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 14px;
+  flex: 1;
+}
+
+.leaderboard-ratio {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  flex: none;
+}
+
+.leaderboard-ratio.pos {
+  color: var(--buy);
+}
+.leaderboard-ratio.neg {
+  color: var(--sell);
+}
+.leaderboard-ratio.na {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.leaderboard-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 720px) {
+  .leaderboard-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.leaderboard-columns h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-soft);
+  margin: 0 0 10px;
+}
+
+.leaderboard-footnote {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}

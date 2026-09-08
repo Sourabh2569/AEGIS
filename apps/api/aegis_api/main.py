@@ -64,7 +64,9 @@ from aegis.research_activation.evidence_review import ResearchEvidenceReviewGate
 from aegis.research_activation.service import HistoricalResearchActivationService
 from aegis.research_registry.sprint2 import RESEARCH_LABELS
 from aegis.risk.engine import KillSwitchType, RiskProfileVersion
+from aegis.shared.money import money
 from aegis.strategies.baselines import (
+    BuyAndHoldBenchmarkStrategyV0,
     EqualWeightUniverseBenchmarkStrategyV0,
     TrendFollowingBaselineStrategyV0,
 )
@@ -1888,8 +1890,12 @@ def run_real_momentum_backtest(
     benchmark_report = jsonable(
         runner.run(EqualWeightUniverseBenchmarkStrategyV0(), "Real Nifty 50 Equal-Weight Benchmark")
     )
+    buy_and_hold_report = jsonable(
+        runner.run(BuyAndHoldBenchmarkStrategyV0(), "Real Nifty 50 Buy-and-Hold Benchmark")
+    )
     real_momentum_reports.append(momentum_report)
     real_momentum_reports.append(benchmark_report)
+    real_momentum_reports.append(buy_and_hold_report)
     audit_log.record(
         event_type="REAL_MOMENTUM_BACKTEST_COMPLETED",
         entity_type="ResearchBacktest",
@@ -1905,12 +1911,107 @@ def run_real_momentum_backtest(
         },
         correlation_id=str(uuid4()),
     )
-    return {"momentum": momentum_report, "benchmark": benchmark_report}
+    return {
+        "momentum": momentum_report,
+        "benchmark": benchmark_report,
+        "buy_and_hold": buy_and_hold_report,
+    }
 
 
 @app.get("/api/v1/research/momentum/reports")
 def get_real_momentum_reports() -> list[dict[str, Any]]:
     return real_momentum_reports
+
+
+STRATEGY_LEADERBOARD_IDS = (
+    "TrendFollowingBaselineStrategyV0",
+    "EqualWeightUniverseBenchmarkStrategyV0",
+    "BuyAndHoldBenchmarkStrategyV0",
+)
+
+
+@app.get("/api/v1/strategies/leaderboard")
+def get_strategy_leaderboard() -> list[dict[str, Any]]:
+    # real_momentum_reports is append-only across every POST .../run call --
+    # the last matching entry for a strategy_name is its latest real run.
+    latest_report_by_strategy: dict[str, dict[str, Any]] = {}
+    for report in real_momentum_reports:
+        latest_report_by_strategy[report["strategy_name"]] = report
+
+    rows: list[dict[str, Any]] = []
+    for strategy_id in STRATEGY_LEADERBOARD_IDS:
+        report = latest_report_by_strategy.get(strategy_id)
+        backtest: dict[str, Any] | None = None
+        ratio: Decimal | None = None
+        if report is not None:
+            total_return = Decimal(report["total_return"])
+            max_drawdown = Decimal(report["max_drawdown"])
+            ratio = money(total_return / abs(max_drawdown)) if max_drawdown != 0 else None
+            backtest = {
+                "scenario": report["scenario"],
+                "dataset_origin": report["dataset_origin"],
+                "start_date": report["start_date"],
+                "end_date": report["end_date"],
+                "total_return": report["total_return"],
+                "max_drawdown": report["max_drawdown"],
+                "rebalance_count": report["rebalance_count"],
+                "position_count": report["position_count"],
+                "universe_size": report["universe_size"],
+                "bar_count": report["bar_count"],
+                "raw_snapshot_hash": report["raw_snapshot_hash"],
+                "warnings": report["warnings"],
+            }
+
+        # Every paper portfolio actually running this strategy that has ever
+        # completed a real session -- the honest full aggregate, including
+        # dev-testing portfolios, rather than a guess at which ones "count".
+        configs = [c for c in paper_repo.strategy_configs.values() if c.strategy_id == strategy_id]
+        included_portfolio_ids = {
+            c.paper_portfolio_id for c in configs if paper_repo.nav.get(c.paper_portfolio_id)
+        }
+        live: dict[str, Any] | None = None
+        if included_portfolio_ids:
+            combined_starting_capital = Decimal(0)
+            combined_latest_nav = Decimal(0)
+            worst_drawdown = Decimal(0)
+            for portfolio_id in included_portfolio_ids:
+                combined_starting_capital += paper_repo.portfolios[portfolio_id].starting_capital
+                snapshots = paper_repo.nav[portfolio_id]
+                combined_latest_nav += snapshots[-1].nav
+                worst_drawdown = min(worst_drawdown, min(s.drawdown for s in snapshots))
+            combined_return = (
+                money((combined_latest_nav - combined_starting_capital) / combined_starting_capital)
+                if combined_starting_capital != 0
+                else None
+            )
+            live = {
+                "portfolio_count": len(included_portfolio_ids),
+                "combined_starting_capital": str(money(combined_starting_capital)),
+                "combined_latest_nav": str(money(combined_latest_nav)),
+                "combined_return": str(combined_return) if combined_return is not None else None,
+                "worst_drawdown": str(money(worst_drawdown)),
+            }
+
+        rows.append(
+            {
+                "strategy_id": strategy_id,
+                "return_to_drawdown_ratio": str(ratio) if ratio is not None else None,
+                "backtest": backtest,
+                "backtest_status": "AVAILABLE" if backtest is not None else "NOT_RUN_YET",
+                "live": live,
+                "live_status": "AVAILABLE" if live is not None else "NO_LIVE_PORTFOLIOS_YET",
+            }
+        )
+
+    rows.sort(
+        key=lambda row: (
+            Decimal(row["return_to_drawdown_ratio"])
+            if row["return_to_drawdown_ratio"] is not None
+            else Decimal("-Infinity")
+        ),
+        reverse=True,
+    )
+    return rows
 
 
 # ---------------------------------------------------------------------------
