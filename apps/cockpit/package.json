@@ -1,0 +1,25 @@
+{
+  "name": "@aegis/cockpit",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -H 0.0.0.0 -p 3002",
+    "build": "next build",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "lightweight-charts": "^4.2.0",
+    "lucide-react": "^0.468.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "typescript": "^5.6.0",
+    "postcss": "^8.5.28"
+  },
+  "overrides": {
+    "postcss": "$postcss"
+  }
+}

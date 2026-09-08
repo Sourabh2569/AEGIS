@@ -68,7 +68,7 @@ from aegis.strategies.baselines import (
     EqualWeightUniverseBenchmarkStrategyV0,
     TrendFollowingBaselineStrategyV0,
 )
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -91,12 +91,20 @@ app = FastAPI(title="AEGIS Sprint 0 API", version="0.1.0")
 # Scoped to the known local dev web origins -- the dashboard's first
 # browser-initiated (not server-to-server) call, so a real cross-origin
 # request now exists where none did before. Not a wildcard: only these
-# specific dev origins may call the API from a browser.
+# specific dev origins may call the API from a browser. Port 3001 is the
+# main dashboard (apps/web); 3002 is the Cockpit decision-support frontend
+# (apps/cockpit), which sends real Bearer tokens rather than the dashboard's
+# dev-only role header.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3001", "http://127.0.0.1:3001"],
+    allow_origins=[
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+        "http://localhost:3002",
+        "http://127.0.0.1:3002",
+    ],
     allow_methods=["GET", "POST"],
-    allow_headers=["X-Aegis-Role", "Content-Type"],
+    allow_headers=["X-Aegis-Role", "Content-Type", "Authorization"],
 )
 audit_log = AuditLog()
 repo = InMemoryRepository()
@@ -1903,6 +1911,242 @@ def run_real_momentum_backtest(
 @app.get("/api/v1/research/momentum/reports")
 def get_real_momentum_reports() -> list[dict[str, Any]]:
     return real_momentum_reports
+
+
+# ---------------------------------------------------------------------------
+# Cockpit read endpoints -- real per-instrument price/indicator/signal data
+# for the decision-support frontend (apps/cockpit). All reuse the exact same
+# real bar capture, feature-engine formulas, and strategy logic the momentum
+# backtest and paper-trading bridge already use above; nothing here
+# reimplements a formula or a strategy rule.
+# ---------------------------------------------------------------------------
+
+
+def _resolve_symbol(symbol: str) -> tuple[str, str]:
+    """Returns (canonical_symbol, aegis_instrument_id) or raises 404 -- never
+    guesses a mapping for a symbol we haven't verified."""
+    canonical = symbol.upper()
+    metadata = CURATED_INSTRUMENT_METADATA.get(canonical)
+    if metadata is None:
+        raise HTTPException(status_code=404, detail=f"Unknown instrument symbol: {symbol}")
+    return canonical, metadata.aegis_instrument_id
+
+
+def _load_capture_or_409() -> Any:
+    capture = load_real_eod_bars(object_store.root)
+    if capture is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "state": "NO_REAL_HISTORICAL_DATA_CAPTURED",
+                "label": "No real historical EOD data has been captured yet",
+                "remediation": "Run a provider sync (POST /api/v1/data-source/live-readonly/sync) first.",
+            },
+        )
+    return capture
+
+
+def _date_range_or_default(
+    capture: Any, from_date: str | None, to_date: str | None, default_days: int = 260
+) -> tuple[date, date]:
+    end = date.fromisoformat(to_date) if to_date else capture.end_date
+    if from_date:
+        start = date.fromisoformat(from_date)
+    else:
+        all_dates = sorted(
+            {
+                date.fromisoformat(bar["trade_date"])
+                for bars in capture.bars_by_instrument.values()
+                for bar in bars
+                if date.fromisoformat(bar["trade_date"]) <= end
+            }
+        )
+        start = all_dates[-default_days] if len(all_dates) > default_days else all_dates[0]
+    return start, end
+
+
+@app.get("/api/v1/instruments/{symbol}/ohlcv")
+def get_instrument_ohlcv(
+    symbol: str,
+    from_date: str | None = Query(default=None, alias="from"),
+    to_date: str | None = Query(default=None, alias="to"),
+) -> dict[str, Any]:
+    canonical, aegis_instrument_id = _resolve_symbol(symbol)
+    capture = _load_capture_or_409()
+    bars = capture.bars_by_instrument.get(aegis_instrument_id, [])
+    start, end = _date_range_or_default(capture, from_date, to_date)
+    windowed = [bar for bar in bars if start.isoformat() <= bar["trade_date"] <= end.isoformat()]
+    return {
+        "symbol": canonical,
+        "aegis_instrument_id": aegis_instrument_id,
+        "dataset_origin": "ACTUAL_PROVIDER_DATA",
+        "raw_snapshot_hash": capture.raw_snapshot_hash,
+        "bars": [
+            {
+                "date": bar["trade_date"],
+                "open": bar["open"],
+                "high": bar["high"],
+                "low": bar["low"],
+                "close": bar["close"],
+                "volume": bar["volume"],
+            }
+            for bar in windowed
+        ],
+    }
+
+
+@app.get("/api/v1/instruments/{symbol}/indicators")
+def get_instrument_indicators(
+    symbol: str,
+    from_date: str | None = Query(default=None, alias="from"),
+    to_date: str | None = Query(default=None, alias="to"),
+) -> dict[str, Any]:
+    canonical, aegis_instrument_id = _resolve_symbol(symbol)
+    capture = _load_capture_or_409()
+    runner = RealMomentumResearchRunner(capture, sector_by_instrument_id)
+    start, end = _date_range_or_default(capture, from_date, to_date)
+    trading_dates = [d for d in runner.trading_dates if start <= d <= end]
+    points: list[dict[str, Any]] = []
+    for as_of in trading_dates:
+        candidates = {c.instrument_id: c for c in runner.build_candidates(as_of)}
+        candidate = candidates.get(aegis_instrument_id)
+        points.append(
+            {
+                "date": as_of.isoformat(),
+                "close": str(candidate.close) if candidate else None,
+                "sma_50": str(candidate.sma_50)
+                if candidate and candidate.sma_50 is not None
+                else None,
+                "sma_200": str(candidate.sma_200)
+                if candidate and candidate.sma_200 is not None
+                else None,
+                "momentum_60": str(candidate.momentum_60)
+                if candidate and candidate.momentum_60 is not None
+                else None,
+                "atr_14": str(candidate.atr_14)
+                if candidate and candidate.atr_14 is not None
+                else None,
+            }
+        )
+    return {
+        "symbol": canonical,
+        "aegis_instrument_id": aegis_instrument_id,
+        "dataset_origin": "ACTUAL_PROVIDER_DATA",
+        "raw_snapshot_hash": capture.raw_snapshot_hash,
+        "points": points,
+    }
+
+
+@app.get("/api/v1/instruments/{symbol}/signal")
+def get_instrument_signal(
+    symbol: str, paper_portfolio_id: str | None = Query(default=None)
+) -> dict[str, Any]:
+    canonical, aegis_instrument_id = _resolve_symbol(symbol)
+    capture = _load_capture_or_409()
+    runner = RealMomentumResearchRunner(capture, sector_by_instrument_id)
+    as_of = capture.end_date
+    candidates = runner.build_candidates(as_of)
+    strategy = TrendFollowingBaselineStrategyV0()
+    ranked = strategy.rank_candidates(candidates)
+    eligible_ids = {c.instrument_id for c in ranked}
+    candidate = next((c for c in candidates if c.instrument_id == aegis_instrument_id), None)
+    eligible = aegis_instrument_id in eligible_ids
+
+    held_quantity = None
+    held = False
+    if paper_portfolio_id is not None:
+        research_portfolio = paper_repo.paper_portfolios.get(paper_portfolio_id)
+        if research_portfolio is not None:
+            qty = research_portfolio.positions.get(aegis_instrument_id, Decimal(0))
+            held = qty > 0
+            held_quantity = str(qty)
+
+    if eligible and not held:
+        signal = "BUY"
+    elif eligible and held:
+        signal = "HOLD"
+    elif not eligible and held:
+        signal = "SELL"
+    else:
+        signal = "NO_POSITION"
+
+    invalidation_price = None
+    if candidate is not None and candidate.atr_14 is not None:
+        invalidation_price = str(strategy.invalidation_price(candidate))
+
+    return {
+        "symbol": canonical,
+        "aegis_instrument_id": aegis_instrument_id,
+        "as_of": as_of.isoformat(),
+        "dataset_origin": "ACTUAL_PROVIDER_DATA",
+        "raw_snapshot_hash": capture.raw_snapshot_hash,
+        "signal": signal,
+        "eligible": eligible,
+        "held": held,
+        "held_quantity": held_quantity,
+        "paper_portfolio_id": paper_portfolio_id,
+        "inputs": None
+        if candidate is None
+        else {
+            "close": str(candidate.close),
+            "sma_50": str(candidate.sma_50) if candidate.sma_50 is not None else None,
+            "sma_200": str(candidate.sma_200) if candidate.sma_200 is not None else None,
+            "momentum_60": str(candidate.momentum_60)
+            if candidate.momentum_60 is not None
+            else None,
+            "atr_14": str(candidate.atr_14) if candidate.atr_14 is not None else None,
+            "average_daily_value_traded_20": str(candidate.average_daily_value_traded_20)
+            if candidate.average_daily_value_traded_20 is not None
+            else None,
+            "invalidation_price": invalidation_price,
+        },
+        "rule_thresholds": {
+            "eligibility": "close > SMA_50 > SMA_200, and 60-day momentum > 0",
+            "minimum_avg_daily_value_traded_20": "100000",
+            "stop": "close - 2 x ATR_14",
+        },
+        "warnings": (
+            []
+            if paper_portfolio_id is not None
+            else [
+                "No paper_portfolio_id supplied -- held/HOLD/SELL cannot be determined, only BUY/NO_POSITION."
+            ]
+        ),
+    }
+
+
+@app.get("/api/v1/instruments/{symbol}/rule-events")
+def get_instrument_rule_events(
+    symbol: str,
+    from_date: str | None = Query(default=None, alias="from"),
+    to_date: str | None = Query(default=None, alias="to"),
+) -> dict[str, Any]:
+    canonical, aegis_instrument_id = _resolve_symbol(symbol)
+    capture = _load_capture_or_409()
+    runner = RealMomentumResearchRunner(capture, sector_by_instrument_id)
+    strategy = TrendFollowingBaselineStrategyV0()
+    start, end = _date_range_or_default(capture, from_date, to_date)
+    trading_dates = [d for d in runner.trading_dates if start <= d <= end]
+
+    events: list[dict[str, str]] = []
+    was_eligible = False
+    for as_of in trading_dates:
+        candidates = runner.build_candidates(as_of)
+        eligible_ids = {c.instrument_id for c in strategy.rank_candidates(candidates)}
+        is_eligible = aegis_instrument_id in eligible_ids
+        if is_eligible and not was_eligible:
+            events.append({"date": as_of.isoformat(), "type": "ELIGIBILITY_START"})
+        elif was_eligible and not is_eligible:
+            events.append({"date": as_of.isoformat(), "type": "ELIGIBILITY_END"})
+        was_eligible = is_eligible
+
+    return {
+        "symbol": canonical,
+        "aegis_instrument_id": aegis_instrument_id,
+        "dataset_origin": "ACTUAL_PROVIDER_DATA",
+        "raw_snapshot_hash": capture.raw_snapshot_hash,
+        "events": events,
+    }
 
 
 @app.get("/api/v1/paper-portfolios")
