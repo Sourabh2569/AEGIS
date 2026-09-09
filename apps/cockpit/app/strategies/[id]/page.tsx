@@ -164,15 +164,15 @@ function Detail({ strategyId }: { strategyId: string }) {
                 <h2>Backtest metrics</h2>
               </div>
               <div className="panel-body">
+                <div className="stat">
+                  <span className="stat-label">Total return</span>
+                  <span
+                    className={`stat-value ${Number(backtest.total_return) >= 0 ? "pos" : "neg"}`}
+                  >
+                    {pct(backtest.total_return)}
+                  </span>
+                </div>
                 <ul className="reasoning">
-                  <li>
-                    <span className="k">Total return</span>
-                    <span
-                      className={`v ${Number(backtest.total_return) >= 0 ? "pos" : "neg"}`}
-                    >
-                      {pct(backtest.total_return)}
-                    </span>
-                  </li>
                   <li>
                     <span className="k">Max drawdown</span>
                     <span className="v neg">{pct(backtest.max_drawdown)}</span>

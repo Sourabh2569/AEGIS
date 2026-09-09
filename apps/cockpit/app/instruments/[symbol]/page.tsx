@@ -223,17 +223,21 @@ function Decision({ symbol }: { symbol: string }) {
                   {signal.signal.replace("_", " ")}
                 </span>
               )}
+              <div className="stat">
+                <span className="stat-label">Close</span>
+                <span className="stat-value">
+                  {inputs ? money(inputs.close) : "not available"}
+                </span>
+              </div>
               <ul className="reasoning">
-                <li>
-                  <span className="k">Close</span>
-                  <span className="v">{inputs ? money(inputs.close) : "not available"}</span>
-                </li>
                 <li>
                   <span className="k">60-day momentum</span>
                   <span
-                    className={`v ${
-                      inputs?.momentum_60 && Number(inputs.momentum_60) >= 0 ? "pos" : "neg"
-                    }`}
+                    className={
+                      inputs?.momentum_60 != null
+                        ? `v ${Number(inputs.momentum_60) >= 0 ? "pos" : "neg"}`
+                        : "v"
+                    }
                   >
                     {inputs ? pct(inputs.momentum_60) : "not available"}
                   </span>

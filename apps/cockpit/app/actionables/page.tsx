@@ -128,8 +128,19 @@ function Feed() {
                         <Link href={`/instruments/${row.symbol}`}>{row.symbol}</Link>{" "}
                         <span className="hint">held {row.held_quantity}</span>
                       </span>
-                      <span className="v neg">
-                        {money(row.close)} · {pct(row.momentum_60)} momentum
+                      <span className="v">
+                        {money(row.close)} ·{" "}
+                        <span
+                          className={
+                            row.momentum_60 !== null
+                              ? Number(row.momentum_60) >= 0
+                                ? "v pos"
+                                : "v neg"
+                              : ""
+                          }
+                        >
+                          {pct(row.momentum_60)} momentum
+                        </span>
                       </span>
                     </li>
                   ))}
@@ -154,8 +165,19 @@ function Feed() {
                       <span className="k">
                         <Link href={`/instruments/${row.symbol}`}>{row.symbol}</Link>
                       </span>
-                      <span className="v pos">
-                        {money(row.close)} · {pct(row.momentum_60)} momentum
+                      <span className="v">
+                        {money(row.close)} ·{" "}
+                        <span
+                          className={
+                            row.momentum_60 !== null
+                              ? Number(row.momentum_60) >= 0
+                                ? "v pos"
+                                : "v neg"
+                              : ""
+                          }
+                        >
+                          {pct(row.momentum_60)} momentum
+                        </span>
                       </span>
                     </li>
                   ))}

@@ -199,12 +199,11 @@ function Leaderboard() {
                           <li>
                             <span className="k">Combined return</span>
                             <span
-                              className={`v ${
-                                row.live.combined_return !== null &&
-                                Number(row.live.combined_return) >= 0
-                                  ? "pos"
-                                  : "neg"
-                              }`}
+                              className={
+                                row.live.combined_return !== null
+                                  ? `v ${Number(row.live.combined_return) >= 0 ? "pos" : "neg"}`
+                                  : "v"
+                              }
                             >
                               {pct(row.live.combined_return)}
                             </span>

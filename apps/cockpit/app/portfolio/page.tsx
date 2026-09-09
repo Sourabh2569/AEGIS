@@ -152,6 +152,12 @@ function HealthPanel() {
 
         {!loading && summary && (
           <>
+            <div className="stat">
+              <span className="stat-label">Latest NAV</span>
+              <span className="stat-value">
+                {summary.latest_nav ? money(summary.latest_nav.nav) : "has not run a session yet"}
+              </span>
+            </div>
             <ul className="reasoning">
               <li>
                 <span className="k">Status</span>
@@ -177,14 +183,8 @@ function HealthPanel() {
                 <span className="v">{money(summary.portfolio.starting_capital)}</span>
               </li>
               <li>
-                <span className="k">Latest NAV</span>
-                <span className="v">
-                  {summary.latest_nav ? money(summary.latest_nav.nav) : "has not run a session yet"}
-                </span>
-              </li>
-              <li>
                 <span className="k">Drawdown from high-water-mark</span>
-                <span className="v neg">
+                <span className={`v ${summary.latest_nav ? "neg" : ""}`}>
                   {summary.latest_nav ? pct(summary.latest_nav.drawdown) : "not available"}
                 </span>
               </li>

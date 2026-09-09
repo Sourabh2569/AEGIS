@@ -11,17 +11,20 @@
   --accent: #3fa9f5;
   --accent-soft: #16324a;
 
-  --buy: #34d399;
+  /* Desaturated ~15-20% from the original neon buy/sell/hold, matching
+     TradingView's own finding that lower-saturation semantic color reduces
+     eye strain and supports longer comfortable viewing in a dark theme. */
+  --buy: #2fbf8f;
   --buy-soft: #0f2e26;
-  --sell: #f0576b;
+  --sell: #e0526a;
   --sell-soft: #3a1620;
-  --hold: #f2b84b;
+  --hold: #e0a83f;
   --hold-soft: #362a10;
   --neutral: #6b7688;
   --neutral-soft: #1c212b;
 
-  --font-ui: -apple-system, "Segoe UI", "Inter", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "IBM Plex Mono", Menlo, monospace;
+  --font-ui: var(--font-ui-loaded), -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-mono-loaded), ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 * {
@@ -53,6 +56,25 @@ a {
 
 .tnum {
   font-variant-numeric: tabular-nums;
+}
+
+/* Color alone is never the only signal for a directional number -- every
+   .pos/.neg value (wherever it's used: reasoning rows, stat heroes,
+   leaderboard ratios) also gets an arrow, so the meaning survives for
+   colorblind viewers and at a glance without reading color at all. */
+.pos::before {
+  content: "▲";
+  display: inline-block;
+  margin-right: 4px;
+  font-size: 0.72em;
+  transform: translateY(-1px);
+}
+.neg::before {
+  content: "▼";
+  display: inline-block;
+  margin-right: 4px;
+  font-size: 0.72em;
+  transform: translateY(-1px);
 }
 
 button,
@@ -122,6 +144,9 @@ button:focus-visible {
 }
 
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -291,6 +316,9 @@ main.content {
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 8px 24px -12px rgba(0, 0, 0, 0.5);
 }
 
 .panel-head {
@@ -383,12 +411,45 @@ main.content {
 
 .reasoning li .v {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .reasoning li .v.pos {
   color: var(--buy);
 }
 .reasoning li .v.neg {
+  color: var(--sell);
+}
+
+/* ---------- Hero stat ---------- */
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.stat-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-soft);
+}
+
+.stat-value {
+  font-family: var(--font-mono);
+  font-size: 32px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  color: var(--text);
+}
+
+.stat-value.pos {
+  color: var(--buy);
+}
+.stat-value.neg {
   color: var(--sell);
 }
 
@@ -516,8 +577,9 @@ main.content {
 
 .leaderboard-ratio {
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 20px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   flex: none;
 }
 
@@ -586,6 +648,7 @@ main.content {
   border-bottom: 1px solid var(--border-soft);
   vertical-align: top;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .data-table tr:last-child td {
