@@ -2485,9 +2485,7 @@ def resume_paper_portfolio(paper_portfolio_id: str) -> dict[str, Any]:
     portfolio = paper_repo.portfolios[paper_portfolio_id]
     if portfolio.status != PaperPortfolioStatus.PAUSED:
         raise HTTPException(status_code=400, detail=f"PORTFOLIO_NOT_PAUSED:{portfolio.status}")
-    resumed = replace(
-        portfolio, status=PaperPortfolioStatus.ACTIVE, updated_at=datetime.now().astimezone()
-    )
+    resumed = replace(portfolio, status=PaperPortfolioStatus.ACTIVE)
     paper_repo.save_portfolio(resumed)
     return jsonable(resumed)
 
@@ -2663,7 +2661,10 @@ def approve_paper_intent(
         require_role(Role.FOUNDER, Role.RISK_REVIEWER, Role.PAPER_TRADING_OPERATOR)
     ),
 ) -> dict[str, Any]:
-    return jsonable(paper_orchestrator.approvals.approve(paper_trade_intent_id, role.value))
+    try:
+        return jsonable(paper_orchestrator.approvals.approve(paper_trade_intent_id, role.value))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": str(exc)}) from exc
 
 
 @app.post("/api/v1/paper-trade-intents/{paper_trade_intent_id}/reject")
@@ -2674,9 +2675,14 @@ def reject_paper_intent(
         require_role(Role.FOUNDER, Role.RISK_REVIEWER, Role.PAPER_TRADING_OPERATOR)
     ),
 ) -> dict[str, Any]:
-    return jsonable(
-        paper_orchestrator.approvals.reject(paper_trade_intent_id, role.value, payload["reason"])
-    )
+    try:
+        return jsonable(
+            paper_orchestrator.approvals.reject(
+                paper_trade_intent_id, role.value, payload["reason"]
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": str(exc)}) from exc
 
 
 @app.get("/api/v1/paper-approvals")

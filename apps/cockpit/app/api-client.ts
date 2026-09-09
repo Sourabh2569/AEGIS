@@ -61,11 +61,24 @@ export async function authPost<T>(path: string, body?: unknown): Promise<T> {
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    const detail =
-      typeof payload.detail === "string" ? payload.detail : response.statusText || "Request failed";
-    throw new Error(detail);
+    throw new Error(extractErrorDetail(payload.detail) ?? response.statusText ?? "Request failed");
   }
   return (await response.json()) as T;
+}
+
+/** The backend returns `detail` as either a plain string or a structured
+ * object (e.g. {"code": "..."} or {"state": ..., "label": ..., ...} for the
+ * NO_REAL_HISTORICAL_DATA_CAPTURED family) -- surface whichever real text is
+ * there rather than silently collapsing to a generic HTTP status phrase. */
+function extractErrorDetail(detail: unknown): string | null {
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object") {
+    const record = detail as Record<string, unknown>;
+    const candidate = record.label ?? record.code ?? record.state;
+    if (typeof candidate === "string") return candidate;
+    return JSON.stringify(detail);
+  }
+  return null;
 }
 
 export { apiBase };

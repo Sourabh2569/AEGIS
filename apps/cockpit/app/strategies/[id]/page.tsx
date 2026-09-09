@@ -2,7 +2,8 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { apiGet } from "../../api-client";
+import { useRouter } from "next/navigation";
+import { apiGet, clearToken } from "../../api-client";
 import RequireAuth from "../../require-auth";
 import EquityChart, { type EquityPoint } from "./equity-chart";
 
@@ -226,6 +227,7 @@ function Detail({ strategyId }: { strategyId: string }) {
 
 export default function StrategyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
   return (
     <RequireAuth>
       <div className="shell">
@@ -234,6 +236,20 @@ export default function StrategyDetailPage({ params }: { params: Promise<{ id: s
             <span className="mark" />
             AEGIS Cockpit
             <span className="sub">Decision support</span>
+          </div>
+          <div className="topbar-actions">
+            <Link href="/">Instruments</Link>
+            <Link href="/strategies">Strategies</Link>
+            <Link href="/actionables">Actionables</Link>
+            <Link href="/portfolio">Portfolio</Link>
+            <button
+              onClick={() => {
+                clearToken();
+                router.replace("/login");
+              }}
+            >
+              Sign out
+            </button>
           </div>
         </header>
         <main className="content">
