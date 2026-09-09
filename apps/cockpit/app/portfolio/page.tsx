@@ -30,6 +30,12 @@ type Summary = {
 
 type Instrument = { aegis_instrument_id: string; current_symbol: string };
 
+type StrategyConfig = {
+  paper_strategy_config_id: string;
+  paper_portfolio_id: string;
+  strategy_id: string;
+};
+
 type Intent = {
   paper_trade_intent_id: string;
   paper_portfolio_id: string;
@@ -41,7 +47,12 @@ type Intent = {
   reason_codes_json: string[];
   eligible_execution_time: string;
   created_at: string;
+  strategy_version_id: string;
 };
+
+function strategyIdFrom(strategyVersionId: string): string {
+  return strategyVersionId.split(":")[0];
+}
 
 type ActionStatus = { kind: "ok" | "error"; text: string };
 
@@ -59,6 +70,7 @@ function HealthPanel() {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [selected, setSelected] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [strategyConfigs, setStrategyConfigs] = useState<StrategyConfig[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionStatus, setActionStatus] = useState<ActionStatus | null>(null);
@@ -72,6 +84,7 @@ function HealthPanel() {
 
   useEffect(() => {
     loadPortfolios();
+    apiGet<StrategyConfig[]>("/api/v1/paper-strategy-configurations", []).then(setStrategyConfigs);
   }, [loadPortfolios]);
 
   const loadSummary = useCallback((portfolioId: string) => {
@@ -105,6 +118,9 @@ function HealthPanel() {
   }
 
   const currentStatus = portfolios.find((p) => p.paper_portfolio_id === selected)?.status;
+  const strategiesForSelected = strategyConfigs.filter(
+    (config) => config.paper_portfolio_id === selected,
+  );
 
   return (
     <div className="panel">
@@ -140,6 +156,21 @@ function HealthPanel() {
               <li>
                 <span className="k">Status</span>
                 <span className="v">{summary.portfolio.status}</span>
+              </li>
+              <li>
+                <span className="k">Strategy</span>
+                <span className="v">
+                  {strategiesForSelected.length === 0
+                    ? "Not configured yet"
+                    : strategiesForSelected.map((config, index) => (
+                        <span key={config.paper_strategy_config_id}>
+                          {index > 0 && ", "}
+                          <Link href={`/strategies/${config.strategy_id}`}>
+                            {config.strategy_id}
+                          </Link>
+                        </span>
+                      ))}
+                </span>
               </li>
               <li>
                 <span className="k">Starting capital</span>
@@ -250,6 +281,7 @@ function ApprovalsQueue() {
                   <th>Symbol</th>
                   <th>Side</th>
                   <th>Portfolio</th>
+                  <th>Strategy</th>
                   <th>Proposed</th>
                   <th>Approved</th>
                   <th>Reason codes</th>
@@ -271,6 +303,11 @@ function ApprovalsQueue() {
                         <span className={`side-badge ${intent.side}`}>{intent.side}</span>
                       </td>
                       <td>{portfolioName(intent.paper_portfolio_id)}</td>
+                      <td>
+                        <Link href={`/strategies/${strategyIdFrom(intent.strategy_version_id)}`}>
+                          {strategyIdFrom(intent.strategy_version_id)}
+                        </Link>
+                      </td>
                       <td>{intent.proposed_quantity}</td>
                       <td>{intent.approved_quantity_nullable ?? "—"}</td>
                       <td>{intent.reason_codes_json.join(", ") || "None"}</td>

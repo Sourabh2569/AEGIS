@@ -70,8 +70,11 @@ function Feed() {
         <div>
           <h1 className="leaderboard-title">Actionables Feed</h1>
           <p className="hint">
-            What the real Trend-Following strategy says to do right now, across the full
-            instrument universe.
+            What{" "}
+            <Link href="/strategies/TrendFollowingBaselineStrategyV0">
+              TrendFollowingBaselineStrategyV0
+            </Link>{" "}
+            says to do right now, across the full instrument universe.
           </p>
         </div>
         <div>
