@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { Trophy } from "lucide-react";
+import { Trophy, ListChecks, Award, Users, Wallet, BarChart3 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { apiGet, authPost } from "../api-client";
+import BarChart from "../bar-chart";
 import CockpitShell from "../cockpit-shell";
+import { KpiCard, KpiStrip } from "../kpi-strip";
 import Sparkline from "./sparkline";
 
 type Backtest = {
@@ -47,6 +49,10 @@ function pct(value: string | null): string {
 
 function money(value: string): string {
   return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+}
+
+function shortName(strategyId: string): string {
+  return strategyId.replace(/(Baseline|Benchmark)?StrategyV0$/, "");
 }
 
 function Leaderboard() {
@@ -108,9 +114,81 @@ function Leaderboard() {
       {rows === null && <div className="loading">Loading real strategy results…</div>}
 
       {rows !== null && (
+        <>
+          {(() => {
+            const withBacktest = rows.filter((row) => row.backtest !== null);
+            const leader = rows[0]?.return_to_drawdown_ratio !== null ? rows[0] : null;
+            const totalLivePortfolios = rows.reduce(
+              (sum, row) => sum + (row.live?.portfolio_count ?? 0),
+              0,
+            );
+            const totalLiveAum = rows.reduce(
+              (sum, row) => sum + Number(row.live?.combined_latest_nav ?? 0),
+              0,
+            );
+            return (
+              <>
+                <KpiStrip>
+                  <KpiCard
+                    icon={ListChecks}
+                    label="Strategies backtested"
+                    value={`${withBacktest.length} / ${rows.length}`}
+                    caption="real momentum backtests run"
+                  />
+                  <KpiCard
+                    icon={Award}
+                    label="Best ratio"
+                    value={
+                      leader ? `${Number(leader.return_to_drawdown_ratio).toFixed(2)}x` : "n/a"
+                    }
+                    caption={leader ? shortName(leader.strategy_id) : "no backtest yet"}
+                  />
+                  <KpiCard
+                    icon={Users}
+                    label="Live portfolios"
+                    value={String(totalLivePortfolios)}
+                    caption="running any of these strategies"
+                  />
+                  <KpiCard
+                    icon={Wallet}
+                    label="Live AUM"
+                    value={money(String(totalLiveAum))}
+                    caption="combined latest NAV"
+                  />
+                </KpiStrip>
+
+                {withBacktest.length > 0 && (
+                  <div className="panel" style={{ marginBottom: 18 }}>
+                    <div className="panel-head">
+                      <h2>
+                        <BarChart3 size={15} />
+                        Total return by strategy
+                      </h2>
+                    </div>
+                    <div className="panel-body">
+                      <BarChart
+                        data={withBacktest.map((row) => ({
+                          label: shortName(row.strategy_id),
+                          value: Number(row.backtest!.total_return) * 100,
+                        }))}
+                        formatValue={(v) => `${v.toFixed(1)}%`}
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </>
+      )}
+
+      {rows !== null && (
         <div className="leaderboard-list">
           {rows.map((row, index) => (
-            <div key={row.strategy_id} className="panel leaderboard-card">
+            <div
+              key={row.strategy_id}
+              className={`panel leaderboard-card ${index === 0 && row.return_to_drawdown_ratio !== null ? "leader" : ""}`}
+            >
               <div className="panel-head">
                 <span className="leaderboard-rank">#{index + 1}</span>
                 <Link href={`/strategies/${row.strategy_id}`} className="leaderboard-name">

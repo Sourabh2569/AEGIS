@@ -842,3 +842,220 @@ main.content {
   letter-spacing: 0.05em;
   color: var(--text-soft);
 }
+
+/* ---------- KPI strip ---------- */
+
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.kpi-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 8px 24px -14px rgba(0, 0, 0, 0.5);
+}
+
+.kpi-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.kpi-card-label {
+  font-size: 12px;
+  color: var(--text-soft);
+  font-weight: 500;
+}
+
+.kpi-card-head svg {
+  color: var(--accent);
+  flex: none;
+}
+
+.kpi-card-value {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.kpi-card-foot {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kpi-card-caption {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.delta-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 11.5px;
+}
+.delta-pill.pos {
+  color: var(--buy);
+  background: var(--buy-soft);
+}
+.delta-pill.neg {
+  color: var(--sell);
+  background: var(--sell-soft);
+}
+
+/* ---------- Bar chart ---------- */
+
+.bar-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  height: 160px;
+  padding: 8px 4px 0;
+  overflow-x: auto;
+}
+
+.bar-chart-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 34px;
+  height: 100%;
+}
+
+.bar-chart-value {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+
+.bar-chart-track {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.bar-chart-bar {
+  width: 60%;
+  min-width: 10px;
+  border-radius: 4px 4px 0 0;
+}
+.bar-chart-bar.pos {
+  background: var(--buy);
+}
+.bar-chart-bar.neg {
+  background: var(--sell);
+}
+
+.bar-chart-label {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  max-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Status pill ---------- */
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.status-pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.status-pill.status-active {
+  color: var(--buy);
+  background: var(--buy-soft);
+}
+.status-pill.status-paused {
+  color: var(--hold);
+  background: var(--hold-soft);
+}
+.status-pill.status-frozen {
+  color: var(--sell);
+  background: var(--sell-soft);
+}
+.status-pill.status-neutral {
+  color: var(--neutral);
+  background: var(--neutral-soft);
+}
+
+/* ---------- Highlighters ---------- */
+
+.panel.leader {
+  border-color: var(--accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 0 0 1px var(--accent),
+    0 10px 28px -12px rgba(63, 169, 245, 0.35);
+}
+
+.panel-head.alert::before {
+  background: linear-gradient(90deg, var(--sell) 0%, transparent 65%);
+  opacity: 1;
+}
+
+.data-table tr.due-now {
+  background: var(--hold-soft);
+}
+.data-table tr.due-now td:first-child {
+  box-shadow: inset 3px 0 0 var(--hold);
+}
+
+/* ---------- Momentum meter ---------- */
+
+.momentum-meter {
+  display: inline-block;
+  width: 46px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border-soft);
+  overflow: hidden;
+  vertical-align: middle;
+  margin-left: 8px;
+}
+
+.momentum-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+.momentum-meter-fill.pos {
+  background: var(--buy);
+}
+.momentum-meter-fill.neg {
+  background: var(--sell);
+}

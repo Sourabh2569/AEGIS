@@ -2,9 +2,21 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { LineChart, ListChecks, Users } from "lucide-react";
+import {
+  LineChart,
+  ListChecks,
+  Users,
+  TrendingUp,
+  TrendingDown,
+  Percent,
+  Repeat,
+  Target,
+  CalendarRange,
+} from "lucide-react";
 import { apiGet } from "../../api-client";
+import BarChart from "../../bar-chart";
 import CockpitShell from "../../cockpit-shell";
+import { KpiCard, KpiStrip } from "../../kpi-strip";
 import EquityChart, { type EquityPoint } from "./equity-chart";
 import Gauge from "./gauge";
 
@@ -108,6 +120,44 @@ function Detail({ strategyId }: { strategyId: string }) {
         </div>
       </div>
 
+      {backtest && (
+        <KpiStrip>
+          <KpiCard
+            icon={backtest.total_return.startsWith("-") ? TrendingDown : TrendingUp}
+            label="Total return"
+            value={pct(backtest.total_return)}
+            delta={{
+              text: pct(backtest.total_return),
+              tone: Number(backtest.total_return) >= 0 ? "pos" : "neg",
+            }}
+            caption={`${backtest.start_date} → ${backtest.end_date}`}
+          />
+          <KpiCard
+            icon={Percent}
+            label="Max drawdown"
+            value={pct(backtest.max_drawdown)}
+            delta={{ text: pct(backtest.max_drawdown), tone: "neg" }}
+            caption="worst peak-to-trough decline"
+          />
+          <KpiCard
+            icon={Target}
+            label="Return / drawdown"
+            value={
+              detail.return_to_drawdown_ratio
+                ? `${Number(detail.return_to_drawdown_ratio).toFixed(2)}x`
+                : "n/a"
+            }
+            caption="plain ratio, not a Sharpe ratio"
+          />
+          <KpiCard
+            icon={Repeat}
+            label="Rebalances"
+            value={String(backtest.rebalance_count)}
+            caption="real monthly decision cycles"
+          />
+        </KpiStrip>
+      )}
+
       <div className="grid">
         <div className="panel">
           <div className="panel-head">
@@ -172,47 +222,49 @@ function Detail({ strategyId }: { strategyId: string }) {
           {backtest && (
             <div className="panel">
               <div className="panel-head">
-                <h2>Backtest metrics</h2>
+                <h2>
+                  <Target size={15} />
+                  Position sizing
+                </h2>
               </div>
-              <div className="panel-body">
-                <div className="stat-and-gauge">
-                  <div className="stat">
-                    <span className="stat-label">Total return</span>
-                    <span
-                      className={`stat-value ${Number(backtest.total_return) >= 0 ? "pos" : "neg"}`}
-                    >
-                      {pct(backtest.total_return)}
-                    </span>
-                  </div>
-                  <Gauge
-                    value={backtest.position_count}
-                    max={rules.max_positions}
-                    label="Positions used"
-                  />
-                </div>
-                <ul className="reasoning">
-                  <li>
-                    <span className="k">Max drawdown</span>
-                    <span className="v neg">{pct(backtest.max_drawdown)}</span>
-                  </li>
-                  <li>
-                    <span className="k">Return / drawdown</span>
-                    <span className="v">
-                      {detail.return_to_drawdown_ratio
-                        ? `${Number(detail.return_to_drawdown_ratio).toFixed(2)}x`
-                        : "n/a"}
-                    </span>
-                  </li>
-                  <li>
-                    <span className="k">Rebalances</span>
-                    <span className="v">{backtest.rebalance_count}</span>
-                  </li>
-                </ul>
+              <div className="panel-body" style={{ display: "flex", justifyContent: "center" }}>
+                <Gauge
+                  value={backtest.position_count}
+                  max={rules.max_positions}
+                  label="Positions used"
+                />
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {backtest && backtest.equity_curve.length > 1 && (
+        <div className="panel" style={{ marginTop: 18 }}>
+          <div className="panel-head">
+            <h2>
+              <CalendarRange size={15} />
+              Monthly returns (last 12 real rebalances)
+            </h2>
+          </div>
+          <div className="panel-body">
+            <BarChart
+              data={backtest.equity_curve.slice(-13).reduce<{ label: string; value: number }[]>(
+                (bars, point, index, curve) => {
+                  if (index === 0) return bars;
+                  const previous = Number(curve[index - 1].nav);
+                  const current = Number(point.nav);
+                  const change = previous !== 0 ? ((current - previous) / previous) * 100 : 0;
+                  bars.push({ label: point.date.slice(0, 7), value: change });
+                  return bars;
+                },
+                [],
+              )}
+              formatValue={(v) => `${v.toFixed(1)}%`}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="panel" style={{ marginTop: 18 }}>
         <div className="panel-head">

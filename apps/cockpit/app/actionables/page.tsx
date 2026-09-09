@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { TrendingDown, TrendingUp } from "lucide-react";
+import { TrendingDown, TrendingUp, Zap } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { apiGet } from "../api-client";
 import CockpitShell from "../cockpit-shell";
+import { KpiCard, KpiStrip } from "../kpi-strip";
+
+const MOMENTUM_METER_SCALE = 0.5; // ±50% momentum fills the meter
 
 type ActionableRow = {
   symbol: string;
@@ -36,6 +39,18 @@ function pct(value: string | null): string {
 
 function money(value: string): string {
   return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+}
+
+function MomentumMeter({ momentum60 }: { momentum60: string | null }) {
+  if (momentum60 === null) return null;
+  const value = Number(momentum60);
+  const tone = value >= 0 ? "pos" : "neg";
+  const fillPct = Math.min(Math.abs(value) / MOMENTUM_METER_SCALE, 1) * 100;
+  return (
+    <span className="momentum-meter" title={`${(value * 100).toFixed(1)}% 60-day momentum`}>
+      <span className={`momentum-meter-fill ${tone}`} style={{ width: `${fillPct}%` }} />
+    </span>
+  );
 }
 
 function Feed() {
@@ -111,8 +126,29 @@ function Feed() {
             </p>
           ))}
 
+          <KpiStrip>
+            <KpiCard
+              icon={Zap}
+              label="Total actionable"
+              value={String(data.actionables.length)}
+              caption="across the real 50-instrument universe"
+            />
+            <KpiCard
+              icon={TrendingUp}
+              label="Buy"
+              value={String(buys.length)}
+              delta={buys.length > 0 ? { text: `${buys.length}`, tone: "pos" } : null}
+            />
+            <KpiCard
+              icon={TrendingDown}
+              label="Sell"
+              value={String(sells.length)}
+              delta={sells.length > 0 ? { text: `${sells.length}`, tone: "neg" } : null}
+            />
+          </KpiStrip>
+
           <div className="panel" style={{ marginTop: 16, marginBottom: 16 }}>
-            <div className="panel-head">
+            <div className={`panel-head ${sells.length > 0 ? "alert" : ""}`}>
               <h2>
                 <TrendingDown size={15} />
                 Sell ({sells.length})
@@ -144,6 +180,7 @@ function Feed() {
                         >
                           {pct(row.momentum_60)} momentum
                         </span>
+                        <MomentumMeter momentum60={row.momentum_60} />
                       </span>
                     </li>
                   ))}
@@ -184,6 +221,7 @@ function Feed() {
                         >
                           {pct(row.momentum_60)} momentum
                         </span>
+                        <MomentumMeter momentum60={row.momentum_60} />
                       </span>
                     </li>
                   ))}

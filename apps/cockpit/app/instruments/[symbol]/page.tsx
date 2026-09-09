@@ -2,8 +2,10 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { IndianRupee, Activity, ShieldAlert, BarChart3 } from "lucide-react";
 import { apiGet, authPost } from "../../api-client";
 import CockpitShell from "../../cockpit-shell";
+import { KpiCard, KpiStrip } from "../../kpi-strip";
 import PriceChart, { type Bar, type IndicatorPoint, type RuleEvent } from "./price-chart";
 import MomentumChart from "./momentum-chart";
 
@@ -201,6 +203,40 @@ function Decision({ symbol }: { symbol: string }) {
         </div>
       </div>
 
+      <KpiStrip>
+        <KpiCard
+          icon={IndianRupee}
+          label="Close"
+          value={inputs ? money(inputs.close) : "n/a"}
+          caption={signal?.as_of ? `as of ${signal.as_of}` : undefined}
+        />
+        <KpiCard
+          icon={Activity}
+          label="60-day momentum"
+          value={inputs ? pct(inputs.momentum_60) : "n/a"}
+          delta={
+            inputs?.momentum_60 != null
+              ? {
+                  text: pct(inputs.momentum_60),
+                  tone: Number(inputs.momentum_60) >= 0 ? "pos" : "neg",
+                }
+              : null
+          }
+        />
+        <KpiCard
+          icon={ShieldAlert}
+          label="ATR-based stop"
+          value={inputs ? money(inputs.invalidation_price) : "n/a"}
+          caption="close − 2 × ATR_14"
+        />
+        <KpiCard
+          icon={BarChart3}
+          label="20-day avg value traded"
+          value={inputs ? money(inputs.average_daily_value_traded_20) : "n/a"}
+          caption="minimum ₹100,000 to be eligible"
+        />
+      </KpiStrip>
+
       <div className="grid">
         <div className="panel">
           <div className="panel-head">
@@ -222,39 +258,11 @@ function Decision({ symbol }: { symbol: string }) {
                   {signal.signal.replace("_", " ")}
                 </span>
               )}
-              <div className="stat">
-                <span className="stat-label">Close</span>
-                <span className={`stat-value ${inputs ? "" : "empty"}`}>
-                  {inputs ? money(inputs.close) : "Not available"}
-                </span>
-              </div>
               <ul className="reasoning">
-                <li>
-                  <span className="k">60-day momentum</span>
-                  <span
-                    className={
-                      inputs?.momentum_60 != null
-                        ? `v ${Number(inputs.momentum_60) >= 0 ? "pos" : "neg"}`
-                        : "v"
-                    }
-                  >
-                    {inputs ? pct(inputs.momentum_60) : "not available"}
-                  </span>
-                </li>
                 <li>
                   <span className="k">SMA 50 / SMA 200</span>
                   <span className="v">
                     {inputs ? `${money(inputs.sma_50)} / ${money(inputs.sma_200)}` : "not available"}
-                  </span>
-                </li>
-                <li>
-                  <span className="k">ATR-based stop</span>
-                  <span className="v">{inputs ? money(inputs.invalidation_price) : "not available"}</span>
-                </li>
-                <li>
-                  <span className="k">20-day avg value traded</span>
-                  <span className="v">
-                    {inputs ? money(inputs.average_daily_value_traded_20) : "not available"}
                   </span>
                 </li>
                 {signal?.held && (

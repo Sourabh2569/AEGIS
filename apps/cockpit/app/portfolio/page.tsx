@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { ClipboardCheck, Wallet } from "lucide-react";
+import { ClipboardCheck, Wallet, Layers, Activity, ListTodo, IndianRupee, BarChart3 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { apiGet, authPost } from "../api-client";
+import BarChart from "../bar-chart";
 import CockpitShell from "../cockpit-shell";
+import { KpiCard, KpiStrip } from "../kpi-strip";
 
 type Portfolio = {
   paper_portfolio_id: string;
@@ -64,6 +66,84 @@ function money(value: string): string {
 
 function pct(value: string): string {
   return `${(Number(value) * 100).toFixed(2)}%`;
+}
+
+function statusPillClass(status: string): string {
+  if (status === "ACTIVE") return "status-active";
+  if (status === "PAUSED") return "status-paused";
+  if (status === "FROZEN") return "status-frozen";
+  return "status-neutral";
+}
+
+function SummaryStrip() {
+  const [portfolios, setPortfolios] = useState<Portfolio[] | null>(null);
+  const [intents, setIntents] = useState<Intent[] | null>(null);
+
+  useEffect(() => {
+    apiGet<Portfolio[]>("/api/v1/paper-portfolios", []).then(setPortfolios);
+    apiGet<Intent[]>("/api/v1/paper-trade-intents", []).then(setIntents);
+  }, []);
+
+  if (!portfolios || !intents) {
+    return <div className="loading">Loading real portfolio summary…</div>;
+  }
+
+  const activeCount = portfolios.filter((p) => p.status === "ACTIVE").length;
+  const pending = intents.filter((intent) => intent.intent_status === "PENDING_APPROVAL");
+  const totalAum = portfolios.reduce((sum, p) => sum + Number(p.starting_capital), 0);
+  const pendingBuys = pending.filter((intent) => intent.side === "BUY").length;
+  const pendingSells = pending.filter((intent) => intent.side === "SELL").length;
+
+  return (
+    <>
+      <KpiStrip>
+        <KpiCard
+          icon={Layers}
+          label="Total portfolios"
+          value={String(portfolios.length)}
+          caption="real paper portfolios, all statuses"
+        />
+        <KpiCard
+          icon={Activity}
+          label="Active"
+          value={String(activeCount)}
+          caption={`of ${portfolios.length} total`}
+        />
+        <KpiCard
+          icon={ListTodo}
+          label="Pending approvals"
+          value={String(pending.length)}
+          delta={pending.length > 0 ? { text: `${pending.length}`, tone: "neg" } : null}
+        />
+        <KpiCard
+          icon={IndianRupee}
+          label="Total AUM"
+          value={`₹${totalAum.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
+          caption="sum of real starting capital"
+        />
+      </KpiStrip>
+
+      {pending.length > 0 && (
+        <div className="panel" style={{ marginBottom: 18 }}>
+          <div className="panel-head">
+            <h2>
+              <BarChart3 size={15} />
+              Pending approvals by side
+            </h2>
+          </div>
+          <div className="panel-body">
+            <BarChart
+              data={[
+                { label: "Buy", value: pendingBuys, tone: "pos" },
+                { label: "Sell", value: pendingSells, tone: "neg" },
+              ]}
+              formatValue={(v) => String(v)}
+            />
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 
 function HealthPanel() {
@@ -164,7 +244,9 @@ function HealthPanel() {
             <ul className="reasoning">
               <li>
                 <span className="k">Status</span>
-                <span className="v">{summary.portfolio.status}</span>
+                <span className={`status-pill ${statusPillClass(summary.portfolio.status)}`}>
+                  {summary.portfolio.status}
+                </span>
               </li>
               <li>
                 <span className="k">Strategy</span>
@@ -280,7 +362,11 @@ function ApprovalsQueue() {
           <p className="hint">No paper-trade intents are waiting on a decision right now.</p>
         )}
         {pending.length > 0 && (
-          <div className="table-wrap">
+          <>
+            <p className="hint" style={{ marginBottom: 10 }}>
+              Rows highlighted amber are already past their real eligible-execution time.
+            </p>
+            <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
@@ -298,8 +384,9 @@ function ApprovalsQueue() {
               <tbody>
                 {pending.map((intent) => {
                   const id = intent.paper_trade_intent_id;
+                  const dueNow = new Date(intent.eligible_execution_time) <= new Date();
                   return (
-                    <tr key={id}>
+                    <tr key={id} className={dueNow ? "due-now" : ""}>
                       <td>
                         <Link href={`/instruments/${symbolFor(intent.instrument_id)}`}>
                           {symbolFor(intent.instrument_id)}
@@ -364,7 +451,8 @@ function ApprovalsQueue() {
                 })}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -383,6 +471,7 @@ export default function PortfolioPage() {
           </p>
         </div>
       </div>
+      <SummaryStrip />
       <HealthPanel />
       <ApprovalsQueue />
     </CockpitShell>
