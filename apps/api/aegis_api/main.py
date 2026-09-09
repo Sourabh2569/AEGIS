@@ -1948,7 +1948,7 @@ def _return_to_drawdown_ratio(report: dict[str, Any]) -> Decimal | None:
     return money(total_return / abs(max_drawdown)) if max_drawdown != 0 else None
 
 
-def _strategy_rule_descriptions() -> dict[str, dict[str, str]]:
+def _strategy_rule_descriptions() -> dict[str, dict[str, Any]]:
     max_positions = RiskProfileVersion().maximum_position_count
     return {
         "TrendFollowingBaselineStrategyV0": {
@@ -1962,12 +1962,14 @@ def _strategy_rule_descriptions() -> dict[str, dict[str, str]]:
             ),
             "sizing": f"top {max_positions} ranked instruments, 80% of equity split equally",
             "stop": "close - 2 x ATR_14",
+            "max_positions": max_positions,
         },
         "EqualWeightUniverseBenchmarkStrategyV0": {
             "eligibility": "any instrument with at least 200 real trading days of history -- no other filter",
             "selection": f"every eligible instrument, capped at {max_positions} positions",
             "sizing": "80% of equity split equally across the selected instruments",
             "stop": "not applicable -- this strategy carries no per-position stop",
+            "max_positions": max_positions,
         },
         "BuyAndHoldBenchmarkStrategyV0": {
             "eligibility": "any instrument with at least 200 real trading days of history -- no other filter",
@@ -1979,6 +1981,10 @@ def _strategy_rule_descriptions() -> dict[str, dict[str, str]]:
             ),
             "sizing": "80% of equity in that single instrument",
             "stop": "not applicable -- this strategy carries no per-position stop",
+            # This strategy's own construction always holds exactly one
+            # instrument -- its real cap is 1, not the platform-wide
+            # maximum_position_count, which doesn't apply to it.
+            "max_positions": 1,
         },
     }
 
@@ -1992,6 +1998,7 @@ def get_strategy_leaderboard() -> list[dict[str, Any]]:
         report = latest_report_by_strategy.get(strategy_id)
         backtest: dict[str, Any] | None = None
         ratio: Decimal | None = None
+        equity_curve_sparkline: list[str] | None = None
         if report is not None:
             ratio = _return_to_drawdown_ratio(report)
             backtest = {
@@ -2008,6 +2015,16 @@ def get_strategy_leaderboard() -> list[dict[str, Any]]:
                 "raw_snapshot_hash": report["raw_snapshot_hash"],
                 "warnings": report["warnings"],
             }
+            # A light decimation of the same real equity curve Strategy Detail
+            # shows in full -- just enough points for a card sparkline, kept
+            # out of the full curve here to keep this list endpoint's payload
+            # small. Always include the real final point so the sparkline
+            # ends where the strategy actually currently stands.
+            curve = report["equity_curve"]
+            sparkline_points = curve[::4]
+            if curve and (not sparkline_points or sparkline_points[-1] is not curve[-1]):
+                sparkline_points = [*sparkline_points, curve[-1]]
+            equity_curve_sparkline = [point["nav"] for point in sparkline_points]
 
         # Every paper portfolio actually running this strategy that has ever
         # completed a real session -- the honest full aggregate, including
@@ -2045,6 +2062,7 @@ def get_strategy_leaderboard() -> list[dict[str, Any]]:
                 "return_to_drawdown_ratio": str(ratio) if ratio is not None else None,
                 "backtest": backtest,
                 "backtest_status": "AVAILABLE" if backtest is not None else "NOT_RUN_YET",
+                "equity_curve_sparkline": equity_curve_sparkline,
                 "live": live,
                 "live_status": "AVAILABLE" if live is not None else "NO_LIVE_PORTFOLIOS_YET",
             }

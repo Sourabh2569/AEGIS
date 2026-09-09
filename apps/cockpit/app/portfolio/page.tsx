@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { ClipboardCheck, Wallet } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { apiGet, authPost, clearToken } from "../api-client";
-import RequireAuth from "../require-auth";
+import { apiGet, authPost } from "../api-client";
+import CockpitShell from "../cockpit-shell";
 
 type Portfolio = {
   paper_portfolio_id: string;
@@ -125,7 +125,10 @@ function HealthPanel() {
   return (
     <div className="panel">
       <div className="panel-head">
-        <h2>Portfolio health</h2>
+        <h2>
+          <Wallet size={15} />
+          Portfolio health
+        </h2>
       </div>
       <div className="panel-body">
         <div className="picker-row" style={{ marginBottom: 16 }}>
@@ -154,8 +157,8 @@ function HealthPanel() {
           <>
             <div className="stat">
               <span className="stat-label">Latest NAV</span>
-              <span className="stat-value">
-                {summary.latest_nav ? money(summary.latest_nav.nav) : "has not run a session yet"}
+              <span className={`stat-value ${summary.latest_nav ? "" : "empty"}`}>
+                {summary.latest_nav ? money(summary.latest_nav.nav) : "Has not run a session yet"}
               </span>
             </div>
             <ul className="reasoning">
@@ -265,7 +268,10 @@ function ApprovalsQueue() {
   return (
     <div className="panel" style={{ marginTop: 16 }}>
       <div className="panel-head">
-        <h2>Pending approvals ({pending.length})</h2>
+        <h2>
+          <ClipboardCheck size={15} />
+          Pending approvals ({pending.length})
+        </h2>
         {actionStatus && <span className={`action-status ${actionStatus.kind}`}>{actionStatus.text}</span>}
       </div>
       <div className="panel-body">
@@ -366,44 +372,19 @@ function ApprovalsQueue() {
 }
 
 export default function PortfolioPage() {
-  const router = useRouter();
   return (
-    <RequireAuth>
-      <div className="shell">
-        <header className="topbar">
-          <div className="brand">
-            <span className="mark" />
-            AEGIS Cockpit
-            <span className="sub">Decision support</span>
-          </div>
-          <div className="topbar-actions">
-            <Link href="/">Instruments</Link>
-            <Link href="/strategies">Strategies</Link>
-            <Link href="/actionables">Actionables</Link>
-            <button
-              onClick={() => {
-                clearToken();
-                router.replace("/login");
-              }}
-            >
-              Sign out
-            </button>
-          </div>
-        </header>
-        <main className="content">
-          <div className="page-head">
-            <div>
-              <h1 className="leaderboard-title">Portfolio &amp; Approvals</h1>
-              <p className="hint">
-                Real paper-portfolio state and pending intents — approving or rejecting here
-                calls the exact same endpoints the dashboard uses.
-              </p>
-            </div>
-          </div>
-          <HealthPanel />
-          <ApprovalsQueue />
-        </main>
+    <CockpitShell>
+      <div className="page-head">
+        <div>
+          <h1 className="leaderboard-title">Portfolio &amp; Approvals</h1>
+          <p className="hint">
+            Real paper-portfolio state and pending intents — approving or rejecting here calls
+            the exact same endpoints the dashboard uses.
+          </p>
+        </div>
       </div>
-    </RequireAuth>
+      <HealthPanel />
+      <ApprovalsQueue />
+    </CockpitShell>
   );
 }

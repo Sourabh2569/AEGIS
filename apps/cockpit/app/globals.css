@@ -48,6 +48,11 @@ body {
 
 a {
   color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
 }
 
 .mono {
@@ -135,57 +140,102 @@ button:focus-visible {
   font-size: 13px;
 }
 
-/* ---------- Shell ---------- */
+/* ---------- Shell + sidebar ---------- */
 
 .shell {
   min-height: 100vh;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
 }
 
-.topbar {
+.sidebar {
+  width: 220px;
+  flex: none;
   position: sticky;
   top: 0;
-  z-index: 20;
+  height: 100vh;
+  overflow-y: auto;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--border);
+  flex-direction: column;
+  padding: 20px 14px;
   background: var(--panel);
+  border-right: 1px solid var(--border);
 }
 
-.brand {
+.sidebar-brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  padding: 4px 10px 22px;
 }
 
-.brand .mark {
-  width: 8px;
-  height: 8px;
+.sidebar-brand .mark {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
   background: var(--accent);
   display: inline-block;
+  flex: none;
+  box-shadow: 0 0 10px 1px var(--accent);
 }
 
-.brand .sub {
+.sidebar-brand-name {
+  font-weight: 700;
+  font-size: 13.5px;
+  letter-spacing: 0.01em;
+}
+
+.sidebar-brand-sub {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-faint);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.topbar-actions {
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.sidebar-nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: var(--text-soft);
+  font-weight: 500;
+  font-size: 13.5px;
+}
+
+.sidebar-nav-item:hover {
+  background: var(--panel-raised);
+  color: var(--text);
+}
+
+.sidebar-nav-item.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.sidebar-signout {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--border);
 }
 
 main.content {
   flex: 1;
+  min-width: 0;
   padding: 24px;
   max-width: 1180px;
   width: 100%;
@@ -314,7 +364,7 @@ main.content {
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.03),
@@ -322,11 +372,35 @@ main.content {
 }
 
 .panel-head {
+  position: relative;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border-soft);
   display: flex;
   align-items: center;
+  gap: 8px;
   justify-content: space-between;
+}
+
+.panel-head::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent) 0%, transparent 65%);
+  opacity: 0.6;
+}
+
+.panel-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.panel-head svg {
+  color: var(--text-faint);
+  flex: none;
 }
 
 .panel-head h2 {
@@ -414,11 +488,22 @@ main.content {
   font-variant-numeric: tabular-nums;
 }
 
+.reasoning li .v.pos,
+.reasoning li .v.neg {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.92em;
+}
 .reasoning li .v.pos {
   color: var(--buy);
+  background: var(--buy-soft);
 }
 .reasoning li .v.neg {
   color: var(--sell);
+  background: var(--sell-soft);
 }
 
 /* ---------- Hero stat ---------- */
@@ -428,6 +513,18 @@ main.content {
   flex-direction: column;
   gap: 4px;
   margin-bottom: 16px;
+}
+
+.stat-and-gauge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.stat-and-gauge .stat {
+  margin-bottom: 0;
 }
 
 .stat-label {
@@ -444,6 +541,17 @@ main.content {
   font-variant-numeric: tabular-nums;
   line-height: 1.15;
   color: var(--text);
+}
+
+/* The hero treatment is for real figures only -- a fallback sentence
+   ("has not run a session yet", "not available") gets a quiet, small,
+   muted style instead of a giant bold number-shaped hole. */
+.stat-value.empty {
+  font-size: 15px;
+  font-weight: 400;
+  font-family: var(--font-ui);
+  color: var(--text-faint);
+  font-style: italic;
 }
 
 .stat-value.pos {
@@ -539,8 +647,15 @@ main.content {
 /* ---------- Strategy leaderboard ---------- */
 
 .leaderboard-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   font-size: 20px;
   margin: 0 0 4px;
+}
+
+.leaderboard-title svg {
+  color: var(--accent);
 }
 
 .leaderboard-run {
@@ -577,17 +692,21 @@ main.content {
 
 .leaderboard-ratio {
   font-family: var(--font-mono);
-  font-size: 20px;
+  font-size: 15px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   flex: none;
+  padding: 5px 12px;
+  border-radius: 999px;
 }
 
 .leaderboard-ratio.pos {
   color: var(--buy);
+  background: var(--buy-soft);
 }
 .leaderboard-ratio.neg {
   color: var(--sell);
+  background: var(--sell-soft);
 }
 .leaderboard-ratio.na {
   color: var(--text-faint);
@@ -624,6 +743,7 @@ main.content {
 
 .table-wrap {
   overflow-x: auto;
+  max-width: 100%;
 }
 
 .data-table {
@@ -686,4 +806,39 @@ main.content {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+/* ---------- Sparkline + gauge ---------- */
+
+.sparkline {
+  flex: none;
+  margin: 0 4px;
+}
+
+.gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.gauge-value {
+  margin-top: -8px;
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.gauge-max {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+.gauge-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-soft);
 }

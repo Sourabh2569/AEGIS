@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { Trophy } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { apiGet, authPost, clearToken } from "../api-client";
-import RequireAuth from "../require-auth";
+import { apiGet, authPost } from "../api-client";
+import CockpitShell from "../cockpit-shell";
+import Sparkline from "./sparkline";
 
 type Backtest = {
   scenario: string;
@@ -34,6 +35,7 @@ type LeaderboardRow = {
   return_to_drawdown_ratio: string | null;
   backtest: Backtest | null;
   backtest_status: "AVAILABLE" | "NOT_RUN_YET";
+  equity_curve_sparkline: string[] | null;
   live: Live | null;
   live_status: "AVAILABLE" | "NO_LIVE_PORTFOLIOS_YET";
 };
@@ -48,7 +50,6 @@ function money(value: string): string {
 }
 
 function Leaderboard() {
-  const router = useRouter();
   const [rows, setRows] = useState<LeaderboardRow[] | null>(null);
   const [running, setRunning] = useState(false);
   const [runStatus, setRunStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
@@ -81,73 +82,65 @@ function Leaderboard() {
   const anyMissingBacktest = rows?.some((row) => row.backtest_status === "NOT_RUN_YET") ?? false;
 
   return (
-    <div className="shell">
-      <header className="topbar">
-        <div className="brand">
-          <span className="mark" />
-          AEGIS Cockpit
-          <span className="sub">Decision support</span>
+    <>
+      <div className="page-head">
+        <div>
+          <h1 className="leaderboard-title">
+            <Trophy size={20} /> Strategy Leaderboard
+          </h1>
+          <p className="hint">
+            Ranked by real backtested return ÷ |max drawdown| — a plain ratio of two real
+            numbers, not a Sharpe ratio.
+          </p>
         </div>
-        <div className="topbar-actions">
-          <Link href="/">Instruments</Link>
-          <Link href="/actionables">Actionables</Link>
-          <Link href="/portfolio">Portfolio</Link>
-          <button
-            onClick={() => {
-              clearToken();
-              router.replace("/login");
-            }}
-          >
-            Sign out
+        <div className="leaderboard-run">
+          <button className="primary" disabled={running} onClick={handleRunBacktest}>
+            {running
+              ? "Running real backtest…"
+              : anyMissingBacktest
+                ? "Run backtest (all 3 strategies)"
+                : "Re-run backtest"}
           </button>
+          {runStatus && <p className={`action-status ${runStatus.kind}`}>{runStatus.text}</p>}
         </div>
-      </header>
-      <main className="content">
-        <div className="page-head">
-          <div>
-            <h1 className="leaderboard-title">Strategy Leaderboard</h1>
-            <p className="hint">
-              Ranked by real backtested return ÷ |max drawdown| — a plain ratio of two real
-              numbers, not a Sharpe ratio.
-            </p>
-          </div>
-          <div className="leaderboard-run">
-            <button className="primary" disabled={running} onClick={handleRunBacktest}>
-              {running
-                ? "Running real backtest…"
-                : anyMissingBacktest
-                  ? "Run backtest (all 3 strategies)"
-                  : "Re-run backtest"}
-            </button>
-            {runStatus && <p className={`action-status ${runStatus.kind}`}>{runStatus.text}</p>}
-          </div>
-        </div>
+      </div>
 
-        {rows === null && <div className="loading">Loading real strategy results…</div>}
+      {rows === null && <div className="loading">Loading real strategy results…</div>}
 
-        {rows !== null && (
-          <div className="leaderboard-list">
-            {rows.map((row, index) => (
-              <div key={row.strategy_id} className="panel leaderboard-card">
-                <div className="panel-head">
-                  <span className="leaderboard-rank">#{index + 1}</span>
-                  <Link href={`/strategies/${row.strategy_id}`} className="leaderboard-name">
-                    {row.strategy_id}
-                  </Link>
-                  <span
-                    className={`leaderboard-ratio ${
-                      row.return_to_drawdown_ratio === null
-                        ? "na"
-                        : Number(row.return_to_drawdown_ratio) >= 0
-                          ? "pos"
-                          : "neg"
-                    }`}
-                  >
-                    {row.return_to_drawdown_ratio === null
-                      ? "ratio n/a"
-                      : `${Number(row.return_to_drawdown_ratio).toFixed(2)}x return/drawdown`}
-                  </span>
-                </div>
+      {rows !== null && (
+        <div className="leaderboard-list">
+          {rows.map((row, index) => (
+            <div key={row.strategy_id} className="panel leaderboard-card">
+              <div className="panel-head">
+                <span className="leaderboard-rank">#{index + 1}</span>
+                <Link href={`/strategies/${row.strategy_id}`} className="leaderboard-name">
+                  {row.strategy_id}
+                </Link>
+                {row.equity_curve_sparkline && (
+                  <Sparkline
+                    values={row.equity_curve_sparkline}
+                    tone={
+                      row.return_to_drawdown_ratio !== null &&
+                      Number(row.return_to_drawdown_ratio) >= 0
+                        ? "pos"
+                        : "neg"
+                    }
+                  />
+                )}
+                <span
+                  className={`leaderboard-ratio ${
+                    row.return_to_drawdown_ratio === null
+                      ? "na"
+                      : Number(row.return_to_drawdown_ratio) >= 0
+                        ? "pos"
+                        : "neg"
+                  }`}
+                >
+                  {row.return_to_drawdown_ratio === null
+                    ? "ratio n/a"
+                    : `${Number(row.return_to_drawdown_ratio).toFixed(2)}x return/drawdown`}
+                </span>
+              </div>
                 <div className="panel-body">
                   <div className="leaderboard-columns">
                     <div>
@@ -245,15 +238,14 @@ function Leaderboard() {
             ))}
           </div>
         )}
-      </main>
-    </div>
+    </>
   );
 }
 
 export default function Page() {
   return (
-    <RequireAuth>
+    <CockpitShell>
       <Leaderboard />
-    </RequireAuth>
+    </CockpitShell>
   );
 }

@@ -2,9 +2,8 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { apiGet, authPost, clearToken } from "../../api-client";
-import RequireAuth from "../../require-auth";
+import { apiGet, authPost } from "../../api-client";
+import CockpitShell from "../../cockpit-shell";
 import PriceChart, { type Bar, type IndicatorPoint, type RuleEvent } from "./price-chart";
 import MomentumChart from "./momentum-chart";
 
@@ -225,8 +224,8 @@ function Decision({ symbol }: { symbol: string }) {
               )}
               <div className="stat">
                 <span className="stat-label">Close</span>
-                <span className="stat-value">
-                  {inputs ? money(inputs.close) : "not available"}
+                <span className={`stat-value ${inputs ? "" : "empty"}`}>
+                  {inputs ? money(inputs.close) : "Not available"}
                 </span>
               </div>
               <ul className="reasoning">
@@ -318,35 +317,9 @@ function Decision({ symbol }: { symbol: string }) {
 
 export default function InstrumentPage({ params }: { params: Promise<{ symbol: string }> }) {
   const { symbol } = use(params);
-  const router = useRouter();
   return (
-    <RequireAuth>
-      <div className="shell">
-        <header className="topbar">
-          <div className="brand">
-            <span className="mark" />
-            AEGIS Cockpit
-            <span className="sub">Decision support</span>
-          </div>
-          <div className="topbar-actions">
-            <Link href="/">Instruments</Link>
-            <Link href="/strategies">Strategies</Link>
-            <Link href="/actionables">Actionables</Link>
-            <Link href="/portfolio">Portfolio</Link>
-            <button
-              onClick={() => {
-                clearToken();
-                router.replace("/login");
-              }}
-            >
-              Sign out
-            </button>
-          </div>
-        </header>
-        <main className="content">
-          <Decision symbol={symbol.toUpperCase()} />
-        </main>
-      </div>
-    </RequireAuth>
+    <CockpitShell>
+      <Decision symbol={symbol.toUpperCase()} />
+    </CockpitShell>
   );
 }

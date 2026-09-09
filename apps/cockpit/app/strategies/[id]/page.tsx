@@ -2,10 +2,11 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { apiGet, clearToken } from "../../api-client";
-import RequireAuth from "../../require-auth";
+import { LineChart, ListChecks, Users } from "lucide-react";
+import { apiGet } from "../../api-client";
+import CockpitShell from "../../cockpit-shell";
 import EquityChart, { type EquityPoint } from "./equity-chart";
+import Gauge from "./gauge";
 
 type Backtest = {
   scenario: string;
@@ -23,7 +24,13 @@ type Backtest = {
   equity_curve: EquityPoint[];
 };
 
-type Rules = { eligibility: string; selection: string; sizing: string; stop: string };
+type Rules = {
+  eligibility: string;
+  selection: string;
+  sizing: string;
+  stop: string;
+  max_positions: number;
+};
 
 type LivePortfolio = {
   paper_portfolio_id: string;
@@ -105,6 +112,7 @@ function Detail({ strategyId }: { strategyId: string }) {
         <div className="panel">
           <div className="panel-head">
             <h2>
+              <LineChart size={15} />
               Equity curve{detail.benchmark_equity_curve ? " vs. Equal-Weight benchmark" : ""}
             </h2>
           </div>
@@ -134,7 +142,10 @@ function Detail({ strategyId }: { strategyId: string }) {
         <div>
           <div className="panel" style={{ marginBottom: 16 }}>
             <div className="panel-head">
-              <h2>Real rules</h2>
+              <h2>
+                <ListChecks size={15} />
+                Real rules
+              </h2>
             </div>
             <div className="panel-body">
               <ul className="reasoning">
@@ -164,13 +175,20 @@ function Detail({ strategyId }: { strategyId: string }) {
                 <h2>Backtest metrics</h2>
               </div>
               <div className="panel-body">
-                <div className="stat">
-                  <span className="stat-label">Total return</span>
-                  <span
-                    className={`stat-value ${Number(backtest.total_return) >= 0 ? "pos" : "neg"}`}
-                  >
-                    {pct(backtest.total_return)}
-                  </span>
+                <div className="stat-and-gauge">
+                  <div className="stat">
+                    <span className="stat-label">Total return</span>
+                    <span
+                      className={`stat-value ${Number(backtest.total_return) >= 0 ? "pos" : "neg"}`}
+                    >
+                      {pct(backtest.total_return)}
+                    </span>
+                  </div>
+                  <Gauge
+                    value={backtest.position_count}
+                    max={rules.max_positions}
+                    label="Positions used"
+                  />
                 </div>
                 <ul className="reasoning">
                   <li>
@@ -198,7 +216,10 @@ function Detail({ strategyId }: { strategyId: string }) {
 
       <div className="panel" style={{ marginTop: 18 }}>
         <div className="panel-head">
-          <h2>Live paper portfolios ({livePortfolios.length})</h2>
+          <h2>
+            <Users size={15} />
+            Live paper portfolios ({livePortfolios.length})
+          </h2>
         </div>
         <div className="panel-body">
           {livePortfolios.length === 0 ? (
@@ -227,35 +248,9 @@ function Detail({ strategyId }: { strategyId: string }) {
 
 export default function StrategyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const router = useRouter();
   return (
-    <RequireAuth>
-      <div className="shell">
-        <header className="topbar">
-          <div className="brand">
-            <span className="mark" />
-            AEGIS Cockpit
-            <span className="sub">Decision support</span>
-          </div>
-          <div className="topbar-actions">
-            <Link href="/">Instruments</Link>
-            <Link href="/strategies">Strategies</Link>
-            <Link href="/actionables">Actionables</Link>
-            <Link href="/portfolio">Portfolio</Link>
-            <button
-              onClick={() => {
-                clearToken();
-                router.replace("/login");
-              }}
-            >
-              Sign out
-            </button>
-          </div>
-        </header>
-        <main className="content">
-          <Detail strategyId={id} />
-        </main>
-      </div>
-    </RequireAuth>
+    <CockpitShell>
+      <Detail strategyId={id} />
+    </CockpitShell>
   );
 }

@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { TrendingDown, TrendingUp } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { apiGet, clearToken } from "../api-client";
-import RequireAuth from "../require-auth";
+import { apiGet } from "../api-client";
+import CockpitShell from "../cockpit-shell";
 
 type ActionableRow = {
   symbol: string;
@@ -113,7 +113,10 @@ function Feed() {
 
           <div className="panel" style={{ marginTop: 16, marginBottom: 16 }}>
             <div className="panel-head">
-              <h2>Sell ({sells.length})</h2>
+              <h2>
+                <TrendingDown size={15} />
+                Sell ({sells.length})
+              </h2>
             </div>
             <div className="panel-body">
               {sells.length === 0 ? (
@@ -151,7 +154,10 @@ function Feed() {
 
           <div className="panel">
             <div className="panel-head">
-              <h2>Buy ({buys.length})</h2>
+              <h2>
+                <TrendingUp size={15} />
+                Buy ({buys.length})
+              </h2>
             </div>
             <div className="panel-body">
               {buys.length === 0 ? (
@@ -192,34 +198,9 @@ function Feed() {
 }
 
 export default function ActionablesPage() {
-  const router = useRouter();
   return (
-    <RequireAuth>
-      <div className="shell">
-        <header className="topbar">
-          <div className="brand">
-            <span className="mark" />
-            AEGIS Cockpit
-            <span className="sub">Decision support</span>
-          </div>
-          <div className="topbar-actions">
-            <Link href="/">Instruments</Link>
-            <Link href="/strategies">Strategies</Link>
-            <Link href="/portfolio">Portfolio</Link>
-            <button
-              onClick={() => {
-                clearToken();
-                router.replace("/login");
-              }}
-            >
-              Sign out
-            </button>
-          </div>
-        </header>
-        <main className="content">
-          <Feed />
-        </main>
-      </div>
-    </RequireAuth>
+    <CockpitShell>
+      <Feed />
+    </CockpitShell>
   );
 }

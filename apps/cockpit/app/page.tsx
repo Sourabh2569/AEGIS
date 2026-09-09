@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { apiGet, clearToken } from "./api-client";
-import RequireAuth from "./require-auth";
-import { useRouter } from "next/navigation";
+import { apiGet } from "./api-client";
+import CockpitShell from "./cockpit-shell";
 
 type Instrument = {
   current_symbol: string;
@@ -13,7 +12,6 @@ type Instrument = {
 };
 
 function Home() {
-  const router = useRouter();
   const [instruments, setInstruments] = useState<Instrument[]>([]);
   const [query, setQuery] = useState("");
 
@@ -30,62 +28,38 @@ function Home() {
   );
 
   return (
-    <div className="shell">
-      <header className="topbar">
-        <div className="brand">
-          <span className="mark" />
-          AEGIS Cockpit
-          <span className="sub">Decision support</span>
-        </div>
-        <div className="topbar-actions">
-          <Link href="/strategies">Strategies</Link>
-          <Link href="/actionables">Actionables</Link>
-          <Link href="/portfolio">Portfolio</Link>
-          <button
-            onClick={() => {
-              clearToken();
-              router.replace("/login");
-            }}
+    <div className="symbol-search">
+      <h1>Open an instrument</h1>
+      <p className="sub">
+        {instruments.length
+          ? `${instruments.length} real, verified Nifty 50 instruments`
+          : "Loading real instrument universe…"}
+      </p>
+      <input
+        placeholder="Search symbol or company…"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        style={{ width: "100%" }}
+      />
+      <div className="symbol-grid">
+        {filtered.map((instrument) => (
+          <Link
+            key={instrument.current_symbol}
+            href={`/instruments/${instrument.current_symbol}`}
+            className="symbol-chip"
           >
-            Sign out
-          </button>
-        </div>
-      </header>
-      <main className="content">
-        <div className="symbol-search">
-          <h1>Open an instrument</h1>
-          <p className="sub">
-            {instruments.length
-              ? `${instruments.length} real, verified Nifty 50 instruments`
-              : "Loading real instrument universe…"}
-          </p>
-          <input
-            placeholder="Search symbol or company…"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            style={{ width: "100%" }}
-          />
-          <div className="symbol-grid">
-            {filtered.map((instrument) => (
-              <Link
-                key={instrument.current_symbol}
-                href={`/instruments/${instrument.current_symbol}`}
-                className="symbol-chip"
-              >
-                {instrument.current_symbol}
-              </Link>
-            ))}
-          </div>
-        </div>
-      </main>
+            {instrument.current_symbol}
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }
 
 export default function Page() {
   return (
-    <RequireAuth>
+    <CockpitShell>
       <Home />
-    </RequireAuth>
+    </CockpitShell>
   );
 }

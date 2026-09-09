@@ -86,6 +86,7 @@ def test_leaderboard_is_all_not_run_yet_before_any_backtest(seeded_client: TestC
     assert all(row["live"] is None for row in rows)
     assert all(row["live_status"] == "NO_LIVE_PORTFOLIOS_YET" for row in rows)
     assert all(row["return_to_drawdown_ratio"] is None for row in rows)
+    assert all(row["equity_curve_sparkline"] is None for row in rows)
 
 
 def test_leaderboard_reflects_a_real_backtest_run_and_ranks_by_return_to_drawdown(
@@ -106,6 +107,14 @@ def test_leaderboard_reflects_a_real_backtest_run_and_ranks_by_return_to_drawdow
         assert by_id[strategy_id]["backtest_status"] == "AVAILABLE"
         assert by_id[strategy_id]["backtest"]["dataset_origin"] == "ACTUAL_PROVIDER_DATA"
         assert by_id[strategy_id]["return_to_drawdown_ratio"] is not None
+        sparkline = by_id[strategy_id]["equity_curve_sparkline"]
+        assert sparkline is not None
+        assert len(sparkline) > 1
+        # The sparkline must end at the real, latest equity-curve value, not
+        # an arbitrary decimated point that happens to fall on the stride --
+        # cross-checked against Strategy Detail's own full curve.
+        detail = seeded_client.get(f"/api/v1/strategies/{strategy_id}/detail").json()
+        assert sparkline[-1] == detail["backtest"]["equity_curve"][-1]["nav"]
 
     ratios = [Decimal(row["return_to_drawdown_ratio"]) for row in rows]
     assert ratios == sorted(ratios, reverse=True)

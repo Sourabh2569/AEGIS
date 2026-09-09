@@ -90,8 +90,34 @@ def test_detail_has_rules_for_all_three_strategies_before_any_backtest(
         assert body["backtest_status"] == "NOT_RUN_YET"
         assert body["backtest"] is None
         assert body["benchmark_equity_curve"] is None
-        assert set(body["rules"].keys()) == {"eligibility", "selection", "sizing", "stop"}
+        assert set(body["rules"].keys()) == {
+            "eligibility",
+            "selection",
+            "sizing",
+            "stop",
+            "max_positions",
+        }
+        assert isinstance(body["rules"]["max_positions"], int)
+        assert body["rules"]["max_positions"] > 0
         assert body["live_portfolios"] == []
+
+
+def test_detail_max_positions_reflects_each_strategys_real_construction(
+    seeded_client: TestClient,
+) -> None:
+    # TrendFollowing/EqualWeight share the platform's real risk-profile cap;
+    # BuyAndHold's own construction always holds exactly one instrument.
+    trend_response = seeded_client.get("/api/v1/strategies/TrendFollowingBaselineStrategyV0/detail")
+    equal_weight_response = seeded_client.get(
+        "/api/v1/strategies/EqualWeightUniverseBenchmarkStrategyV0/detail"
+    )
+    buy_and_hold_response = seeded_client.get(
+        "/api/v1/strategies/BuyAndHoldBenchmarkStrategyV0/detail"
+    )
+    trend_max = trend_response.json()["rules"]["max_positions"]
+    assert trend_max == equal_weight_response.json()["rules"]["max_positions"]
+    assert trend_max > 1
+    assert buy_and_hold_response.json()["rules"]["max_positions"] == 1
 
 
 def test_detail_includes_real_equity_curve_and_benchmark_overlay(
