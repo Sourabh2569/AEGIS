@@ -90,6 +90,7 @@ function Leaderboard() {
         </div>
         <div className="topbar-actions">
           <Link href="/">Instruments</Link>
+          <Link href="/actionables">Actionables</Link>
           <button
             onClick={() => {
               clearToken();

@@ -39,6 +39,7 @@ function Home() {
         </div>
         <div className="topbar-actions">
           <Link href="/strategies">Strategies</Link>
+          <Link href="/actionables">Actionables</Link>
           <button
             onClick={() => {
               clearToken();

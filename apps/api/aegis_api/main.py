@@ -265,6 +265,9 @@ sector_by_instrument_id: dict[str, str] = {
     metadata.aegis_instrument_id: metadata.sector
     for metadata in CURATED_INSTRUMENT_METADATA.values()
 }
+symbol_by_instrument_id: dict[str, str] = {
+    metadata.aegis_instrument_id: symbol for symbol, metadata in CURATED_INSTRUMENT_METADATA.items()
+}
 paper_strategy_resolver = build_paper_strategy_resolver(object_store.root, sector_by_instrument_id)
 paper_orchestrator = PaperTradingOrchestrator(
     paper_repo,
@@ -2320,6 +2323,79 @@ def get_instrument_signal(
             if paper_portfolio_id is not None
             else [
                 "No paper_portfolio_id supplied -- held/HOLD/SELL cannot be determined, only BUY/NO_POSITION."
+            ]
+        ),
+    }
+
+
+@app.get("/api/v1/actionables")
+def get_actionables(paper_portfolio_id: str | None = Query(default=None)) -> dict[str, Any]:
+    capture = _load_capture_or_409()
+    runner = RealMomentumResearchRunner(capture, sector_by_instrument_id)
+    as_of = capture.end_date
+    candidates = runner.build_candidates(as_of)
+    strategy = TrendFollowingBaselineStrategyV0()
+    eligible_ids = {c.instrument_id for c in strategy.rank_candidates(candidates)}
+
+    research_portfolio = (
+        paper_repo.paper_portfolios.get(paper_portfolio_id)
+        if paper_portfolio_id is not None
+        else None
+    )
+
+    buys: list[dict[str, Any]] = []
+    sells: list[dict[str, Any]] = []
+    for candidate in candidates:
+        eligible = candidate.instrument_id in eligible_ids
+        held_quantity = Decimal(0)
+        if research_portfolio is not None:
+            held_quantity = research_portfolio.positions.get(candidate.instrument_id, Decimal(0))
+        held = held_quantity > 0
+
+        if eligible and held:
+            continue  # HOLD -- steady state, not actionable
+        if not eligible and not held:
+            continue  # NO_POSITION -- steady state, not actionable
+
+        row = {
+            "symbol": symbol_by_instrument_id.get(candidate.instrument_id, candidate.instrument_id),
+            "aegis_instrument_id": candidate.instrument_id,
+            "close": str(candidate.close),
+            "momentum_60": str(candidate.momentum_60)
+            if candidate.momentum_60 is not None
+            else None,
+            "sma_50": str(candidate.sma_50) if candidate.sma_50 is not None else None,
+            "sma_200": str(candidate.sma_200) if candidate.sma_200 is not None else None,
+        }
+        if eligible:
+            row["action"] = "BUY"
+            row["invalidation_price"] = (
+                str(strategy.invalidation_price(candidate))
+                if candidate.atr_14 is not None
+                else None
+            )
+            buys.append(row)
+        else:
+            row["action"] = "SELL"
+            row["held_quantity"] = str(held_quantity)
+            sells.append(row)
+
+    buys.sort(key=lambda row: Decimal(row["momentum_60"] or 0), reverse=True)
+
+    return {
+        "as_of": as_of.isoformat(),
+        "dataset_origin": "ACTUAL_PROVIDER_DATA",
+        "raw_snapshot_hash": capture.raw_snapshot_hash,
+        "paper_portfolio_id": paper_portfolio_id,
+        "actionables": sells + buys,
+        "warnings": (
+            []
+            if paper_portfolio_id is not None
+            else [
+                (
+                    "No paper_portfolio_id supplied -- SELL signals cannot be determined "
+                    "without a portfolio's real holdings, showing BUY-eligible instruments only."
+                )
             ]
         ),
     }
