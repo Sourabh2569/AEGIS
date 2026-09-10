@@ -46,9 +46,14 @@ export async function apiGet<T>(path: string, fallback: T): Promise<T> {
   }
 }
 
-/** Authenticated call -- for the one mutating action (send to paper
- * trading). Throws with the backend's own error message on failure rather
- * than failing silently. */
+/** Authenticated call -- for mutating actions (approve/reject, run backtest,
+ * send to paper trading, etc). Throws with the backend's own error message
+ * on failure rather than failing silently. Every authenticated-endpoint
+ * auth failure (missing/expired/invalid token) comes back as a bare 401 --
+ * RequireAuth only checks whether a token is *present* in localStorage, not
+ * whether it's still valid, so a stale token otherwise gets the user stuck
+ * looking at a dead-end "Token has expired." banner with no way forward.
+ * Clear it and bounce to /login instead, so re-authenticating is one click. */
 export async function authPost<T>(path: string, body?: unknown): Promise<T> {
   const token = getToken();
   const response = await fetch(`${apiBase}${path}`, {
@@ -59,6 +64,13 @@ export async function authPost<T>(path: string, body?: unknown): Promise<T> {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
+  if (response.status === 401) {
+    clearToken();
+    if (typeof window !== "undefined") {
+      window.location.assign("/login");
+    }
+    throw new Error("Your session has expired -- signing you out.");
+  }
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(extractErrorDetail(payload.detail) ?? response.statusText ?? "Request failed");
