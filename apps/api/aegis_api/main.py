@@ -22,6 +22,7 @@ from aegis.backtesting.momentum_research import (
     build_paper_strategy_resolver,
     load_real_eod_bars,
 )
+from aegis.backtesting.momentum_report_store import SqliteMomentumReportStore
 from aegis.backtesting.repositories import BacktestRepository
 from aegis.backtesting.sprint2 import Sprint2ResearchScenarioRunner
 from aegis.configuration.settings import Settings
@@ -138,6 +139,7 @@ paper_calendar = PaperTradingCalendarService.from_csv(
 )
 paper_repo = SqlitePaperTradingRepository(paper_store_path)
 paper_session_queue = SqlitePaperSessionQueue(paper_queue_path)
+momentum_report_store = SqliteMomentumReportStore(work_dir / "momentum_reports.sqlite")
 
 providers: dict[str, DataProvider] = {}
 licenses: dict[str, ProviderLicense] = {}
@@ -264,7 +266,11 @@ repo.dataset_origins[seed_dataset_version.id] = "FIXTURE_DATA"
 backtest_service.attach_calendar_for_intent_creation(fixture_calendar)
 sprint2_runner = Sprint2ResearchScenarioRunner(Path("sample_data/sprint_2"))
 sprint2_reports: list[dict[str, Any]] = []
-real_momentum_reports: list[dict[str, Any]] = []
+# Durable -- survives a restart via momentum_report_store, unlike
+# sprint2_reports above (a real fixture-only scenario, deliberately left
+# in-memory). Loaded once at startup; new runs are appended to both this
+# list (fast reads) and the store (the persisted copy) together.
+real_momentum_reports: list[dict[str, Any]] = momentum_report_store.load_all()
 sector_by_instrument_id: dict[str, str] = {
     metadata.aegis_instrument_id: metadata.sector
     for metadata in CURATED_INSTRUMENT_METADATA.values()
@@ -1886,6 +1892,14 @@ def get_sprint2_reports() -> list[dict[str, Any]]:
     return sprint2_reports
 
 
+def _record_momentum_report(report: dict[str, Any]) -> None:
+    """Appends to both the fast in-memory list every read path already uses
+    and the durable store, so a restart doesn't wipe real backtest results
+    the way it used to -- see momentum_report_store.load_all() above."""
+    real_momentum_reports.append(report)
+    momentum_report_store.append(report, created_at=utc_now().isoformat())
+
+
 @app.post("/api/v1/research/momentum/run")
 def run_real_momentum_backtest(
     role: Role = Depends(require_role(Role.FOUNDER, Role.RESEARCHER, Role.DATA_STEWARD)),
@@ -1910,9 +1924,9 @@ def run_real_momentum_backtest(
     buy_and_hold_report = jsonable(
         runner.run(BuyAndHoldBenchmarkStrategyV0(), "Real Nifty 50 Buy-and-Hold Benchmark")
     )
-    real_momentum_reports.append(momentum_report)
-    real_momentum_reports.append(benchmark_report)
-    real_momentum_reports.append(buy_and_hold_report)
+    _record_momentum_report(momentum_report)
+    _record_momentum_report(benchmark_report)
+    _record_momentum_report(buy_and_hold_report)
     audit_log.record(
         event_type="REAL_MOMENTUM_BACKTEST_COMPLETED",
         entity_type="ResearchBacktest",
