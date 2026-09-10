@@ -87,6 +87,7 @@ function Home() {
   const [portfolios, setPortfolios] = useState<PaperPortfolio[]>([]);
   const [selectedPortfolio, setSelectedPortfolio] = useState("");
   const [query, setQuery] = useState("");
+  const [buyOnly, setBuyOnly] = useState(false);
 
   useEffect(() => {
     apiGet<Instrument[]>("/api/v1/instruments", []).then((data) =>
@@ -108,11 +109,18 @@ function Home() {
     loadSignals(selectedPortfolio);
   }, [selectedPortfolio, loadSignals]);
 
-  const filtered = instruments.filter(
-    (instrument) =>
+  const buyCount = instruments.filter(
+    (instrument) => signalsById.get(instrument.aegis_instrument_id)?.signal === "BUY",
+  ).length;
+
+  const filtered = instruments.filter((instrument) => {
+    const matchesQuery =
       instrument.current_symbol.toLowerCase().includes(query.toLowerCase()) ||
-      instrument.company_legal_name.toLowerCase().includes(query.toLowerCase()),
-  );
+      instrument.company_legal_name.toLowerCase().includes(query.toLowerCase());
+    if (!matchesQuery) return false;
+    if (buyOnly) return signalsById.get(instrument.aegis_instrument_id)?.signal === "BUY";
+    return true;
+  });
 
   return (
     <div>
@@ -140,12 +148,22 @@ function Home() {
         </div>
       </div>
 
-      <input
-        placeholder="Search symbol or company…"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        style={{ width: "100%", maxWidth: 420 }}
-      />
+      <div className="picker-row">
+        <input
+          placeholder="Search symbol or company…"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          style={{ width: "100%", maxWidth: 420 }}
+        />
+        <label className="buy-only-toggle">
+          <input
+            type="checkbox"
+            checked={buyOnly}
+            onChange={(event) => setBuyOnly(event.target.checked)}
+          />
+          BUY only ({buyCount})
+        </label>
+      </div>
 
       <div className="instrument-grid">
         {filtered.map((instrument) => (

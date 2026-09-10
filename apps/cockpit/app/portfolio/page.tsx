@@ -7,6 +7,7 @@ import { apiGet, authPost } from "../api-client";
 import BarChart from "../bar-chart";
 import CockpitShell from "../cockpit-shell";
 import { KpiCard, KpiStrip } from "../kpi-strip";
+import { KpiStripSkeleton, PanelSkeleton } from "../skeleton";
 
 type Portfolio = {
   paper_portfolio_id: string;
@@ -85,7 +86,7 @@ function SummaryStrip() {
   }, []);
 
   if (!portfolios || !intents) {
-    return <div className="loading">Loading real portfolio summary…</div>;
+    return <KpiStripSkeleton count={4} />;
   }
 
   const activeCount = portfolios.filter((p) => p.status === "ACTIVE").length;

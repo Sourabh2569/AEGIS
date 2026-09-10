@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiGet } from "../api-client";
 import CockpitShell from "../cockpit-shell";
 import { KpiCard, KpiStrip } from "../kpi-strip";
+import { KpiStripSkeleton, PanelSkeleton } from "../skeleton";
 
 const MOMENTUM_METER_SCALE = 0.5; // ±50% momentum fills the meter
 
@@ -107,7 +108,12 @@ function Feed() {
         </div>
       </div>
 
-      {loading && <div className="loading">Loading real signals across the universe…</div>}
+      {loading && (
+        <>
+          <KpiStripSkeleton count={3} />
+          <PanelSkeleton lines={4} />
+        </>
+      )}
 
       {!loading && data && (
         <>

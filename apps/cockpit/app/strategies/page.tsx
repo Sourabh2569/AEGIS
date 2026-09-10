@@ -7,6 +7,7 @@ import { apiGet, authPost } from "../api-client";
 import BarChart from "../bar-chart";
 import CockpitShell from "../cockpit-shell";
 import { KpiCard, KpiStrip } from "../kpi-strip";
+import { KpiStripSkeleton, PanelSkeleton } from "../skeleton";
 import Sparkline from "./sparkline";
 
 type Backtest = {
@@ -118,7 +119,16 @@ function Leaderboard() {
         </div>
       </div>
 
-      {rows === null && <div className="loading">Loading real strategy results…</div>}
+      {rows === null && (
+        <>
+          <KpiStripSkeleton count={4} />
+          <div className="leaderboard-list">
+            <PanelSkeleton lines={3} />
+            <PanelSkeleton lines={3} />
+            <PanelSkeleton lines={3} />
+          </div>
+        </>
+      )}
 
       {rows !== null && (
         <>

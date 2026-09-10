@@ -16,6 +16,7 @@ import { apiGet } from "../api-client";
 import CockpitShell from "../cockpit-shell";
 import { KpiCard, KpiStrip } from "../kpi-strip";
 import { AchievementGrid, type Achievement } from "../achievement-badge";
+import { Skeleton } from "../skeleton";
 
 type Portfolio = {
   paper_portfolio_id: string;
@@ -133,7 +134,11 @@ function Overview() {
         </div>
         <div className="panel-body">
           {achievements === null ? (
-            <p className="loading">Loading real milestones…</p>
+            <div className="achievement-grid">
+              <Skeleton height={62} radius={12} />
+              <Skeleton height={62} radius={12} />
+              <Skeleton height={62} radius={12} />
+            </div>
           ) : achievedCount === 0 ? (
             <p className="hint">
               No real milestones earned yet — run a backtest, approve a real trade, or let a

@@ -720,7 +720,6 @@ main.content {
   margin-top: 8px;
 }
 
-.loading,
 .empty-state {
   color: var(--text-faint);
   font-family: var(--font-mono);
@@ -904,6 +903,22 @@ main.content {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.buy-only-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text-soft);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.buy-only-toggle input[type="checkbox"] {
+  accent-color: var(--buy);
+  width: 15px;
+  height: 15px;
 }
 
 /* ---------- Sparkline + gauge ---------- */
@@ -1130,6 +1145,35 @@ main.content {
 }
 .data-table tr.due-now td:first-child {
   box-shadow: inset 3px 0 0 var(--hold);
+}
+
+/* ---------- Skeleton loading ---------- */
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--border-soft) 25%,
+    var(--panel-raised) 37%,
+    var(--border-soft) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background: var(--border-soft);
+  }
 }
 
 /* ---------- Achievements ---------- */

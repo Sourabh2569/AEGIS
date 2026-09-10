@@ -17,6 +17,7 @@ import { apiGet } from "../../api-client";
 import BarChart from "../../bar-chart";
 import CockpitShell from "../../cockpit-shell";
 import { KpiCard, KpiStrip } from "../../kpi-strip";
+import { KpiStripSkeleton, PanelSkeleton, Skeleton } from "../../skeleton";
 import EquityChart, { type EquityPoint } from "./equity-chart";
 import Gauge from "./gauge";
 
@@ -93,7 +94,19 @@ function Detail({ strategyId }: { strategyId: string }) {
   }, [strategyId]);
 
   if (loading) {
-    return <div className="loading">Loading real strategy detail for {strategyId}…</div>;
+    return (
+      <>
+        <KpiStripSkeleton count={4} />
+        <div className="grid">
+          <div className="panel">
+            <div className="panel-body">
+              <Skeleton height={320} radius={8} />
+            </div>
+          </div>
+          <PanelSkeleton lines={4} />
+        </div>
+      </>
+    );
   }
 
   if (!detail) {

@@ -6,6 +6,7 @@ import { IndianRupee, Activity, ShieldAlert, BarChart3 } from "lucide-react";
 import { apiGet, authPost } from "../../api-client";
 import CockpitShell from "../../cockpit-shell";
 import { KpiCard, KpiStrip } from "../../kpi-strip";
+import { KpiStripSkeleton, Skeleton } from "../../skeleton";
 import PriceChart, { type Bar, type IndicatorPoint, type RuleEvent } from "./price-chart";
 import MomentumChart from "./momentum-chart";
 
@@ -162,7 +163,16 @@ function Decision({ symbol }: { symbol: string }) {
   }
 
   if (loading) {
-    return <div className="loading">Loading real market data for {symbol}…</div>;
+    return (
+      <>
+        <KpiStripSkeleton count={4} />
+        <div className="panel">
+          <div className="panel-body">
+            <Skeleton height={360} radius={8} />
+          </div>
+        </div>
+      </>
+    );
   }
 
   if (bars.length === 0) {
