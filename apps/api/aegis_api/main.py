@@ -2494,6 +2494,235 @@ def get_universe_signals(paper_portfolio_id: str | None = Query(default=None)) -
     }
 
 
+# ---------------------------------------------------------------------------
+# Achievements -- every one of these is a real, checkable condition over data
+# that already exists elsewhere in this file (backtest equity curves, NAV
+# history, approval timestamps). Nothing here is fabricated game state: each
+# achievement's `detail` names the exact real number/date that earned it,
+# and an unearned achievement says plainly why (no data yet, condition not
+# met), never a vague "locked".
+# ---------------------------------------------------------------------------
+
+
+def _longest_leading_streak(
+    leader_curve: list[dict[str, str]], other_curve: list[dict[str, str]]
+) -> tuple[int, str | None, str | None]:
+    """Longest run of consecutive real rebalance months where leader_curve's
+    NAV exceeded other_curve's NAV on the same date. Returns
+    (streak_length, start_date, end_date) for the longest such run."""
+    other_nav_by_date = {point["date"]: Decimal(point["nav"]) for point in other_curve}
+    best_len = 0
+    best_start: str | None = None
+    best_end: str | None = None
+    current_len = 0
+    current_start: str | None = None
+    for point in leader_curve:
+        other_nav = other_nav_by_date.get(point["date"])
+        if other_nav is not None and Decimal(point["nav"]) > other_nav:
+            if current_len == 0:
+                current_start = point["date"]
+            current_len += 1
+            if current_len > best_len:
+                best_len, best_start, best_end = current_len, current_start, point["date"]
+        else:
+            current_len = 0
+            current_start = None
+    return best_len, best_start, best_end
+
+
+def _benchmark_beater_achievements() -> list[dict[str, Any]]:
+    latest = _latest_momentum_reports_by_strategy()
+    momentum = latest.get("TrendFollowingBaselineStrategyV0")
+    achievements: list[dict[str, Any]] = []
+    for benchmark_id in ("EqualWeightUniverseBenchmarkStrategyV0", "BuyAndHoldBenchmarkStrategyV0"):
+        benchmark = latest.get(benchmark_id)
+        description = (
+            f"Beat {benchmark_id}'s real NAV for at least 3 consecutive real rebalance months."
+        )
+        if momentum is None or benchmark is None:
+            achievements.append(
+                {
+                    "id": f"benchmark-beater-{benchmark_id}",
+                    "category": "STRATEGY",
+                    "title": f"Benchmark Beater: {benchmark_id}",
+                    "description": description,
+                    "achieved": False,
+                    "achieved_at": None,
+                    "detail": (
+                        "No real backtest run yet for one or both strategies -- run one from "
+                        "the Strategy Leaderboard."
+                    ),
+                }
+            )
+            continue
+        streak, start, end = _longest_leading_streak(
+            momentum["equity_curve"], benchmark["equity_curve"]
+        )
+        achieved = streak >= 3
+        achievements.append(
+            {
+                "id": f"benchmark-beater-{benchmark_id}",
+                "category": "STRATEGY",
+                "title": f"Benchmark Beater: {benchmark_id}",
+                "description": description,
+                "achieved": achieved,
+                "achieved_at": end if achieved else None,
+                "detail": (
+                    f"Beat {benchmark_id} for {streak} straight real rebalance months "
+                    f"({start} to {end})"
+                    if streak > 0
+                    else f"Never led {benchmark_id} on a real rebalance month yet"
+                ),
+            }
+        )
+    return achievements
+
+
+def _portfolio_nav_achievements(portfolio: Any, snapshots: list[Any]) -> list[dict[str, Any]]:
+    hwm_id = f"new-high-water-mark-{portfolio.paper_portfolio_id}"
+    recovery_id = f"drawdown-recovery-{portfolio.paper_portfolio_id}"
+    hwm_description = "Portfolio NAV is at a real, current all-time high."
+    recovery_description = (
+        "Recovered from a real drawdown of 5% or worse back to within 1% of the high-water-mark."
+    )
+    if not snapshots:
+        no_data = "No real trading sessions run yet for this portfolio."
+        return [
+            {
+                "id": hwm_id,
+                "category": "PORTFOLIO",
+                "title": f"New High-Water Mark: {portfolio.name}",
+                "description": hwm_description,
+                "achieved": False,
+                "achieved_at": None,
+                "detail": no_data,
+            },
+            {
+                "id": recovery_id,
+                "category": "PORTFOLIO",
+                "title": f"Recovered From Drawdown: {portfolio.name}",
+                "description": recovery_description,
+                "achieved": False,
+                "achieved_at": None,
+                "detail": no_data,
+            },
+        ]
+
+    ordered = sorted(snapshots, key=lambda snapshot: snapshot.valuation_time)
+    latest = ordered[-1]
+    all_time_high_nav = max(snapshot.nav for snapshot in ordered)
+    is_new_high = latest.nav == all_time_high_nav
+    worst_drawdown = min(snapshot.drawdown for snapshot in ordered)
+    recovered = worst_drawdown <= Decimal("-0.05") and latest.drawdown >= Decimal("-0.01")
+
+    return [
+        {
+            "id": hwm_id,
+            "category": "PORTFOLIO",
+            "title": f"New High-Water Mark: {portfolio.name}",
+            "description": hwm_description,
+            "achieved": is_new_high,
+            "achieved_at": latest.valuation_time.isoformat() if is_new_high else None,
+            "detail": (
+                f"₹{latest.nav} NAV on {latest.valuation_time.date().isoformat()} -- "
+                "a real all-time high"
+                if is_new_high
+                else f"Current real NAV ₹{latest.nav}, all-time high ₹{all_time_high_nav}"
+            ),
+        },
+        {
+            "id": recovery_id,
+            "category": "PORTFOLIO",
+            "title": f"Recovered From Drawdown: {portfolio.name}",
+            "description": recovery_description,
+            "achieved": recovered,
+            "achieved_at": latest.valuation_time.isoformat() if recovered else None,
+            "detail": (
+                f"Recovered from a real {worst_drawdown * 100:.1f}% drawdown back to "
+                f"{latest.drawdown * 100:.1f}% as of {latest.valuation_time.date().isoformat()}"
+                if recovered
+                else (
+                    f"Worst real drawdown so far: {worst_drawdown * 100:.1f}%, "
+                    f"currently {latest.drawdown * 100:.1f}%"
+                )
+            ),
+        },
+    ]
+
+
+def _first_live_approval_achievement(portfolio: Any) -> dict[str, Any]:
+    approved_times = [
+        approval.decision_time
+        for intent in paper_repo.intents.values()
+        if intent.paper_portfolio_id == portfolio.paper_portfolio_id
+        for approval in [paper_repo.approvals.get(intent.paper_trade_intent_id)]
+        if approval is not None and approval.decision == "APPROVED"
+    ]
+    achieved = len(approved_times) > 0
+    first_time = min(approved_times) if achieved else None
+    return {
+        "id": f"first-live-approval-{portfolio.paper_portfolio_id}",
+        "category": "PORTFOLIO",
+        "title": f"First Live Approval: {portfolio.name}",
+        "description": "A real paper-trade intent is approved for this portfolio for the first time.",
+        "achieved": achieved,
+        "achieved_at": first_time.isoformat() if first_time else None,
+        "detail": (
+            f"First real trade approved on {first_time.date().isoformat()}"
+            if first_time is not None
+            else "No real approvals yet for this portfolio."
+        ),
+    }
+
+
+def _on_time_reviewer_achievement() -> dict[str, Any]:
+    on_time = 0
+    total = 0
+    for intent_id, approval in paper_repo.approvals.items():
+        intent = paper_repo.intents.get(intent_id)
+        if intent is None:
+            continue
+        total += 1
+        if approval.decision_time <= intent.eligible_execution_time:
+            on_time += 1
+    # Achieved means real good process, not mere participation -- a 0-of-36
+    # on-time rate must never read as "achieved" just because decisions
+    # exist at all. Integer comparison avoids any float/Decimal division.
+    achieved = total > 0 and on_time * 2 >= total
+    return {
+        "id": "on-time-reviewer",
+        "category": "PROCESS",
+        "title": "On-Time Reviewer",
+        "description": (
+            "At least half of all real approval/rejection decisions made before the "
+            "intent's eligible execution time."
+        ),
+        "achieved": achieved,
+        "achieved_at": None,
+        "detail": (
+            f"{on_time} of {total} real decisions made before the eligible execution window"
+            if total > 0
+            else "No real approval decisions made yet."
+        ),
+    }
+
+
+def _compute_achievements() -> list[dict[str, Any]]:
+    achievements = _benchmark_beater_achievements()
+    for portfolio in paper_repo.portfolios.values():
+        achievements.extend(
+            _portfolio_nav_achievements(portfolio, paper_repo.nav.get(portfolio.paper_portfolio_id, []))
+        )
+        achievements.append(_first_live_approval_achievement(portfolio))
+    achievements.append(_on_time_reviewer_achievement())
+    return achievements
+
+
+@app.get("/api/v1/achievements")
+def get_achievements() -> dict[str, Any]:
+    return {"achievements": _compute_achievements()}
+
+
 @app.get("/api/v1/instruments/{symbol}/rule-events")
 def get_instrument_rule_events(
     symbol: str,

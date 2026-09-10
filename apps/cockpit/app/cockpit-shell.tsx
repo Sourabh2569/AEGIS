@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LineChart, TrendingUp, Zap, Briefcase, LogOut } from "lucide-react";
+import { Compass, LineChart, TrendingUp, Zap, Briefcase, LogOut } from "lucide-react";
 import { clearToken } from "./api-client";
 import RequireAuth from "./require-auth";
 
 const NAV_ITEMS = [
+  { href: "/overview", label: "Overview", icon: Compass, match: (path: string) => path === "/overview" },
   { href: "/", label: "Instruments", icon: LineChart, match: (path: string) => path === "/" || path.startsWith("/instruments") },
   { href: "/strategies", label: "Strategies", icon: TrendingUp, match: (path: string) => path.startsWith("/strategies") },
   { href: "/actionables", label: "Actionables", icon: Zap, match: (path: string) => path.startsWith("/actionables") },

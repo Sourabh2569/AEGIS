@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Trophy, ListChecks, Award, Users, Wallet, BarChart3 } from "lucide-react";
+import { Trophy, ListChecks, Award, Users, Wallet, BarChart3, Medal } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { apiGet, authPost } from "../api-client";
 import BarChart from "../bar-chart";
@@ -53,6 +53,13 @@ function money(value: string): string {
 
 function shortName(strategyId: string): string {
   return strategyId.replace(/(Baseline|Benchmark)?StrategyV0$/, "");
+}
+
+const MEDAL_TONE = ["gold", "silver", "bronze"] as const;
+
+function RankMedal({ rank }: { rank: number }) {
+  if (rank >= MEDAL_TONE.length) return null;
+  return <Medal size={15} className={`rank-medal ${MEDAL_TONE[rank]}`} />;
 }
 
 function Leaderboard() {
@@ -190,7 +197,10 @@ function Leaderboard() {
               className={`panel leaderboard-card ${index === 0 && row.return_to_drawdown_ratio !== null ? "leader" : ""}`}
             >
               <div className="panel-head">
-                <span className="leaderboard-rank">#{index + 1}</span>
+                <span className="leaderboard-rank">
+                  #{index + 1}
+                  {row.backtest_status === "AVAILABLE" && <RankMedal rank={index} />}
+                </span>
                 <Link href={`/strategies/${row.strategy_id}`} className="leaderboard-name">
                   {row.strategy_id}
                 </Link>

@@ -16,6 +16,9 @@ export default function Gauge({
   const ratio = max > 0 ? Math.min(value / max, 1) : 0;
   const filled = HALF_CIRCUMFERENCE * ratio;
   const center = SIZE / 2;
+  // Real deployment-level tiers on the same value/max the gauge already
+  // shows -- not a fabricated score, just a threshold-driven color band.
+  const tierColor = ratio >= 0.8 ? "var(--buy)" : ratio >= 0.5 ? "var(--accent)" : "var(--neutral)";
 
   return (
     <div className="gauge">
@@ -30,7 +33,7 @@ export default function Gauge({
         <path
           d={`M ${STROKE / 2} ${center} A ${RADIUS} ${RADIUS} 0 0 1 ${SIZE - STROKE / 2} ${center}`}
           fill="none"
-          stroke="var(--accent)"
+          stroke={tierColor}
           strokeWidth={STROKE}
           strokeLinecap="round"
           strokeDasharray={`${filled} ${HALF_CIRCUMFERENCE}`}

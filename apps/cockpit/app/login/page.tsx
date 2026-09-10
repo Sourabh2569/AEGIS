@@ -18,7 +18,7 @@ export default function LoginPage() {
     try {
       const result = await login(username, password);
       setToken(result.access_token);
-      router.replace("/");
+      router.replace("/overview");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
