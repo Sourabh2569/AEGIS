@@ -10,6 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from aegis.audit.service import AuditLog
+from aegis.auth.rate_limit import LoginRateLimiter
 from aegis.auth.service import AuthenticatedUser, AuthService
 from aegis.auth.tokens import TokenError
 from aegis.auth.users import UserStoreError
@@ -65,6 +66,7 @@ from aegis.research_activation.service import HistoricalResearchActivationServic
 from aegis.research_registry.sprint2 import RESEARCH_LABELS
 from aegis.risk.engine import KillSwitchType, RiskProfileVersion
 from aegis.shared.money import money
+from aegis.shared.time import utc_now
 from aegis.strategies.baselines import (
     BuyAndHoldBenchmarkStrategyV0,
     EqualWeightUniverseBenchmarkStrategyV0,
@@ -86,6 +88,8 @@ try:
     )
 except UserStoreError as exc:
     raise RuntimeError(f"AEGIS auth configuration is invalid: {exc}") from exc
+
+login_rate_limiter = LoginRateLimiter()
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -329,9 +333,19 @@ def require_role(*allowed: Role):
 def login(payload: dict[str, Any]) -> dict[str, Any]:
     username = str(payload.get("username", ""))
     password = str(payload.get("password", ""))
+    now = utc_now()
+    wait_seconds = login_rate_limiter.seconds_until_allowed(username, now)
+    if wait_seconds > 0:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed login attempts. Try again in {wait_seconds} seconds.",
+            headers={"Retry-After": str(wait_seconds)},
+        )
     user = auth_service.authenticate(username, password)
     if user is None:
+        login_rate_limiter.record_failure(username, now)
         raise HTTPException(status_code=401, detail="Invalid username or password.")
+    login_rate_limiter.record_success(username)
     token = auth_service.issue_token(user)
     return {
         "access_token": token,

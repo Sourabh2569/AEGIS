@@ -3,7 +3,10 @@ from __future__ import annotations
 import atexit
 import os
 import shutil
+import sys
 import tempfile
+
+import pytest
 
 # `from aegis_api.main import app` (used by every integration test) imports
 # the real application module, whose paper-trading/object-store state lives
@@ -28,3 +31,16 @@ atexit.register(shutil.rmtree, _work_dir, ignore_errors=True)
 # DATA_SOURCE_MODE=LIVE_READONLY) would silently defeat that. Set before
 # any test module is collected/imported, same as AEGIS_WORK_DIR above.
 os.environ["AEGIS_SKIP_DOTENV"] = "1"
+
+
+@pytest.fixture(autouse=True)
+def _reset_login_rate_limiter() -> None:
+    """login_rate_limiter is a module-level singleton like paper_repo --
+    without this, real login failures recorded by one test file could
+    accumulate and unexpectedly 429 an unrelated test using the same
+    username later in the same pytest session. Guarded on the module
+    already being imported so this never forces aegis_api.main's heavy
+    FastAPI/SQLite setup onto unit tests that don't touch the API at all."""
+    main_module = sys.modules.get("aegis_api.main")
+    if main_module is not None:
+        main_module.login_rate_limiter._failures_by_username.clear()
