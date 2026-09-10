@@ -93,9 +93,7 @@ def test_reports_persisted_by_the_api_survive_a_fresh_store_instance(
     SqliteMomentumReportStore pointed at the same file -- standing in for
     the API process restarting -- must see what a real backtest run wrote,
     not just the live in-memory list."""
-    isolated_client.post(
-        "/api/v1/research/momentum/run", headers={"X-Aegis-Role": "DATA_STEWARD"}
-    )
+    isolated_client.post("/api/v1/research/momentum/run", headers={"X-Aegis-Role": "DATA_STEWARD"})
     db_path = app_main.momentum_report_store.db_path
 
     reloaded = SqliteMomentumReportStore(db_path)

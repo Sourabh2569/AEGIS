@@ -12,7 +12,12 @@ pytest.importorskip("httpx")
 
 import aegis_api.main as app_main
 from aegis.data_ingestion.service import LocalObjectStore
-from aegis.paper_trading.domain import PaperApproval, PaperApprovalDecision, PaperNavSnapshot, PaperTradeIntent
+from aegis.paper_trading.domain import (
+    PaperApproval,
+    PaperApprovalDecision,
+    PaperNavSnapshot,
+    PaperTradeIntent,
+)
 from aegis_api.main import app
 from fastapi.testclient import TestClient
 
@@ -138,7 +143,7 @@ def test_portfolio_nav_achievements_reflect_a_real_high_water_mark_and_recovery(
             market_value=Decimal(90000),
             nav=Decimal(100000),
             high_water_mark=Decimal(100000),
-            drawdown=Decimal("0"),
+            drawdown=Decimal(0),
             reconciliation_status="MATCHED",
         ),
         PaperNavSnapshot(
@@ -160,7 +165,7 @@ def test_portfolio_nav_achievements_reflect_a_real_high_water_mark_and_recovery(
             market_value=Decimal(101500),
             nav=Decimal(101500),
             high_water_mark=Decimal(101500),
-            drawdown=Decimal("0"),
+            drawdown=Decimal(0),
             reconciliation_status="MATCHED",
         ),
     ]

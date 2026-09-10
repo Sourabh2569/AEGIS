@@ -96,6 +96,11 @@ function Overview() {
             Real portfolio health, top signals, and earned milestones — one glance.
           </p>
         </div>
+        <div>
+          <Link href="/live-readiness" className="hint">
+            Live readiness evidence →
+          </Link>
+        </div>
       </div>
 
       <KpiStrip>

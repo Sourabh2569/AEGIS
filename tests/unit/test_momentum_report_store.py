@@ -45,6 +45,8 @@ def test_reports_survive_a_real_process_restart(tmp_path: Path) -> None:
 def test_load_all_preserves_insertion_order_across_many_reports(tmp_path: Path) -> None:
     store = SqliteMomentumReportStore(tmp_path / "reports.sqlite")
     for index in range(5):
-        store.append({"scenario": f"run-{index}"}, created_at=f"2026-09-0{index + 1}T00:00:00+00:00")
+        store.append(
+            {"scenario": f"run-{index}"}, created_at=f"2026-09-0{index + 1}T00:00:00+00:00"
+        )
 
     assert [report["scenario"] for report in store.load_all()] == [f"run-{i}" for i in range(5)]

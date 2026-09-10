@@ -17,12 +17,12 @@ from aegis.auth.users import UserStoreError
 from aegis.backtesting.domain import SPRINT_1A_LABELS, BacktestRunStatus, OrderSide
 from aegis.backtesting.engine import BacktestService
 from aegis.backtesting.fixtures import load_calendar, load_market_data
+from aegis.backtesting.momentum_report_store import SqliteMomentumReportStore
 from aegis.backtesting.momentum_research import (
     RealMomentumResearchRunner,
     build_paper_strategy_resolver,
     load_real_eod_bars,
 )
-from aegis.backtesting.momentum_report_store import SqliteMomentumReportStore
 from aegis.backtesting.repositories import BacktestRepository
 from aegis.backtesting.sprint2 import Sprint2ResearchScenarioRunner
 from aegis.configuration.settings import Settings
@@ -2739,7 +2739,9 @@ def _compute_achievements() -> list[dict[str, Any]]:
     achievements = _benchmark_beater_achievements()
     for portfolio in paper_repo.portfolios.values():
         achievements.extend(
-            _portfolio_nav_achievements(portfolio, paper_repo.nav.get(portfolio.paper_portfolio_id, []))
+            _portfolio_nav_achievements(
+                portfolio, paper_repo.nav.get(portfolio.paper_portfolio_id, [])
+            )
         )
         achievements.append(_first_live_approval_achievement(portfolio))
     achievements.append(_on_time_reviewer_achievement())
@@ -2749,6 +2751,78 @@ def _compute_achievements() -> list[dict[str, Any]]:
 @app.get("/api/v1/achievements")
 def get_achievements() -> dict[str, Any]:
     return {"achievements": _compute_achievements()}
+
+
+@app.get("/api/v1/live-readiness/evidence")
+def get_live_readiness_evidence() -> dict[str, Any]:
+    """Real evidence toward Document 007's Gate 1 (research integrity) and
+    Gate 2 (paper-trading evidence) -- see
+    docs/architecture/009_live_readiness_dossier.md. Every number here is
+    real and can currently be honestly near-zero: the point is an accurate
+    starting line for these gates' evidence clock, not a target to dress
+    up. No entity here touches LIVE_EXECUTION_ENABLED/BROKER_ORDER_ACCESS/
+    LIVE_BROKER_CONNECTION_ENABLED -- this is read-only reporting on
+    existing paper-trading/backtest data."""
+    now = utc_now()
+    latest_reports = _latest_momentum_reports_by_strategy()
+    sample_report = next(iter(latest_reports.values()), None)
+
+    portfolios_evidence: list[dict[str, Any]] = []
+    for portfolio in paper_repo.portfolios.values():
+        sessions = [
+            session
+            for session in paper_repo.sessions.values()
+            if session.paper_portfolio_id == portfolio.paper_portfolio_id
+        ]
+        snapshots = paper_repo.nav.get(portfolio.paper_portfolio_id, [])
+        reconciliations = paper_repo.reconciliations.get(portfolio.paper_portfolio_id, [])
+        mismatches = [record for record in reconciliations if record.status != "MATCHED"]
+        days_active = (
+            (now - portfolio.activated_at_nullable).days
+            if portfolio.activated_at_nullable is not None
+            else None
+        )
+        worst_drawdown = min((snapshot.drawdown for snapshot in snapshots), default=None)
+        portfolios_evidence.append(
+            {
+                "paper_portfolio_id": portfolio.paper_portfolio_id,
+                "name": portfolio.name,
+                "status": portfolio.status,
+                "days_active": days_active,
+                "real_session_count": len(sessions),
+                "worst_drawdown_observed": (
+                    str(worst_drawdown) if worst_drawdown is not None else None
+                ),
+                "reconciliation_count": len(reconciliations),
+                "reconciliation_mismatch_count": len(mismatches),
+            }
+        )
+
+    active_days = [p["days_active"] for p in portfolios_evidence if p["days_active"] is not None]
+
+    return {
+        "as_of": now.isoformat(),
+        "gate_1_research_integrity": {
+            "real_backtests_run": len(latest_reports),
+            "dataset_origin": sample_report["dataset_origin"] if sample_report else None,
+            "universe_size": sample_report["universe_size"] if sample_report else None,
+            "detail": (
+                f"{len(latest_reports)} real strategy backtests on record "
+                f"(dataset {sample_report['dataset_origin']})"
+                if sample_report
+                else "No real backtest run yet -- run one from the Strategy Leaderboard."
+            ),
+        },
+        "gate_2_paper_trading_evidence": {
+            "portfolio_count": len(portfolios_evidence),
+            "total_real_sessions": sum(p["real_session_count"] for p in portfolios_evidence),
+            "longest_days_active": max(active_days, default=0),
+            "total_reconciliation_mismatches": sum(
+                p["reconciliation_mismatch_count"] for p in portfolios_evidence
+            ),
+            "portfolios": portfolios_evidence,
+        },
+    }
 
 
 @app.get("/api/v1/instruments/{symbol}/rule-events")
