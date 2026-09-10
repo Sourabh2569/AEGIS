@@ -2237,10 +2237,10 @@ def get_instrument_indicators(
     runner = RealMomentumResearchRunner(capture, sector_by_instrument_id)
     start, end = _date_range_or_default(capture, from_date, to_date)
     trading_dates = [d for d in runner.trading_dates if start <= d <= end]
+    series = runner.build_candidate_series(aegis_instrument_id, trading_dates)
     points: list[dict[str, Any]] = []
     for as_of in trading_dates:
-        candidates = {c.instrument_id: c for c in runner.build_candidates(as_of)}
-        candidate = candidates.get(aegis_instrument_id)
+        candidate = series[as_of]
         points.append(
             {
                 "date": as_of.isoformat(),
@@ -2507,12 +2507,16 @@ def get_instrument_rule_events(
     start, end = _date_range_or_default(capture, from_date, to_date)
     trading_dates = [d for d in runner.trading_dates if start <= d <= end]
 
+    series = runner.build_candidate_series(aegis_instrument_id, trading_dates)
     events: list[dict[str, str]] = []
     was_eligible = False
     for as_of in trading_dates:
-        candidates = runner.build_candidates(as_of)
-        eligible_ids = {c.instrument_id for c in strategy.rank_candidates(candidates)}
-        is_eligible = aegis_instrument_id in eligible_ids
+        candidate = series[as_of]
+        # Eligibility is a pure per-candidate threshold check (see
+        # rank_candidates) -- ranking a single-instrument list is equivalent
+        # to checking membership against the whole universe's eligible set,
+        # without paying to rebuild the other 49 instruments' candidates.
+        is_eligible = candidate is not None and bool(strategy.rank_candidates([candidate]))
         if is_eligible and not was_eligible:
             events.append({"date": as_of.isoformat(), "type": "ELIGIBILITY_START"})
         elif was_eligible and not is_eligible:

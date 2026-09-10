@@ -280,45 +280,59 @@ class RealMomentumResearchRunner:
                 result.append(current)
         return result
 
+    def _build_candidate(self, instrument_id: str, as_of: date) -> Candidate | None:
+        bar_dates = self._dates_by_instrument.get(instrument_id, [])
+        idx = bisect.bisect_right(bar_dates, as_of)
+        if idx < MINIMUM_HISTORY_DAYS:
+            return None
+        # Every metric below only ever looks at a trailing window of at most
+        # MINIMUM_HISTORY_DAYS (sma_200 is the largest). Slicing to that
+        # window instead of the full since-inception history avoids
+        # re-converting thousands of bars to Decimal on every call.
+        bars = self.capture.bars_by_instrument[instrument_id][idx - MINIMUM_HISTORY_DAYS : idx]
+        closes = [Decimal(str(bar["close"])) for bar in bars]
+        highs = [Decimal(str(bar["high"])) for bar in bars]
+        lows = [Decimal(str(bar["low"])) for bar in bars]
+        volumes = [Decimal(str(bar["volume"])) for bar in bars]
+        sma_50 = sma(closes, 50)
+        sma_200 = sma(closes, 200)
+        momentum_60 = rolling_return(closes[-61:]) if len(closes) >= 61 else None
+        atr_14 = atr(highs, lows, closes, 14)
+        adv_20 = sma([close * volume for close, volume in zip(closes, volumes)], 20)
+        sector = self.sector_by_instrument.get(instrument_id, "UNKNOWN")
+        return Candidate(
+            instrument_id=instrument_id,
+            sector=sector,
+            cluster=sector,
+            close=closes[-1],
+            momentum_60=momentum_60,
+            price_to_sma_200=price_to_ma_distance(closes[-1], sma_200),
+            sma_50=sma_50,
+            sma_200=sma_200,
+            atr_14=atr_14,
+            average_daily_value_traded_20=adv_20,
+        )
+
     def build_candidates(self, as_of: date) -> list[Candidate]:
         candidates: list[Candidate] = []
-        for instrument_id, bar_dates in self._dates_by_instrument.items():
-            idx = bisect.bisect_right(bar_dates, as_of)
-            if idx < MINIMUM_HISTORY_DAYS:
-                continue
-            # Every metric below only ever looks at a trailing window of at
-            # most MINIMUM_HISTORY_DAYS (sma_200 is the largest). Slicing to
-            # that window instead of the full since-inception history avoids
-            # re-converting thousands of bars to Decimal on every call --
-            # this is called once per trading date by the rule-events/
-            # indicators endpoints, so the full-history version made those
-            # effectively hang once years of real data had accumulated.
-            bars = self.capture.bars_by_instrument[instrument_id][idx - MINIMUM_HISTORY_DAYS : idx]
-            closes = [Decimal(str(bar["close"])) for bar in bars]
-            highs = [Decimal(str(bar["high"])) for bar in bars]
-            lows = [Decimal(str(bar["low"])) for bar in bars]
-            volumes = [Decimal(str(bar["volume"])) for bar in bars]
-            sma_50 = sma(closes, 50)
-            sma_200 = sma(closes, 200)
-            momentum_60 = rolling_return(closes[-61:]) if len(closes) >= 61 else None
-            atr_14 = atr(highs, lows, closes, 14)
-            adv_20 = sma([close * volume for close, volume in zip(closes, volumes)], 20)
-            sector = self.sector_by_instrument.get(instrument_id, "UNKNOWN")
-            candidates.append(
-                Candidate(
-                    instrument_id=instrument_id,
-                    sector=sector,
-                    cluster=sector,
-                    close=closes[-1],
-                    momentum_60=momentum_60,
-                    price_to_sma_200=price_to_ma_distance(closes[-1], sma_200),
-                    sma_50=sma_50,
-                    sma_200=sma_200,
-                    atr_14=atr_14,
-                    average_daily_value_traded_20=adv_20,
-                )
-            )
+        for instrument_id in self._dates_by_instrument:
+            candidate = self._build_candidate(instrument_id, as_of)
+            if candidate is not None:
+                candidates.append(candidate)
         return candidates
+
+    def build_candidate_series(
+        self, instrument_id: str, dates: list[date]
+    ) -> dict[date, Candidate | None]:
+        """Real per-day candidates for a single instrument across many
+        dates -- used by the /indicators and /rule-events endpoints, which
+        need one instrument's full time series rather than a cross-
+        instrument snapshot. Every metric here is computed independently
+        per instrument (rank_candidates only sorts/filters an already-
+        computed list), so this avoids rebuilding the other 49 instruments'
+        candidates on every date the way calling build_candidates() in a
+        per-day loop used to."""
+        return {as_of: self._build_candidate(instrument_id, as_of) for as_of in dates}
 
     def _exact_close(self, instrument_id: str, on: date) -> Decimal | None:
         return self._close_by_date.get(instrument_id, {}).get(on.isoformat())
