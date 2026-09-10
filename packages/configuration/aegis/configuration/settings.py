@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from dotenv import load_dotenv
+
 
 def _as_bool(value: str | None, default: bool) -> bool:
     if value is None:
@@ -53,6 +55,17 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> Settings:
+        # Finds and loads a real .env by walking up from the current working
+        # directory -- so `uvicorn`/any script picks up local config the
+        # same way regardless of whether the operator remembered to
+        # `source .env` first. Never overrides a variable already set in the
+        # real environment (e.g. a deployed process's own env vars).
+        # Skipped entirely under pytest (see tests/conftest.py): tests rely
+        # on the plain code defaults for provider/data-source config to
+        # exercise fail-closed behavior, and a real developer .env's actual
+        # provider settings would silently defeat that.
+        if not os.getenv("AEGIS_SKIP_DOTENV"):
+            load_dotenv(override=False)
         environment = os.getenv("ENVIRONMENT", "development")
         # Only development/test get the insecure header fallback by default,
         # and only when the operator hasn't set the flag explicitly.

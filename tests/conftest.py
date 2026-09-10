@@ -19,3 +19,12 @@ import tempfile
 _work_dir = tempfile.mkdtemp(prefix="aegis-test-work-")
 os.environ["AEGIS_WORK_DIR"] = _work_dir
 atexit.register(shutil.rmtree, _work_dir, ignore_errors=True)
+
+# Settings.from_env() auto-loads a real .env if one is present (so
+# `make run-api` works without the operator remembering to `source .env`
+# first) -- but tests rely on the plain code defaults for provider/
+# data-source config to exercise fail-closed behavior, and a developer's
+# real .env (e.g. MARKET_DATA_PROVIDER_NAME=kite_connect,
+# DATA_SOURCE_MODE=LIVE_READONLY) would silently defeat that. Set before
+# any test module is collected/imported, same as AEGIS_WORK_DIR above.
+os.environ["AEGIS_SKIP_DOTENV"] = "1"
