@@ -2346,11 +2346,15 @@ def get_instrument_signal(
     }
 
 
-@app.get("/api/v1/actionables")
-def get_actionables(paper_portfolio_id: str | None = Query(default=None)) -> dict[str, Any]:
-    capture = _load_capture_or_409()
+def _signal_rows_for_universe(
+    capture: Any, as_of: date, paper_portfolio_id: str | None
+) -> list[dict[str, Any]]:
+    """Real BUY/HOLD/SELL/NO_POSITION signal for every instrument in the
+    universe, reusing the exact strategy ranking and held-position lookup
+    that /instruments/{symbol}/signal already applies per-instrument -- one
+    source of truth for the eligibility+holding branch, shared by
+    /actionables (filtered to BUY/SELL) and /signals (unfiltered)."""
     runner = RealMomentumResearchRunner(capture, sector_by_instrument_id)
-    as_of = capture.end_date
     candidates = runner.build_candidates(as_of)
     strategy = TrendFollowingBaselineStrategyV0()
     eligible_ids = {c.instrument_id for c in strategy.rank_candidates(candidates)}
@@ -2361,8 +2365,7 @@ def get_actionables(paper_portfolio_id: str | None = Query(default=None)) -> dic
         else None
     )
 
-    buys: list[dict[str, Any]] = []
-    sells: list[dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for candidate in candidates:
         eligible = candidate.instrument_id in eligible_ids
         held_quantity = Decimal(0)
@@ -2370,32 +2373,68 @@ def get_actionables(paper_portfolio_id: str | None = Query(default=None)) -> dic
             held_quantity = research_portfolio.positions.get(candidate.instrument_id, Decimal(0))
         held = held_quantity > 0
 
-        if eligible and held:
-            continue  # HOLD -- steady state, not actionable
-        if not eligible and not held:
-            continue  # NO_POSITION -- steady state, not actionable
+        if eligible and not held:
+            signal = "BUY"
+        elif eligible and held:
+            signal = "HOLD"
+        elif not eligible and held:
+            signal = "SELL"
+        else:
+            signal = "NO_POSITION"
+
+        rows.append(
+            {
+                "symbol": symbol_by_instrument_id.get(
+                    candidate.instrument_id, candidate.instrument_id
+                ),
+                "aegis_instrument_id": candidate.instrument_id,
+                "signal": signal,
+                "eligible": eligible,
+                "held": held,
+                "held_quantity": str(held_quantity),
+                "close": str(candidate.close),
+                "momentum_60": str(candidate.momentum_60)
+                if candidate.momentum_60 is not None
+                else None,
+                "sma_50": str(candidate.sma_50) if candidate.sma_50 is not None else None,
+                "sma_200": str(candidate.sma_200) if candidate.sma_200 is not None else None,
+                "invalidation_price": (
+                    str(strategy.invalidation_price(candidate))
+                    if candidate.atr_14 is not None
+                    else None
+                ),
+            }
+        )
+    return rows
+
+
+@app.get("/api/v1/actionables")
+def get_actionables(paper_portfolio_id: str | None = Query(default=None)) -> dict[str, Any]:
+    capture = _load_capture_or_409()
+    as_of = capture.end_date
+    rows = _signal_rows_for_universe(capture, as_of, paper_portfolio_id)
+
+    buys: list[dict[str, Any]] = []
+    sells: list[dict[str, Any]] = []
+    for signal_row in rows:
+        if signal_row["signal"] not in ("BUY", "SELL"):
+            continue  # HOLD/NO_POSITION -- steady state, not actionable
 
         row = {
-            "symbol": symbol_by_instrument_id.get(candidate.instrument_id, candidate.instrument_id),
-            "aegis_instrument_id": candidate.instrument_id,
-            "close": str(candidate.close),
-            "momentum_60": str(candidate.momentum_60)
-            if candidate.momentum_60 is not None
-            else None,
-            "sma_50": str(candidate.sma_50) if candidate.sma_50 is not None else None,
-            "sma_200": str(candidate.sma_200) if candidate.sma_200 is not None else None,
+            "symbol": signal_row["symbol"],
+            "aegis_instrument_id": signal_row["aegis_instrument_id"],
+            "close": signal_row["close"],
+            "momentum_60": signal_row["momentum_60"],
+            "sma_50": signal_row["sma_50"],
+            "sma_200": signal_row["sma_200"],
         }
-        if eligible:
+        if signal_row["signal"] == "BUY":
             row["action"] = "BUY"
-            row["invalidation_price"] = (
-                str(strategy.invalidation_price(candidate))
-                if candidate.atr_14 is not None
-                else None
-            )
+            row["invalidation_price"] = signal_row["invalidation_price"]
             buys.append(row)
         else:
             row["action"] = "SELL"
-            row["held_quantity"] = str(held_quantity)
+            row["held_quantity"] = signal_row["held_quantity"]
             sells.append(row)
 
     buys.sort(key=lambda row: Decimal(row["momentum_60"] or 0), reverse=True)
@@ -2414,6 +2453,42 @@ def get_actionables(paper_portfolio_id: str | None = Query(default=None)) -> dic
                     "No paper_portfolio_id supplied -- SELL signals cannot be determined "
                     "without a portfolio's real holdings, showing BUY-eligible instruments only."
                 )
+            ]
+        ),
+    }
+
+
+@app.get("/api/v1/signals")
+def get_universe_signals(paper_portfolio_id: str | None = Query(default=None)) -> dict[str, Any]:
+    """Real BUY/HOLD/SELL/NO_POSITION signal for every instrument in the
+    universe in one call -- the Cockpit home page uses this instead of one
+    /instruments/{symbol}/signal round-trip per instrument."""
+    capture = _load_capture_or_409()
+    as_of = capture.end_date
+    rows = _signal_rows_for_universe(capture, as_of, paper_portfolio_id)
+
+    return {
+        "as_of": as_of.isoformat(),
+        "dataset_origin": "ACTUAL_PROVIDER_DATA",
+        "raw_snapshot_hash": capture.raw_snapshot_hash,
+        "paper_portfolio_id": paper_portfolio_id,
+        "signals": [
+            {
+                "symbol": row["symbol"],
+                "aegis_instrument_id": row["aegis_instrument_id"],
+                "signal": row["signal"],
+                "close": row["close"],
+                "momentum_60": row["momentum_60"],
+                "held": row["held"],
+                "held_quantity": row["held_quantity"],
+            }
+            for row in rows
+        ],
+        "warnings": (
+            []
+            if paper_portfolio_id is not None
+            else [
+                "No paper_portfolio_id supplied -- HOLD/SELL cannot be determined, only BUY/NO_POSITION."
             ]
         ),
     }

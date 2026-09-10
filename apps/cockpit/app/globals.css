@@ -1,27 +1,24 @@
 :root {
-  --bg: #0a0d12;
-  --panel: #12161e;
-  --panel-raised: #171c26;
-  --border: #232a37;
-  --border-soft: #1a2029;
-  --text: #e8ebf1;
-  --text-soft: #9aa3b5;
-  --text-faint: #5f6b7f;
+  --bg: #f4f6fb;
+  --panel: #ffffff;
+  --panel-raised: #fbfcfe;
+  --border: #e2e6ee;
+  --border-soft: #edf0f5;
+  --text: #1a2233;
+  --text-soft: #5b6472;
+  --text-faint: #9aa3b2;
 
-  --accent: #3fa9f5;
-  --accent-soft: #16324a;
+  --accent: #2f6fed;
+  --accent-soft: #e8effe;
 
-  /* Desaturated ~15-20% from the original neon buy/sell/hold, matching
-     TradingView's own finding that lower-saturation semantic color reduces
-     eye strain and supports longer comfortable viewing in a dark theme. */
-  --buy: #2fbf8f;
-  --buy-soft: #0f2e26;
-  --sell: #e0526a;
-  --sell-soft: #3a1620;
-  --hold: #e0a83f;
-  --hold-soft: #362a10;
-  --neutral: #6b7688;
-  --neutral-soft: #1c212b;
+  --buy: #17a672;
+  --buy-soft: #e3f7ee;
+  --sell: #e0334f;
+  --sell-soft: #fde9ec;
+  --hold: #c97f14;
+  --hold-soft: #fdf2e0;
+  --neutral: #6b7280;
+  --neutral-soft: #eef0f3;
 
   --font-ui: var(--font-ui-loaded), -apple-system, "Segoe UI", sans-serif;
   --font-mono: var(--font-mono-loaded), ui-monospace, "SF Mono", Menlo, monospace;
@@ -112,7 +109,7 @@ button:disabled {
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #061018;
+  color: #ffffff;
 }
 
 input,
@@ -176,7 +173,6 @@ button:focus-visible {
   background: var(--accent);
   display: inline-block;
   flex: none;
-  box-shadow: 0 0 10px 1px var(--accent);
 }
 
 .sidebar-brand-name {
@@ -249,7 +245,7 @@ main.content {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at 50% 0%, #101826 0%, var(--bg) 60%);
+  background: radial-gradient(circle at 50% 0%, #ffffff 0%, var(--bg) 60%);
 }
 
 .login-card {
@@ -293,36 +289,125 @@ main.content {
   margin: 4px 0 14px;
 }
 
-/* ---------- Symbol search (home) ---------- */
+/* ---------- Instrument cards (home) ---------- */
 
-.symbol-search {
-  max-width: 420px;
-}
-
-.symbol-search h1 {
-  font-size: 20px;
-  margin: 0 0 4px;
-}
-
-.symbol-search .sub {
-  color: var(--text-faint);
-  font-size: 13px;
-  margin: 0 0 20px;
-}
-
-.symbol-grid {
+.instrument-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
   margin-top: 18px;
 }
 
-.symbol-chip {
-  text-align: center;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  padding: 10px 6px;
+.instrument-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
   background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.04),
+    0 8px 20px -14px rgba(16, 24, 40, 0.1);
+  color: var(--text);
+}
+
+.instrument-card:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+}
+
+.instrument-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.instrument-avatar {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 12px;
+}
+.instrument-avatar.BUY {
+  color: var(--buy);
+  background: var(--buy-soft);
+}
+.instrument-avatar.SELL {
+  color: var(--sell);
+  background: var(--sell-soft);
+}
+.instrument-avatar.HOLD {
+  color: var(--hold);
+  background: var(--hold-soft);
+}
+.instrument-avatar.NO_POSITION,
+.instrument-avatar.loading {
+  color: var(--neutral);
+  background: var(--neutral-soft);
+}
+
+.instrument-card-id {
+  min-width: 0;
+  flex: 1;
+}
+
+.instrument-symbol {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 13.5px;
+}
+
+.instrument-sector {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.instrument-company {
+  font-size: 12px;
+  color: var(--text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.instrument-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.instrument-close {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.instrument-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.signal-badge.small {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  margin-bottom: 0;
+  gap: 5px;
+}
+.signal-badge.small .dot {
+  width: 6px;
+  height: 6px;
 }
 
 /* ---------- Instrument decision view ---------- */
@@ -367,8 +452,8 @@ main.content {
   border-radius: 12px;
   overflow: hidden;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.03),
-    0 8px 24px -12px rgba(0, 0, 0, 0.5);
+    0 1px 2px rgba(16, 24, 40, 0.04),
+    0 8px 20px -14px rgba(16, 24, 40, 0.1);
 }
 
 .panel-head {
@@ -858,8 +943,8 @@ main.content {
   border-radius: 12px;
   padding: 14px 16px;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.03),
-    0 8px 24px -14px rgba(0, 0, 0, 0.5);
+    0 1px 2px rgba(16, 24, 40, 0.04),
+    0 8px 20px -14px rgba(16, 24, 40, 0.1);
 }
 
 .kpi-card-head {
@@ -1018,9 +1103,8 @@ main.content {
 .panel.leader {
   border-color: var(--accent);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.03),
     0 0 0 1px var(--accent),
-    0 10px 28px -12px rgba(63, 169, 245, 0.35);
+    0 10px 28px -12px rgba(47, 111, 237, 0.35);
 }
 
 .panel-head.alert::before {

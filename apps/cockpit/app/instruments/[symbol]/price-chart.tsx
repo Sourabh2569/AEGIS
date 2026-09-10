@@ -9,6 +9,7 @@ import {
   type ISeriesApi,
   type UTCTimestamp,
 } from "lightweight-charts";
+import { CHART_THEME } from "../../chart-theme";
 
 export type Bar = { date: string; open: number; high: number; low: number; close: number };
 export type IndicatorPoint = {
@@ -46,39 +47,47 @@ export default function PriceChart({
     if (!containerRef.current) return;
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: "#12161e" },
-        textColor: "#9aa3b5",
+        background: { type: ColorType.Solid, color: CHART_THEME.background },
+        textColor: CHART_THEME.text,
         fontFamily: "ui-monospace, SF Mono, Menlo, monospace",
       },
       grid: {
-        vertLines: { color: "#1a2029" },
-        horzLines: { color: "#1a2029" },
+        vertLines: { color: CHART_THEME.grid },
+        horzLines: { color: CHART_THEME.grid },
       },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#232a37" },
-      timeScale: { borderColor: "#232a37" },
+      rightPriceScale: { borderColor: CHART_THEME.border },
+      timeScale: { borderColor: CHART_THEME.border },
       autoSize: true,
       height: 360,
     });
     chartRef.current = chart;
 
     candleSeriesRef.current = chart.addCandlestickSeries({
-      upColor: "#34d399",
-      downColor: "#f0576b",
+      upColor: CHART_THEME.buy,
+      downColor: CHART_THEME.sell,
       borderVisible: false,
-      wickUpColor: "#34d399",
-      wickDownColor: "#f0576b",
+      wickUpColor: CHART_THEME.buy,
+      wickDownColor: CHART_THEME.sell,
     });
-    sma50Ref.current = chart.addLineSeries({ color: "#3fa9f5", lineWidth: 1, title: "SMA 50" });
-    sma200Ref.current = chart.addLineSeries({ color: "#f2b84b", lineWidth: 1, title: "SMA 200" });
+    sma50Ref.current = chart.addLineSeries({
+      color: CHART_THEME.accent,
+      lineWidth: 1,
+      title: "SMA 50",
+    });
+    sma200Ref.current = chart.addLineSeries({
+      color: CHART_THEME.hold,
+      lineWidth: 1,
+      title: "SMA 200",
+    });
     atrUpperRef.current = chart.addLineSeries({
-      color: "#5f6b7f",
+      color: CHART_THEME.benchmark,
       lineWidth: 1,
       lineStyle: 2,
       title: "+2 ATR",
     });
     atrLowerRef.current = chart.addLineSeries({
-      color: "#5f6b7f",
+      color: CHART_THEME.benchmark,
       lineWidth: 1,
       lineStyle: 2,
       title: "-2 ATR",
@@ -130,7 +139,7 @@ export default function PriceChart({
       ruleEvents.map((event) => ({
         time: toTime(event.date),
         position: event.type === "ELIGIBILITY_START" ? "belowBar" : "aboveBar",
-        color: event.type === "ELIGIBILITY_START" ? "#34d399" : "#f0576b",
+        color: event.type === "ELIGIBILITY_START" ? CHART_THEME.buy : CHART_THEME.sell,
         shape: event.type === "ELIGIBILITY_START" ? "arrowUp" : "arrowDown",
         text: event.type === "ELIGIBILITY_START" ? "Rule fired" : "Rule ended",
       })),
