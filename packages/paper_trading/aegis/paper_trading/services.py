@@ -856,6 +856,41 @@ class PaperTradingOrchestrator:
                 self.repository.orders[blocked.paper_order_id] = blocked
                 orders.append(blocked)
                 continue
+            active_kill_switch = next(
+                (
+                    switch
+                    for switch in self.repository.kill_switches.values()
+                    if switch.is_active
+                    and switch.scope_id in {"GLOBAL", paper_portfolio_id, intent.instrument_id}
+                ),
+                None,
+            )
+            if active_kill_switch is not None:
+                # activate_kill_switch() already sweeps every PENDING_APPROVAL/
+                # APPROVED intent to BLOCKED at the moment it's called, but
+                # approve() doesn't check for an active kill switch before
+                # re-approving an intent -- this is the final guard before an
+                # order is actually created, so a kill switch activated after
+                # approval (or a re-approval of a previously-blocked intent)
+                # still can't reach execution.
+                blocked = PaperOrder(
+                    paper_trade_intent_id=intent.paper_trade_intent_id,
+                    paper_portfolio_id=paper_portfolio_id,
+                    instrument_id=intent.instrument_id,
+                    status=PaperOrderStatus.BLOCKED,
+                    scheduled_execution_time=intent.eligible_execution_time,
+                    eligible_execution_time=intent.eligible_execution_time,
+                    requested_quantity=intent.approved_quantity_nullable or Decimal(0),
+                    remaining_quantity=intent.approved_quantity_nullable or Decimal(0),
+                    execution_model_version="NEXT_ELIGIBLE_SESSION_OPEN_WITH_CONFIGURED_FRICTION_V0",
+                    idempotency_key=f"{intent.idempotency_key}:kill-switch",
+                    rejection_reason_nullable=(
+                        f"KILL_SWITCH_ACTIVE:{active_kill_switch.switch_type.value}"
+                    ),
+                )
+                self.repository.orders[blocked.paper_order_id] = blocked
+                orders.append(blocked)
+                continue
             if intent.idempotency_key in self.repository.executed_idempotency_keys:
                 raise ValueError("DUPLICATE_ORDER_EXECUTION")
             self.repository.executed_idempotency_keys.add(intent.idempotency_key)
@@ -1024,6 +1059,22 @@ class PaperTradingOrchestrator:
                 )
         persist_if_supported(self.repository)
         return switch
+
+    def deactivate_kill_switch(self, kill_switch_id: str, reason: str) -> KillSwitch:
+        """Deactivation only stops this switch from blocking *future* intents
+        and orders -- it does not retroactively un-block intents this switch
+        already swept to BLOCKED on activation. Those were a destructive
+        status overwrite (no prior-status history is kept), so automatically
+        restoring them would mean resurrecting paused decisions without a
+        human re-reviewing each one, which defeats the point of requiring a
+        documented reason to deactivate in the first place. A previously-
+        blocked intent that's still valid must be re-proposed and
+        re-approved individually."""
+        switch = self.repository.kill_switches[kill_switch_id]
+        deactivated = replace(switch, is_active=False, reason=reason, updated_at=utc_now())
+        self.repository.kill_switches[kill_switch_id] = deactivated
+        persist_if_supported(self.repository)
+        return deactivated
 
     def evidence_package(self, paper_portfolio_id: str) -> PaperEvidencePackage:
         configs = self.repository.active_strategy_configs(paper_portfolio_id)

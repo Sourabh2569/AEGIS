@@ -38,6 +38,18 @@ class KillSwitchType(StrEnum):
     STRATEGY_KILL_SWITCH = "STRATEGY_KILL_SWITCH"
     INSTRUMENT_KILL_SWITCH = "INSTRUMENT_KILL_SWITCH"
     DATA_PROVIDER_KILL_SWITCH = "DATA_PROVIDER_KILL_SWITCH"
+    # The four below complete Document 007's required kill-switch vocabulary
+    # (docs/architecture/007_live_execution_compliance_security_incident_
+    # response.md). They are real, constructible types today, but nothing
+    # yet checks for them in PositionSizingEngine.assess()'s scope-matching
+    # -- there is no broker adapter, compliance-hold workflow, or security-
+    # incident auto-freeze to wire them into yet. Cataloged now, wired when
+    # those systems exist (see docs/architecture/010_incident_response_
+    # runbook.md).
+    BROKER_ADAPTER_KILL_SWITCH = "BROKER_ADAPTER_KILL_SWITCH"
+    RISK_ENGINE_KILL_SWITCH = "RISK_ENGINE_KILL_SWITCH"
+    COMPLIANCE_HOLD_KILL_SWITCH = "COMPLIANCE_HOLD_KILL_SWITCH"
+    SECURITY_INCIDENT_KILL_SWITCH = "SECURITY_INCIDENT_KILL_SWITCH"
 
 
 @dataclass(frozen=True)
@@ -197,7 +209,7 @@ class PositionSizingEngine:
                 strategy_id,
                 instrument_id,
             }:
-                reasons.append(f"KILL_SWITCH_ACTIVE:{switch.switch_type}")
+                reasons.append(f"KILL_SWITCH_ACTIVE:{switch.switch_type.value}")
                 active_blocking_kill_switch = True
         risk_state_blocks_exposure = side == "BUY" and state is PortfolioRiskState.EMERGENCY_EXIT
         if risk_state_blocks_exposure:

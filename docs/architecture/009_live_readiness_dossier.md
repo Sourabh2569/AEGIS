@@ -30,9 +30,13 @@ Remaining: `check_no_secrets.py` is a narrow regex (GitHub/AWS tokens, PEM keys)
 
 ## Gate 5 -- Operational readiness
 
-**Status: scaffolding only.** `KillSwitch`/`KillSwitchType` dataclasses exist and are wired into `PositionSizingEngine.assess()`, but per ADR 0026 they currently only ever gate simulated/paper order creation -- there is no live execution for them to actually kill yet. No incident-response runbook exists beyond Document 007's high-level principles (capital protection, containment, evidence preservation, facts, reconciliation, controlled recovery).
+**Status: real progress this pass, real gaps remain.** Full detail in `docs/architecture/010_incident_response_runbook.md`. Summary:
 
-Remaining: a real incident-response runbook; monitoring/alerting design (currently none -- issues are found by manually watching the Cockpit).
+- Kill switches now have real teeth: activate/deactivate both work for real (deactivate used to be a complete no-op -- a kill switch could never be turned back off), both are role-gated and require a documented reason, and an active switch now also blocks order execution (`execute_approved_orders`), not just new intent generation -- closing a real gap where a re-approved, previously-blocked intent could slip through. All 9 of Document 007's kill-switch types now exist in the vocabulary (were 5 of 9).
+- Incidents are real: `PaperReconciliationService` genuinely creates an incident and freezes the affected portfolio on a RED reconciliation. First-ever Cockpit UI for both kill switches and incidents (`/operations`).
+- **The one thing that isn't fixed and can't be yet**: reconciliation itself is never triggered in production, and even if it were, it's self-referential (no independent broker-reported data source to compare against) -- blocked on Phase 2's broker adapter. Building a "Reconcile Now" button today would be decorative, not real safety, so it wasn't built.
+
+Remaining: a real reconciliation trigger + independent data source (Phase 2); monitoring/alerting (currently none -- issues are found by manually opening the Cockpit); role/reason gating on incident resolution (noted as an adjacent gap in the runbook, not yet fixed); wiring the 4 newly-cataloged kill-switch types into real scope-matching once their corresponding systems exist.
 
 ## Gate 6 -- Legal and compliance readiness
 

@@ -3174,16 +3174,81 @@ def resolve_paper_incident(paper_incident_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/v1/kill-switches/{kill_switch_id}/activate")
-def activate_kill_switch(kill_switch_id: str) -> dict[str, Any]:
-    switch = paper_orchestrator.activate_kill_switch(
-        KillSwitchType.PORTFOLIO_KILL_SWITCH, kill_switch_id, "API activation"
+def activate_kill_switch(
+    kill_switch_id: str,
+    payload: dict[str, Any],
+    role: Role = Depends(
+        require_role(Role.FOUNDER, Role.RISK_REVIEWER, Role.PAPER_TRADING_OPERATOR)
+    ),
+) -> dict[str, Any]:
+    """`kill_switch_id` here is the real scope to kill -- "GLOBAL", a real
+    paper_portfolio_id, strategy_id, or instrument_id -- not an existing
+    switch's own id. Broad role set: pulling an emergency stop should be
+    easy for anyone with real risk/paper-trading authority, not gated to
+    the founder alone."""
+    switch_type_raw = str(payload.get("switch_type", ""))
+    reason = str(payload.get("reason", "")).strip()
+    if not reason:
+        raise HTTPException(
+            status_code=422, detail="A real reason is required to activate a kill switch."
+        )
+    try:
+        switch_type = KillSwitchType(switch_type_raw)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail=f"Unknown kill switch type: {switch_type_raw!r}"
+        ) from exc
+    switch = paper_orchestrator.activate_kill_switch(switch_type, kill_switch_id, reason)
+    audit_log.record(
+        event_type="KILL_SWITCH_ACTIVATED",
+        entity_type="KillSwitch",
+        entity_id=switch.id,
+        actor_type="USER",
+        actor_id=role.value,
+        action="ACTIVATE",
+        before_state=None,
+        after_state=jsonable(switch),
+        correlation_id=str(uuid4()),
     )
     return jsonable(switch)
 
 
 @app.post("/api/v1/kill-switches/{kill_switch_id}/deactivate")
-def deactivate_kill_switch(kill_switch_id: str) -> dict[str, Any]:
-    return {"kill_switch_id": kill_switch_id, "status": "DEACTIVATION_REQUIRES_DOCUMENTED_REVIEW"}
+def deactivate_kill_switch(
+    kill_switch_id: str,
+    payload: dict[str, Any],
+    role: Role = Depends(require_role(Role.FOUNDER, Role.RISK_REVIEWER)),
+) -> dict[str, Any]:
+    """`kill_switch_id` here is a real, already-created switch's own `id`
+    (from this endpoint's or the list endpoint's response), not a scope --
+    the asymmetry with activate() mirrors the real asymmetry in what each
+    action does (create-by-scope vs. target-an-existing-instance).
+    Deactivation only stops this switch from blocking future intents/orders
+    -- it does not retroactively un-block intents it already swept to
+    BLOCKED (see PaperTradingOrchestrator.deactivate_kill_switch's
+    docstring for why). Narrower role set than activate: resuming after an
+    emergency stop needs more authority than pulling it."""
+    reason = str(payload.get("reason", "")).strip()
+    if not reason:
+        raise HTTPException(
+            status_code=422,
+            detail="A documented reason is required to deactivate a kill switch.",
+        )
+    if kill_switch_id not in paper_orchestrator.repository.kill_switches:
+        raise HTTPException(status_code=404, detail=f"Unknown kill switch id: {kill_switch_id!r}")
+    deactivated = paper_orchestrator.deactivate_kill_switch(kill_switch_id, reason)
+    audit_log.record(
+        event_type="KILL_SWITCH_DEACTIVATED",
+        entity_type="KillSwitch",
+        entity_id=deactivated.id,
+        actor_type="USER",
+        actor_id=role.value,
+        action="DEACTIVATE",
+        before_state=None,
+        after_state=jsonable(deactivated),
+        correlation_id=str(uuid4()),
+    )
+    return jsonable(deactivated)
 
 
 @app.get("/api/v1/audit-events")

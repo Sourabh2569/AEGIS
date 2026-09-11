@@ -172,6 +172,58 @@ def test_kill_switch_blocks_pending_intent() -> None:
     assert repo.intents[intent.paper_trade_intent_id].intent_status == PaperIntentStatus.BLOCKED
 
 
+def test_deactivate_kill_switch_actually_clears_is_active() -> None:
+    """Regression test: the deactivate endpoint/service used to be a
+    complete no-op -- once activated, a kill switch could never be turned
+    back off."""
+    orch, repo, _, portfolio, _ = setup_active_orchestrator()
+    switch = orch.activate_kill_switch(
+        KillSwitchType.PORTFOLIO_KILL_SWITCH, portfolio.paper_portfolio_id, "test activation"
+    )
+    assert repo.kill_switches[switch.id].is_active is True
+
+    deactivated = orch.deactivate_kill_switch(switch.id, "reviewed and cleared for test")
+    assert deactivated.is_active is False
+    assert deactivated.reason == "reviewed and cleared for test"
+    assert repo.kill_switches[switch.id].is_active is False
+
+
+def test_active_kill_switch_blocks_execution_even_after_reapproval() -> None:
+    """Regression test: approve() doesn't check for an active kill switch,
+    so a kill-switch-blocked intent could be re-approved and then slip
+    through execute_approved_orders, which never checked kill switches at
+    all. This is the final guard -- an active kill switch must block
+    execution regardless of the intent's current approval status."""
+    orch, repo, _, portfolio, _ = setup_active_orchestrator()
+    intent = create_intent(orch, repo, portfolio)
+    orch.approvals.approve(
+        intent.paper_trade_intent_id,
+        "RISK_REVIEWER",
+        datetime(2026, 6, 26, 11, 0, tzinfo=UTC),
+    )
+    orch.activate_kill_switch(
+        KillSwitchType.PORTFOLIO_KILL_SWITCH, portfolio.paper_portfolio_id, "test"
+    )
+    assert repo.intents[intent.paper_trade_intent_id].intent_status == PaperIntentStatus.BLOCKED
+
+    # Simulate the real gap: approve() blindly re-approves regardless of the
+    # kill switch, flipping the intent back to APPROVED.
+    orch.approvals.approve(
+        intent.paper_trade_intent_id,
+        "RISK_REVIEWER",
+        datetime(2026, 6, 26, 11, 5, tzinfo=UTC),
+    )
+    assert repo.intents[intent.paper_trade_intent_id].intent_status == PaperIntentStatus.APPROVED
+
+    orders = orch.execute_approved_orders(
+        paper_portfolio_id=portfolio.paper_portfolio_id,
+        execution_time=datetime(2026, 6, 29, 3, 45, tzinfo=UTC),
+        reference_prices={"AEGIS-IN-000001": Decimal(113)},
+    )
+    assert orders[0].status == PaperOrderStatus.BLOCKED
+    assert orders[0].rejection_reason_nullable == "KILL_SWITCH_ACTIVE:PORTFOLIO_KILL_SWITCH"
+
+
 def test_evidence_package_has_paper_classification() -> None:
     orch, _, _, portfolio, _ = setup_active_orchestrator()
     package = orch.evidence_package(portfolio.paper_portfolio_id)

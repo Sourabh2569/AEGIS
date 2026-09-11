@@ -96,9 +96,12 @@ function Overview() {
             Real portfolio health, top signals, and earned milestones — one glance.
           </p>
         </div>
-        <div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
           <Link href="/live-readiness" className="hint">
             Live readiness evidence →
+          </Link>
+          <Link href="/operations" className="hint">
+            Kill switches &amp; incidents →
           </Link>
         </div>
       </div>
