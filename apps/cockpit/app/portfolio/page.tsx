@@ -16,6 +16,7 @@ import { apiGet, authPost } from "../api-client";
 import BarChart from "../bar-chart";
 import CockpitShell from "../cockpit-shell";
 import { KpiCard, KpiStrip } from "../kpi-strip";
+import { money } from "../money";
 import { fetchCombinedReturn, signedPct, type CombinedReturn } from "../portfolio-return";
 import { KpiStripSkeleton, PanelSkeleton } from "../skeleton";
 
@@ -71,10 +72,6 @@ type ActionStatus = { kind: "ok" | "error"; text: string };
 
 const PAST_TENSE: Record<string, string> = { pause: "paused", resume: "resumed", freeze: "frozen" };
 
-function money(value: string): string {
-  return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
-}
-
 function pct(value: string): string {
   return `${(Number(value) * 100).toFixed(2)}%`;
 }
@@ -115,7 +112,11 @@ function SummaryStrip() {
         <KpiCard
           icon={TrendingUp}
           label="Total AUM"
-          value={combined && combined.countWithNav > 0 ? money(String(combined.combinedNav)) : "n/a"}
+          value={
+            combined && combined.countWithNav > 0
+              ? money(combined.combinedNav, { compact: true })
+              : "n/a"
+          }
           delta={
             combined && combined.returnPct !== null
               ? { text: signedPct(combined.returnPct), tone: combined.returnPct >= 0 ? "pos" : "neg" }
@@ -148,7 +149,7 @@ function SummaryStrip() {
         <KpiCard
           icon={IndianRupee}
           label="Starting capital"
-          value={`₹${totalAum.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
+          value={money(totalAum, { compact: true })}
           caption="sum of real starting capital"
         />
       </KpiStrip>
@@ -268,7 +269,9 @@ function HealthPanel() {
             <div className="stat">
               <span className="stat-label">Latest NAV</span>
               <span className={`stat-value ${summary.latest_nav ? "" : "empty"}`}>
-                {summary.latest_nav ? money(summary.latest_nav.nav) : "Has not run a session yet"}
+                {summary.latest_nav
+                  ? money(summary.latest_nav.nav, { compact: true })
+                  : "Has not run a session yet"}
               </span>
             </div>
             <ul className="reasoning">
@@ -295,7 +298,7 @@ function HealthPanel() {
               </li>
               <li>
                 <span className="k">Starting capital</span>
-                <span className="v">{money(summary.portfolio.starting_capital)}</span>
+                <span className="v">{money(summary.portfolio.starting_capital, { compact: true })}</span>
               </li>
               <li>
                 <span className="k">Drawdown from high-water-mark</span>

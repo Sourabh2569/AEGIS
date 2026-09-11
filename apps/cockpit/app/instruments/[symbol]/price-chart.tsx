@@ -135,13 +135,16 @@ export default function PriceChart({
       })),
     );
 
+    // Text labels ("Rule fired"/"Rule ended") on every transition overlap
+    // into an unreadable smear once a real 10-year history has dozens of
+    // them -- the color-coded arrow alone (green up = eligible, red down =
+    // ineligible) carries the same information; the legend explains it once.
     candleSeriesRef.current.setMarkers(
       ruleEvents.map((event) => ({
         time: toTime(event.date),
         position: event.type === "ELIGIBILITY_START" ? "belowBar" : "aboveBar",
         color: event.type === "ELIGIBILITY_START" ? CHART_THEME.buy : CHART_THEME.sell,
         shape: event.type === "ELIGIBILITY_START" ? "arrowUp" : "arrowDown",
-        text: event.type === "ELIGIBILITY_START" ? "Rule fired" : "Rule ended",
       })),
     );
 

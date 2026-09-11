@@ -17,8 +17,10 @@ import { apiGet } from "../api-client";
 import CockpitShell from "../cockpit-shell";
 import { KpiCard, KpiStrip } from "../kpi-strip";
 import { AchievementGrid, type Achievement } from "../achievement-badge";
+import { money } from "../money";
 import { fetchCombinedReturn, signedPct, type CombinedReturn } from "../portfolio-return";
 import { Skeleton } from "../skeleton";
+import { shortName } from "../strategy-name";
 
 type Portfolio = {
   paper_portfolio_id: string;
@@ -41,10 +43,6 @@ type SignalRow = { symbol: string; signal: string; close: string; momentum_60: s
 type SignalsResponse = { signals: SignalRow[] };
 type AchievementsResponse = { achievements: Achievement[] };
 type Instrument = { aegis_instrument_id: string; current_symbol: string };
-
-function money(value: number): string {
-  return `₹${value.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
-}
 
 function Overview() {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
@@ -116,7 +114,11 @@ function Overview() {
         <KpiCard
           icon={IndianRupee}
           label="Total AUM"
-          value={combined && combined.countWithNav > 0 ? money(combined.combinedNav) : "n/a"}
+          value={
+            combined && combined.countWithNav > 0
+              ? money(combined.combinedNav, { compact: true })
+              : "n/a"
+          }
           delta={
             combined && combined.returnPct !== null
               ? { text: signedPct(combined.returnPct), tone: combined.returnPct >= 0 ? "pos" : "neg" }
@@ -127,7 +129,7 @@ function Overview() {
         <KpiCard
           icon={Wallet}
           label="Starting capital"
-          value={money(totalAum)}
+          value={money(totalAum, { compact: true })}
           caption={`across ${portfolios.length} real paper portfolios`}
         />
         <KpiCard
@@ -146,7 +148,7 @@ function Overview() {
           icon={Trophy}
           label="Best strategy ratio"
           value={bestRatio !== null ? `${bestRatio.toFixed(2)}x` : "n/a"}
-          caption={ranked.length > 0 ? ranked[0].strategy_id : "no backtest yet"}
+          caption={ranked.length > 0 ? shortName(ranked[0].strategy_id) : "no backtest yet"}
         />
       </KpiStrip>
 

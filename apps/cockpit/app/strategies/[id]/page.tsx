@@ -17,6 +17,7 @@ import { apiGet } from "../../api-client";
 import BarChart from "../../bar-chart";
 import CockpitShell from "../../cockpit-shell";
 import { KpiCard, KpiStrip } from "../../kpi-strip";
+import { money } from "../../money";
 import { KpiStripSkeleton, PanelSkeleton, Skeleton } from "../../skeleton";
 import EquityChart, { type EquityPoint } from "./equity-chart";
 import Gauge from "./gauge";
@@ -69,10 +70,6 @@ type StrategyDetail = {
 function pct(value: string | null): string {
   if (value === null) return "not available";
   return `${(Number(value) * 100).toFixed(2)}%`;
-}
-
-function money(value: string): string {
-  return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 }
 
 function Detail({ strategyId }: { strategyId: string }) {
@@ -298,7 +295,7 @@ function Detail({ strategyId }: { strategyId: string }) {
                   </span>
                   <span className="v">
                     {portfolio.run_status === "HAS_RUN"
-                      ? `${money(portfolio.latest_nav as string)} NAV, ${pct(portfolio.latest_drawdown)} drawdown`
+                      ? `${money(portfolio.latest_nav as string, { compact: true })} NAV, ${pct(portfolio.latest_drawdown)} drawdown`
                       : "has not run a session yet"}
                   </span>
                 </li>

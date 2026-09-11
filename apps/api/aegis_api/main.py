@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Iterable
 from dataclasses import asdict, replace
 from datetime import date, datetime
@@ -2558,21 +2559,29 @@ def _longest_leading_streak(
     return best_len, best_start, best_end
 
 
+def _short_strategy_name(strategy_id: str) -> str:
+    """Display-only shortening, mirroring the Cockpit's own shortName() --
+    identifiers used for matching/lookup elsewhere stay the full strategy_id;
+    only human-facing achievement text uses this."""
+    return re.sub(r"(Baseline|Benchmark)?StrategyV0$", "", strategy_id)
+
+
 def _benchmark_beater_achievements() -> list[dict[str, Any]]:
     latest = _latest_momentum_reports_by_strategy()
     momentum = latest.get("TrendFollowingBaselineStrategyV0")
     achievements: list[dict[str, Any]] = []
     for benchmark_id in ("EqualWeightUniverseBenchmarkStrategyV0", "BuyAndHoldBenchmarkStrategyV0"):
         benchmark = latest.get(benchmark_id)
+        benchmark_name = _short_strategy_name(benchmark_id)
         description = (
-            f"Beat {benchmark_id}'s real NAV for at least 3 consecutive real rebalance months."
+            f"Beat {benchmark_name}'s real NAV for at least 3 consecutive real rebalance months."
         )
         if momentum is None or benchmark is None:
             achievements.append(
                 {
                     "id": f"benchmark-beater-{benchmark_id}",
                     "category": "STRATEGY",
-                    "title": f"Benchmark Beater: {benchmark_id}",
+                    "title": f"Benchmark Beater: {benchmark_name}",
                     "description": description,
                     "achieved": False,
                     "achieved_at": None,
@@ -2591,15 +2600,15 @@ def _benchmark_beater_achievements() -> list[dict[str, Any]]:
             {
                 "id": f"benchmark-beater-{benchmark_id}",
                 "category": "STRATEGY",
-                "title": f"Benchmark Beater: {benchmark_id}",
+                "title": f"Benchmark Beater: {benchmark_name}",
                 "description": description,
                 "achieved": achieved,
                 "achieved_at": end if achieved else None,
                 "detail": (
-                    f"Beat {benchmark_id} for {streak} straight real rebalance months "
+                    f"Beat {benchmark_name} for {streak} straight real rebalance months "
                     f"({start} to {end})"
                     if streak > 0
-                    else f"Never led {benchmark_id} on a real rebalance month yet"
+                    else f"Never led {benchmark_name} on a real rebalance month yet"
                 ),
             }
         )

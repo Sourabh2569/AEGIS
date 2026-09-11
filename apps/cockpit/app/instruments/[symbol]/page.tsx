@@ -6,6 +6,7 @@ import { IndianRupee, Activity, ShieldAlert, BarChart3 } from "lucide-react";
 import { apiGet, authPost } from "../../api-client";
 import CockpitShell from "../../cockpit-shell";
 import { KpiCard, KpiStrip } from "../../kpi-strip";
+import { money } from "../../money";
 import { KpiStripSkeleton, Skeleton } from "../../skeleton";
 import PriceChart, { type Bar, type IndicatorPoint, type RuleEvent } from "./price-chart";
 import MomentumChart from "./momentum-chart";
@@ -66,11 +67,6 @@ function toNumber(value: string | null): number | null {
 function pct(value: string | null): string {
   if (value === null) return "not available";
   return `${(Number(value) * 100).toFixed(1)}%`;
-}
-
-function money(value: string | null): string {
-  if (value === null) return "not available";
-  return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 }
 
 function Decision({ symbol }: { symbol: string }) {
@@ -242,7 +238,7 @@ function Decision({ symbol }: { symbol: string }) {
         <KpiCard
           icon={BarChart3}
           label="20-day avg value traded"
-          value={inputs ? money(inputs.average_daily_value_traded_20) : "n/a"}
+          value={inputs ? money(inputs.average_daily_value_traded_20, { compact: true }) : "n/a"}
           caption="minimum ₹100,000 to be eligible"
         />
       </KpiStrip>
@@ -252,6 +248,13 @@ function Decision({ symbol }: { symbol: string }) {
           <div className="panel-head">
             <h2>Price &middot; SMA 50/200 &middot; ATR band</h2>
           </div>
+          <p className="hint chart-legend">
+            <span className="chart-legend-buy">&#9650; eligibility started</span>
+            <span className="chart-legend-sell">&#9660; eligibility ended</span>
+            <span>SMA 50</span>
+            <span>SMA 200</span>
+            <span>dashed &plusmn;2 ATR</span>
+          </p>
           <PriceChart bars={bars} indicators={indicators} ruleEvents={ruleEvents} />
           <MomentumChart indicators={indicators} />
         </div>

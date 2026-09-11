@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { apiGet } from "./api-client";
 import CockpitShell from "./cockpit-shell";
+import { money } from "./money";
 
 type Instrument = {
   aegis_instrument_id: string;
@@ -22,10 +23,6 @@ type SignalRow = {
 type SignalsResponse = { signals: SignalRow[]; warnings: string[] };
 
 type PaperPortfolio = { paper_portfolio_id: string; name: string; status: string };
-
-function money(value: string): string {
-  return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
-}
 
 function pct(value: string | null): string | null {
   if (value === null) return null;

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiGet } from "../api-client";
 import CockpitShell from "../cockpit-shell";
 import { KpiCard, KpiStrip } from "../kpi-strip";
+import { money } from "../money";
 import { KpiStripSkeleton, PanelSkeleton } from "../skeleton";
 
 const MOMENTUM_METER_SCALE = 0.5; // ±50% momentum fills the meter
@@ -38,9 +39,6 @@ function pct(value: string | null): string {
   return `${(Number(value) * 100).toFixed(1)}%`;
 }
 
-function money(value: string): string {
-  return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
-}
 
 function MomentumMeter({ momentum60 }: { momentum60: string | null }) {
   if (momentum60 === null) return null;

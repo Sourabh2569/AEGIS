@@ -1,13 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { Trophy, ListChecks, Award, Users, Wallet, BarChart3, Medal } from "lucide-react";
+import { Trophy, ListChecks, Award, Users, Wallet, BarChart3, LineChart, Medal } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { apiGet, authPost } from "../api-client";
 import BarChart from "../bar-chart";
+import { CHART_THEME } from "../chart-theme";
 import CockpitShell from "../cockpit-shell";
 import { KpiCard, KpiStrip } from "../kpi-strip";
+import { money } from "../money";
 import { KpiStripSkeleton, PanelSkeleton } from "../skeleton";
+import { isBenchmark, shortName } from "../strategy-name";
+import ComparisonChart, { type ComparisonCurve, type EquityPoint } from "./comparison-chart";
 import Sparkline from "./sparkline";
 
 type Backtest = {
@@ -48,18 +52,6 @@ function pct(value: string | null): string {
   return `${(Number(value) * 100).toFixed(2)}%`;
 }
 
-function money(value: string): string {
-  return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
-}
-
-function shortName(strategyId: string): string {
-  return strategyId.replace(/(Baseline|Benchmark)?StrategyV0$/, "");
-}
-
-function isBenchmark(strategyId: string): boolean {
-  return strategyId.includes("Benchmark");
-}
-
 const MEDAL_TONE = ["gold", "silver", "bronze"] as const;
 
 function RankMedal({ rank }: { rank: number }) {
@@ -71,6 +63,7 @@ function Leaderboard() {
   const [rows, setRows] = useState<LeaderboardRow[] | null>(null);
   const [running, setRunning] = useState(false);
   const [runStatus, setRunStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [equityCurves, setEquityCurves] = useState<Record<string, EquityPoint[]> | null>(null);
 
   const load = useCallback(() => {
     apiGet<LeaderboardRow[]>("/api/v1/strategies/leaderboard", []).then(setRows);
@@ -79,6 +72,22 @@ function Leaderboard() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    const withBacktest = (rows ?? []).filter((row) => row.backtest !== null);
+    if (withBacktest.length === 0) {
+      setEquityCurves(withBacktest.length === 0 && rows !== null ? {} : null);
+      return;
+    }
+    Promise.all(
+      withBacktest.map((row) =>
+        apiGet<{ backtest: { equity_curve: EquityPoint[] } | null } | null>(
+          `/api/v1/strategies/${row.strategy_id}/detail`,
+          null,
+        ).then((detail) => [row.strategy_id, detail?.backtest?.equity_curve ?? []] as const),
+      ),
+    ).then((pairs) => setEquityCurves(Object.fromEntries(pairs)));
+  }, [rows]);
 
   async function handleRunBacktest() {
     setRunning(true);
@@ -173,7 +182,7 @@ function Leaderboard() {
                   <KpiCard
                     icon={Wallet}
                     label="Live AUM"
-                    value={money(String(totalLiveAum))}
+                    value={money(totalLiveAum, { compact: true })}
                     caption="combined latest NAV"
                   />
                 </KpiStrip>
@@ -197,6 +206,47 @@ function Leaderboard() {
                     </div>
                   </div>
                 )}
+
+                {(() => {
+                  if (!equityCurves) return null;
+                  let benchmarkIndex = 0;
+                  const benchmarkColors = [CHART_THEME.hold, CHART_THEME.benchmark];
+                  const curves: ComparisonCurve[] = withBacktest
+                    .filter((row) => (equityCurves[row.strategy_id] ?? []).length > 1)
+                    .map((row) => {
+                      const benchmark = isBenchmark(row.strategy_id);
+                      return {
+                        label: shortName(row.strategy_id),
+                        color: benchmark
+                          ? benchmarkColors[benchmarkIndex++ % benchmarkColors.length]
+                          : CHART_THEME.accent,
+                        lineWidth: benchmark ? 1 : 2,
+                        lineStyle: benchmark ? 2 : 0,
+                        points: equityCurves[row.strategy_id],
+                      };
+                    });
+                  if (curves.length === 0) return null;
+                  return (
+                    <div className="panel" style={{ marginBottom: 18 }}>
+                      <div className="panel-head">
+                        <h2>
+                          <LineChart size={15} />
+                          Real backtest NAV over time
+                        </h2>
+                      </div>
+                      <div className="panel-body">
+                        <p className="hint chart-legend" style={{ marginTop: 0 }}>
+                          {curves.map((curve) => (
+                            <span key={curve.label} style={{ color: curve.color }}>
+                              {curve.label}
+                            </span>
+                          ))}
+                        </p>
+                        <ComparisonChart curves={curves} />
+                      </div>
+                    </div>
+                  );
+                })()}
               </>
             );
           })()}
@@ -311,8 +361,8 @@ function Leaderboard() {
                           <li>
                             <span className="k">Combined NAV / start</span>
                             <span className="v">
-                              {money(row.live.combined_latest_nav)} /{" "}
-                              {money(row.live.combined_starting_capital)}
+                              {money(row.live.combined_latest_nav, { compact: true })} /{" "}
+                              {money(row.live.combined_starting_capital, { compact: true })}
                             </span>
                           </li>
                           <li>
