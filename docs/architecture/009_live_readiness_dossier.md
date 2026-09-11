@@ -63,7 +63,9 @@ This research is a starting point for the founder's own verification, not a subs
 
 ## Gate 7 -- Governance readiness
 
-**Status: not started.** Document 007 asks for "explicit founder, risk, security, compliance, and legal approval" before Phase 5. For a solo operator this means personally, explicitly signing off on each of those concerns -- this dossier is intended as the checklist that sign-off would be made against, once Gates 1-6 have real evidence behind them.
+**Status: process defined, no real sign-off exists yet.** `docs/architecture/011_governance_signoff_protocol.md` defines what "explicit founder, risk, security, compliance, and legal approval" means for a one-person operation: five separate, dated, evidence-referencing decisions, not one vague "yeah, I approve" -- any single "DO NOT APPROVE" blocks the whole thing. The fillable template lives at `docs/governance/signoffs/TEMPLATE.md`; a real sign-off is a new dated copy under `docs/governance/signoffs/`, committed and never edited after the fact (a new dated sign-off supersedes an old one).
+
+Remaining: everything -- no real sign-off has been attempted, and one shouldn't be until Gates 1-6 show real, sustained evidence (a completed sign-off is necessary but not sufficient; it doesn't substitute for the other gates actually being ready).
 
 ## Gate 8 -- Controlled live pilot readiness
 
