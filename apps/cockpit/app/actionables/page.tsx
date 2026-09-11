@@ -98,7 +98,7 @@ function Feed() {
             value={selectedPortfolio}
             onChange={(event) => setSelectedPortfolio(event.target.value)}
           >
-            <option value="">No portfolio selected (BUY only)</option>
+            <option value="">No portfolio (show BUY candidates only)</option>
             {portfolios.map((portfolio) => (
               <option key={portfolio.paper_portfolio_id} value={portfolio.paper_portfolio_id}>
                 {portfolio.name} ({portfolio.status})
@@ -161,6 +161,9 @@ function Feed() {
               </h2>
             </div>
             <div className="panel-body">
+              <p className="hint" style={{ marginTop: 0 }}>
+                Held positions the strategy&rsquo;s rules say to exit as of {data.as_of}.
+              </p>
               {sells.length === 0 ? (
                 <p className="hint">
                   No held positions have dropped out of eligibility right now.
@@ -168,7 +171,7 @@ function Feed() {
               ) : (
                 <ul className="reasoning">
                   {sells.map((row) => (
-                    <li key={row.aegis_instrument_id}>
+                    <li key={row.aegis_instrument_id} className="tone-accent neg">
                       <span className="k">
                         <Link href={`/instruments/${row.symbol}`}>{row.symbol}</Link>{" "}
                         <span className="hint">held {row.held_quantity}</span>
@@ -203,6 +206,9 @@ function Feed() {
               </h2>
             </div>
             <div className="panel-body">
+              <p className="hint" style={{ marginTop: 0 }}>
+                New candidates the strategy&rsquo;s rules say to enter as of {data.as_of}.
+              </p>
               {buys.length === 0 ? (
                 <p className="hint">
                   No instruments are currently eligible under the real strategy rules.
@@ -210,7 +216,7 @@ function Feed() {
               ) : (
                 <ul className="reasoning">
                   {buys.map((row) => (
-                    <li key={row.aegis_instrument_id}>
+                    <li key={row.aegis_instrument_id} className="tone-accent pos">
                       <span className="k">
                         <Link href={`/instruments/${row.symbol}`}>{row.symbol}</Link>
                       </span>

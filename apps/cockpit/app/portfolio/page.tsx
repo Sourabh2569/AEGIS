@@ -1,12 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { ClipboardCheck, Wallet, Layers, Activity, ListTodo, IndianRupee, BarChart3 } from "lucide-react";
+import {
+  ClipboardCheck,
+  Wallet,
+  Layers,
+  Activity,
+  ListTodo,
+  IndianRupee,
+  BarChart3,
+  TrendingUp,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { apiGet, authPost } from "../api-client";
 import BarChart from "../bar-chart";
 import CockpitShell from "../cockpit-shell";
 import { KpiCard, KpiStrip } from "../kpi-strip";
+import { fetchCombinedReturn, signedPct, type CombinedReturn } from "../portfolio-return";
 import { KpiStripSkeleton, PanelSkeleton } from "../skeleton";
 
 type Portfolio = {
@@ -79,14 +89,18 @@ function statusPillClass(status: string): string {
 function SummaryStrip() {
   const [portfolios, setPortfolios] = useState<Portfolio[] | null>(null);
   const [intents, setIntents] = useState<Intent[] | null>(null);
+  const [combined, setCombined] = useState<CombinedReturn | null>(null);
 
   useEffect(() => {
-    apiGet<Portfolio[]>("/api/v1/paper-portfolios", []).then(setPortfolios);
+    apiGet<Portfolio[]>("/api/v1/paper-portfolios", []).then((data) => {
+      setPortfolios(data);
+      fetchCombinedReturn(data).then(setCombined);
+    });
     apiGet<Intent[]>("/api/v1/paper-trade-intents", []).then(setIntents);
   }, []);
 
   if (!portfolios || !intents) {
-    return <KpiStripSkeleton count={4} />;
+    return <KpiStripSkeleton count={5} />;
   }
 
   const activeCount = portfolios.filter((p) => p.status === "ACTIVE").length;
@@ -98,6 +112,21 @@ function SummaryStrip() {
   return (
     <>
       <KpiStrip>
+        <KpiCard
+          icon={TrendingUp}
+          label="Total AUM"
+          value={combined && combined.countWithNav > 0 ? money(String(combined.combinedNav)) : "n/a"}
+          delta={
+            combined && combined.returnPct !== null
+              ? { text: signedPct(combined.returnPct), tone: combined.returnPct >= 0 ? "pos" : "neg" }
+              : null
+          }
+          caption={
+            combined
+              ? `current NAV across ${combined.countWithNav} of ${portfolios.length} portfolios`
+              : undefined
+          }
+        />
         <KpiCard
           icon={Layers}
           label="Total portfolios"
@@ -118,7 +147,7 @@ function SummaryStrip() {
         />
         <KpiCard
           icon={IndianRupee}
-          label="Total AUM"
+          label="Starting capital"
           value={`₹${totalAum.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
           caption="sum of real starting capital"
         />

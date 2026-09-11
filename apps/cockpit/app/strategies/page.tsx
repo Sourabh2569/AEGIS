@@ -56,6 +56,10 @@ function shortName(strategyId: string): string {
   return strategyId.replace(/(Baseline|Benchmark)?StrategyV0$/, "");
 }
 
+function isBenchmark(strategyId: string): boolean {
+  return strategyId.includes("Benchmark");
+}
+
 const MEDAL_TONE = ["gold", "silver", "bronze"] as const;
 
 function RankMedal({ rank }: { rank: number }) {
@@ -185,7 +189,7 @@ function Leaderboard() {
                     <div className="panel-body">
                       <BarChart
                         data={withBacktest.map((row) => ({
-                          label: shortName(row.strategy_id),
+                          label: `${shortName(row.strategy_id)} (${isBenchmark(row.strategy_id) ? "benchmark" : "strategy"})`,
                           value: Number(row.backtest!.total_return) * 100,
                         }))}
                         formatValue={(v) => `${v.toFixed(1)}%`}
@@ -214,6 +218,11 @@ function Leaderboard() {
                 <Link href={`/strategies/${row.strategy_id}`} className="leaderboard-name">
                   {row.strategy_id}
                 </Link>
+                <span
+                  className={`strategy-kind-tag ${isBenchmark(row.strategy_id) ? "benchmark" : "strategy"}`}
+                >
+                  {isBenchmark(row.strategy_id) ? "Benchmark" : "Strategy"}
+                </span>
                 {row.equity_curve_sparkline && (
                   <Sparkline
                     values={row.equity_curve_sparkline}

@@ -1032,62 +1032,73 @@ main.content {
   background: var(--sell-soft);
 }
 
-/* ---------- Bar chart ---------- */
+/* ---------- Bar chart ----------
+   Horizontal rows, not vertical columns: the label gets its own fixed
+   column (no truncation), and a value with a wide real range (e.g. 287.7%
+   vs 32.8%) still reads clearly against faint 25/50/75% gridlines instead
+   of being squashed toward a minimum-height floor. */
 
 .bar-chart {
   display: flex;
-  align-items: flex-end;
-  gap: 14px;
-  height: 160px;
-  padding: 8px 4px 0;
-  overflow-x: auto;
-}
-
-.bar-chart-col {
-  display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 34px;
-  height: 100%;
+  gap: 10px;
+  padding: 4px 0;
 }
 
-.bar-chart-value {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-soft);
-  white-space: nowrap;
-}
-
-.bar-chart-track {
-  flex: 1;
-  width: 100%;
+.bar-chart-row {
   display: flex;
-  align-items: flex-end;
-  justify-content: center;
-}
-
-.bar-chart-bar {
-  width: 60%;
-  min-width: 10px;
-  border-radius: 4px 4px 0 0;
-}
-.bar-chart-bar.pos {
-  background: var(--buy);
-}
-.bar-chart-bar.neg {
-  background: var(--sell);
+  align-items: center;
+  gap: 12px;
 }
 
 .bar-chart-label {
-  font-size: 10.5px;
-  color: var(--text-faint);
-  white-space: nowrap;
-  max-width: 60px;
+  flex: 0 0 190px;
+  font-size: 12px;
+  line-height: 1.25;
+  color: var(--text-soft);
+  white-space: normal;
+  word-break: break-word;
+}
+
+.bar-chart-track {
+  position: relative;
+  flex: 1;
+  height: 18px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.bar-chart-grid {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(to right, var(--border) 1px, transparent 1px);
+  background-size: 25% 100%;
+  pointer-events: none;
+}
+
+.bar-chart-bar {
+  position: relative;
+  height: 100%;
+  min-width: 3px;
+  border-radius: 3px;
+}
+.bar-chart-bar.bar-pos {
+  background: var(--buy);
+}
+.bar-chart-bar.bar-neg {
+  background: var(--sell);
+}
+
+.bar-chart-value {
+  flex: 0 0 68px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
 }
 
 /* ---------- Status pill ---------- */
@@ -1133,6 +1144,51 @@ main.content {
   box-shadow:
     0 0 0 1px var(--accent),
     0 10px 28px -12px rgba(47, 111, 237, 0.35);
+}
+
+/* ---------- Strategy kind tag (real strategy vs. benchmark) ---------- */
+
+.strategy-kind-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.strategy-kind-tag.strategy {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.strategy-kind-tag.benchmark {
+  color: var(--neutral);
+  background: var(--neutral-soft);
+}
+
+/* ---------- Tone accent (one shared left-edge color rule, reused by the
+   Instruments grid and the Actionables feed, so "color coding" means the
+   same thing everywhere rather than being reimplemented per screen) ---------- */
+
+.tone-accent {
+  border-left: 3px solid var(--border);
+}
+.tone-accent.pos {
+  border-left-color: var(--buy);
+}
+.tone-accent.neg {
+  border-left-color: var(--sell);
+}
+.tone-accent.hold {
+  border-left-color: var(--hold);
+}
+.tone-accent.neutral {
+  border-left-color: var(--neutral);
+}
+
+.reasoning li.tone-accent {
+  padding-left: 10px;
 }
 
 .panel-head.alert::before {

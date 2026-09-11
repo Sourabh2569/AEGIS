@@ -10,12 +10,14 @@ import {
   Zap,
   TrendingUp,
   Award,
+  IndianRupee,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { apiGet } from "../api-client";
 import CockpitShell from "../cockpit-shell";
 import { KpiCard, KpiStrip } from "../kpi-strip";
 import { AchievementGrid, type Achievement } from "../achievement-badge";
+import { fetchCombinedReturn, signedPct, type CombinedReturn } from "../portfolio-return";
 import { Skeleton } from "../skeleton";
 
 type Portfolio = {
@@ -51,9 +53,13 @@ function Overview() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
   const [achievements, setAchievements] = useState<Achievement[] | null>(null);
   const [topSignals, setTopSignals] = useState<SignalRow[]>([]);
+  const [combined, setCombined] = useState<CombinedReturn | null>(null);
 
   useEffect(() => {
-    apiGet<Portfolio[]>("/api/v1/paper-portfolios", []).then(setPortfolios);
+    apiGet<Portfolio[]>("/api/v1/paper-portfolios", []).then((data) => {
+      setPortfolios(data);
+      fetchCombinedReturn(data).then(setCombined);
+    });
     apiGet<Intent[]>("/api/v1/paper-trade-intents", []).then(setIntents);
     apiGet<Instrument[]>("/api/v1/instruments", []).then(setInstruments);
     apiGet<LeaderboardRow[]>("/api/v1/strategies/leaderboard", []).then(setLeaderboard);
@@ -108,8 +114,19 @@ function Overview() {
 
       <KpiStrip>
         <KpiCard
-          icon={Wallet}
+          icon={IndianRupee}
           label="Total AUM"
+          value={combined && combined.countWithNav > 0 ? money(combined.combinedNav) : "n/a"}
+          delta={
+            combined && combined.returnPct !== null
+              ? { text: signedPct(combined.returnPct), tone: combined.returnPct >= 0 ? "pos" : "neg" }
+              : null
+          }
+          caption={combined ? `current NAV across ${combined.countWithNav} portfolios` : undefined}
+        />
+        <KpiCard
+          icon={Wallet}
+          label="Starting capital"
           value={money(totalAum)}
           caption={`across ${portfolios.length} real paper portfolios`}
         />

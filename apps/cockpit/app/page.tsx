@@ -32,6 +32,41 @@ function pct(value: string | null): string | null {
   return `${(Number(value) * 100).toFixed(1)}%`;
 }
 
+const SIGNAL_RANK: Record<string, number> = { BUY: 0, HOLD: 1, SELL: 2, NO_POSITION: 3 };
+
+function toneAccentClass(signal: string | undefined): string {
+  if (signal === "BUY") return "tone-accent pos";
+  if (signal === "SELL") return "tone-accent neg";
+  if (signal === "HOLD") return "tone-accent hold";
+  return "tone-accent neutral";
+}
+
+function sortInstruments(
+  list: Instrument[],
+  signalsById: Map<string, SignalRow>,
+  mode: "signal" | "alpha",
+): Instrument[] {
+  if (mode === "alpha") {
+    return [...list].sort((a, b) => a.current_symbol.localeCompare(b.current_symbol));
+  }
+  return [...list].sort((a, b) => {
+    const signalA = signalsById.get(a.aegis_instrument_id);
+    const signalB = signalsById.get(b.aegis_instrument_id);
+    const rankA = signalA ? SIGNAL_RANK[signalA.signal] ?? 4 : 4;
+    const rankB = signalB ? SIGNAL_RANK[signalB.signal] ?? 4 : 4;
+    if (rankA !== rankB) return rankA - rankB;
+    const momentumA =
+      signalA?.momentum_60 !== null && signalA?.momentum_60 !== undefined
+        ? Number(signalA.momentum_60)
+        : -Infinity;
+    const momentumB =
+      signalB?.momentum_60 !== null && signalB?.momentum_60 !== undefined
+        ? Number(signalB.momentum_60)
+        : -Infinity;
+    return momentumB - momentumA;
+  });
+}
+
 function InstrumentCard({
   instrument,
   signalRow,
@@ -51,7 +86,10 @@ function InstrumentCard({
       : null;
 
   return (
-    <Link href={`/instruments/${instrument.current_symbol}`} className="instrument-card">
+    <Link
+      href={`/instruments/${instrument.current_symbol}`}
+      className={`instrument-card ${toneAccentClass(signalRow?.signal)}`}
+    >
       <div className="instrument-card-head">
         <span className={`instrument-avatar ${tone}`}>
           {instrument.current_symbol.slice(0, 2)}
@@ -88,6 +126,7 @@ function Home() {
   const [selectedPortfolio, setSelectedPortfolio] = useState("");
   const [query, setQuery] = useState("");
   const [buyOnly, setBuyOnly] = useState(false);
+  const [sortMode, setSortMode] = useState<"signal" | "alpha">("signal");
 
   useEffect(() => {
     apiGet<Instrument[]>("/api/v1/instruments", []).then((data) =>
@@ -121,6 +160,8 @@ function Home() {
     if (buyOnly) return signalsById.get(instrument.aegis_instrument_id)?.signal === "BUY";
     return true;
   });
+
+  const sorted = sortInstruments(filtered, signalsById, sortMode);
 
   return (
     <div>
@@ -163,10 +204,14 @@ function Home() {
           />
           BUY only ({buyCount})
         </label>
+        <select value={sortMode} onChange={(event) => setSortMode(event.target.value as "signal" | "alpha")}>
+          <option value="signal">Sort: Signal priority</option>
+          <option value="alpha">Sort: A–Z</option>
+        </select>
       </div>
 
       <div className="instrument-grid">
-        {filtered.map((instrument) => (
+        {sorted.map((instrument) => (
           <InstrumentCard
             key={instrument.current_symbol}
             instrument={instrument}

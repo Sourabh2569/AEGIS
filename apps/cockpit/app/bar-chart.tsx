@@ -15,14 +15,17 @@ export default function BarChart({
     <div className="bar-chart">
       {data.map((datum) => {
         const tone = datum.tone ?? (datum.value >= 0 ? "pos" : "neg");
-        const heightPct = Math.max((Math.abs(datum.value) / max) * 100, 3);
+        const widthPct = Math.max((Math.abs(datum.value) / max) * 100, 2);
         return (
-          <div className="bar-chart-col" key={datum.label}>
-            <div className="bar-chart-value">{format(datum.value)}</div>
-            <div className="bar-chart-track">
-              <div className={`bar-chart-bar ${tone}`} style={{ height: `${heightPct}%` }} />
+          <div className="bar-chart-row" key={datum.label}>
+            <div className="bar-chart-label" title={datum.label}>
+              {datum.label}
             </div>
-            <div className="bar-chart-label">{datum.label}</div>
+            <div className="bar-chart-track">
+              <span className="bar-chart-grid" />
+              <div className={`bar-chart-bar bar-${tone}`} style={{ width: `${widthPct}%` }} />
+            </div>
+            <div className="bar-chart-value">{format(datum.value)}</div>
           </div>
         );
       })}
