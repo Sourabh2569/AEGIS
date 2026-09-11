@@ -40,9 +40,26 @@ Remaining: a real reconciliation trigger + independent data source (Phase 2); mo
 
 ## Gate 6 -- Legal and compliance readiness
 
-**Status: not started, and not something engineering can complete.** Confirmed scope: this is for the founder's own personal trading account and capital, not a multi-user product -- a materially smaller regulatory question (a broker's retail algo-trading framework, not SEBI investment-adviser/portfolio-manager registration). Still requires: confirming directly with Zerodha whether a personal Kite Connect app used for automated order placement needs algo-ID tagging or other disclosure under SEBI's current algo-trading framework for retail investors, and reading that framework directly.
+**Status: real regulatory framework identified; founder action still required, not something engineering can complete.** Confirmed scope: this is for the founder's own personal trading account and capital, not a multi-user product -- a materially smaller regulatory question (a broker's retail algo-trading framework, not SEBI investment-adviser/portfolio-manager registration).
 
-Remaining: everything. This is a real action item for the founder, not a code change.
+**Research findings (public sources, 2026-09-11 -- verify currency before relying on this; not legal advice):**
+
+- SEBI issued a real, binding circular on 4 Feb 2025 ("Safer participation of retail investors in Algorithmic trading," `SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/0000013`) covering exactly AEGIS's situation: strategy-driven orders placed via a broker API (Kite Connect), not manual clicks. Implementation was phased through late 2025, with brokers required to be fully compliant by 5 January 2026 -- i.e. this framework is **already in force today**, not a future concern.
+- **Kite Connect is explicitly in scope.** Zerodha's own Kite Connect FAQ states that *"Kite Publisher"* (a manual-click order widget) falls outside SEBI's algo framework because a human places each order -- by clear implication, Kite Connect (what AEGIS's adapter uses, and what would place any future live order) does not get that exemption.
+- **The real, concrete requirements found:**
+  - A retail individual automating their own strategy at **≤10 orders/second (per segment per exchange)** does not need formal exchange algo-ID registration -- AEGIS's real trading pattern (monthly rebalances, single-digit order counts) is nowhere near this threshold.
+  - **Even so, orders must still be tagged** -- unregistered/personal algos get a generic identifying tag rather than a unique registered algo ID, but tagging itself is not optional.
+  - **A static IP dedicated to the API key is required** for API-based order placement under this framework.
+  - Anything **above** 10 orders/second requires formal exchange registration with a unique algo ID, approved through the broker -- not relevant to AEGIS's actual trading pattern, but worth knowing as the line not to cross.
+- **What's not publicly documented**: Zerodha's own general Kite Connect FAQ does not lay out a clear self-service page for how a personal API user actually gets tagged/registered under this framework -- the practical mechanism has to come directly from Zerodha, not from public docs.
+
+**Remaining -- real action items for the founder, not code:**
+1. Contact Zerodha's Kite Connect / API support team directly and ask, specifically: "I use the Kite Connect API to place my own trades on my own account, well under 10 orders/second -- what do I need to do under SEBI's Feb 2025 retail algo trading circular (tagging, static IP, anything else)?"
+2. Read the actual SEBI circular text directly (not secondhand summaries, including this one) before relying on any of the above.
+3. Set up the static IP for the API key regardless of what else is required -- it's a concrete, unambiguous requirement already identified.
+4. Given this framework only fully came into force in the last few months, confirm nothing has changed since this research was done before treating this gate as evidenced.
+
+This research is a starting point for the founder's own verification, not a substitute for it -- consistent with Document 007's stance that Gate 6 cannot be satisfied by engineering work alone.
 
 ## Gate 7 -- Governance readiness
 
