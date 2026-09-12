@@ -57,6 +57,7 @@ from aegis.paper_trading.services import (
     all_readiness_green,
 )
 from aegis.provider_adapters.csv_provider import CsvFileProvider
+from aegis.provider_adapters.fundamentals_manual_import import FundamentalsManualImportProvider
 from aegis.provider_adapters.fundamentals_nse_provider import NseFundamentalsProvider
 from aegis.provider_adapters.kite_connect_provider import (
     CURATED_INSTRUMENT_METADATA,
@@ -126,6 +127,11 @@ backtest_repo = BacktestRepository()
 # with the running dev server, permanently leaving test-only portfolios,
 # intents, and frozen-by-design test fixtures in real data.
 work_dir = Path(os.environ.get("AEGIS_WORK_DIR", "work"))
+# Where a human drops real, manually-downloaded XBRL filings -- one file per
+# symbol (fundamentals_manual_import/{SYMBOL}.xml). Created eagerly so the
+# directory is discoverable even before the first file is ever placed.
+fundamentals_manual_import_base_path = work_dir / "fundamentals_manual_import"
+fundamentals_manual_import_base_path.mkdir(parents=True, exist_ok=True)
 object_store = LocalObjectStore(work_dir / "object_store")
 ingestion_service = ProviderIngestionService(
     object_store=object_store,
@@ -242,6 +248,29 @@ fundamentals_dataset = Dataset(
     criticality="NON_CRITICAL",
 )
 datasets[fundamentals_dataset.id] = fundamentals_dataset
+fundamentals_manual_import_provider_record = DataProvider(
+    name="fundamentals_manual_import",
+    provider_type="LOCAL_FILE_IMPORT",
+    base_url_or_reference=f"file://{work_dir / 'fundamentals_manual_import'}",
+)
+providers[fundamentals_manual_import_provider_record.id] = fundamentals_manual_import_provider_record
+licenses[fundamentals_manual_import_provider_record.id] = ProviderLicense(
+    provider_id=fundamentals_manual_import_provider_record.id,
+    license_status=ProviderLicenseStatus.APPROVED,
+    permitted_use=(
+        "Real fundamentals from XBRL filings a human deliberately downloaded themselves "
+        "and placed locally, one real file per symbol -- no automated network access, so "
+        "NSE's Terms of Use prohibition on automated data collection (see "
+        "fundamentals_nse_provider_record above) does not apply. See "
+        "docs/data_activation_sprint/fundamentals_provider_decision.md."
+    ),
+    automation_rights=False,
+    backtesting_rights=True,
+    model_training_rights=False,
+    dashboard_display_rights=True,
+    data_retention_period="indefinite-local",
+    legal_review_status="APPROVED",
+)
 sector_screener_provider_record = DataProvider(
     name="kite_connect_sector_screener",
     provider_type="LIVE_READONLY_MARKET_DATA",
@@ -1068,6 +1097,37 @@ def sync_sector_screener_data(
             "mode": settings.data_source_mode,
             "health": health,
             "runs": {"historical_eod_ohlcv": eod_run},
+        }
+    )
+
+
+@app.post("/api/v1/fundamentals-manual-import/sync")
+def sync_fundamentals_manual_import(
+    cid: str = Depends(correlation_id),
+    role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD)),
+) -> dict[str, Any]:
+    """Real fundamentals ingestion from human-downloaded local XBRL files --
+    no network access at all, so this is never blocked the way
+    fundamentals_nse_provider's automated pipeline is. Drop a real filing at
+    work/fundamentals_manual_import/{SYMBOL}.xml (one file per symbol,
+    overwrite each quarter with the latest download) and call this endpoint
+    to parse and store it. Reuses ProviderIngestionService.ingest_fundamentals
+    unchanged -- same real provenance (raw_snapshot_hash, dataset_origin) as
+    every other real data source in AEGIS."""
+    provider = FundamentalsManualImportProvider(
+        base_path=fundamentals_manual_import_base_path,
+        license_=licenses[fundamentals_manual_import_provider_record.id],
+    )
+    run = ingestion_service.ingest_fundamentals(
+        provider=provider,
+        provider_id=fundamentals_manual_import_provider_record.id,
+        dataset_id=fundamentals_dataset.id,
+        correlation_id=cid,
+    )
+    return jsonable(
+        {
+            "base_path": str(fundamentals_manual_import_base_path),
+            "run": run,
         }
     )
 
@@ -2519,7 +2579,7 @@ def get_instrument_fundamentals(symbol: str) -> dict[str, Any]:
     return {
         "symbol": canonical,
         "available": True,
-        "dataset_origin": "ACTUAL_PROVIDER_DATA",
+        "dataset_origin": record.get("dataset_origin", "ACTUAL_PROVIDER_DATA"),
         "period_from": record.get("period_from"),
         "period_to": record.get("period_to"),
         "filing_date": record.get("filing_date"),

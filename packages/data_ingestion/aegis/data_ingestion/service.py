@@ -388,12 +388,20 @@ class ProviderIngestionService:
             lineage_record_exists=True,
         )
         self.repository.dataset_versions[dataset_version.id] = dataset_version
-        self.repository.dataset_origins[dataset_version.id] = getattr(
-            provider, "dataset_origin", "FIXTURE_DATA"
-        )
+        dataset_origin = getattr(provider, "dataset_origin", "FIXTURE_DATA")
+        self.repository.dataset_origins[dataset_version.id] = dataset_origin
         for record in normalized:
             symbol = str(record.get("symbol"))
-            self.repository.latest_fundamentals[symbol] = record
+            # Real, per-record origin -- distinct sources (an automated
+            # provider fetch vs. a human-approved local file import) must
+            # report honestly which one actually happened, not a hardcoded
+            # value at read time. See fundamentals_manual_import.py and
+            # fundamentals_nse_provider.py, which have different real
+            # dataset_origin values despite sharing this same ingestion path.
+            self.repository.latest_fundamentals[symbol] = {
+                **record,
+                "dataset_origin": dataset_origin,
+            }
 
         completed = self._complete_layer_run(
             run,
