@@ -458,9 +458,29 @@ def live_readonly_adapter() -> LiveReadOnlyMarketDataProvider | KiteConnectMarke
     )
 
 
+# Real, NSE-verified sector grouping already used elsewhere (see
+# sector_by_instrument_id above) -- Information Technology was chosen for
+# this pilot specifically because it's confirmed homogeneous: all 5 real
+# companies file under the same generic Ind-AS XBRL taxonomy the parser was
+# built against (INDAS_*.xml). Financial Services (11 companies, the
+# largest real sector) was considered and rejected for this pass -- banks
+# file under a materially different "BANKING_*.xml" taxonomy with entirely
+# different tag names (InterestEarned, ProfitLossForThePeriod, etc., not
+# RevenueFromOperations/ProfitBeforeTax/ProfitLossForPeriod), confirmed by
+# fetching a real HDFCBANK filing. Supporting banks/NBFCs/insurers honestly
+# would need separate tag-mapping work, not attempted here. See
+# docs/data_activation_sprint/fundamentals_provider_decision.md.
+FUNDAMENTALS_PILOT_SECTOR = "Information Technology"
+FUNDAMENTALS_PILOT_SYMBOLS = [
+    symbol
+    for symbol, metadata in CURATED_INSTRUMENT_METADATA.items()
+    if metadata.sector == FUNDAMENTALS_PILOT_SECTOR
+]
+
+
 def fundamentals_nse_adapter() -> NseFundamentalsProvider:
     return NseFundamentalsProvider(
-        symbols=["RELIANCE"],
+        symbols=FUNDAMENTALS_PILOT_SYMBOLS,
         license_=licenses[fundamentals_nse_provider_record.id],
         configured=settings.fundamentals_nse_enabled,
     )

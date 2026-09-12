@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import time
 from pathlib import Path
 
 import pytest
@@ -76,8 +78,6 @@ DISCOVERY_RESPONSE = b"""
 
 
 def test_find_latest_standalone_filing_picks_newest_non_consolidated() -> None:
-    import json
-
     records = json.loads(DISCOVERY_RESPONSE)
     filing = find_latest_standalone_filing(records, symbol="RELIANCE")
     assert filing is not None
@@ -125,9 +125,11 @@ def test_fetch_fundamentals_end_to_end_against_fake_client() -> None:
             "https://nsearchives.nseindia.com/corporate/xbrl/INDAS_117298_1348254_16012025082021.xml": xml_bytes,
         }
     )
-    provider = NseFundamentalsProvider(http_client=client, symbols=["RELIANCE"], configured=True)
+    provider = NseFundamentalsProvider(
+        http_client=client, symbols=["RELIANCE"], configured=True, min_request_interval_seconds=0
+    )
     envelope = provider.fetch_fundamentals()
-    assert envelope.metadata["skipped_symbols"] == []
+    assert envelope.metadata["skipped_symbols"] == {}
     assert len(envelope.payload) == 1
     record = envelope.payload[0]
     assert record["symbol"] == "RELIANCE"
@@ -139,6 +141,113 @@ def test_fetch_fundamentals_end_to_end_against_fake_client() -> None:
         DISCOVERY_URL,
         "https://nsearchives.nseindia.com/corporate/xbrl/INDAS_117298_1348254_16012025082021.xml",
     ]
+
+
+IT_SECTOR_FIXTURES = {
+    "TCS": ("tcs_q3_fy2025_standalone.xml", "538830000000.00", "118320000000.00"),
+    "HCLTECH": ("hcltech_q3_fy2025_standalone.xml", "132740000000.00", "35260000000.00"),
+    "INFY": ("infy_q3_fy2025_standalone.xml", "349150000000.00", "63580000000.00"),
+    "TECHM": ("techm_q3_fy2025_standalone.xml", "111762000000.00", "8583000000.00"),
+    "WIPRO": ("wipro_q3_fy2025_standalone.xml", "168030000000.00", "28121000000.00"),
+}
+
+
+def _discovery_response_for(symbol: str, xbrl_url: str) -> bytes:
+    return json.dumps(
+        [
+            {
+                "companyName": symbol,
+                "consolidated": "Non-Consolidated",
+                "filingDate": "17-Jan-2025 16:17",
+                "fromDate": "01-Oct-2024",
+                "toDate": "31-Dec-2024",
+                "isin": "TEST",
+                "symbol": symbol,
+                "xbrl": xbrl_url,
+            }
+        ]
+    ).encode("utf-8")
+
+
+def test_fetch_fundamentals_across_a_real_multi_company_sector() -> None:
+    """Verifies the parser generalizes across 5 real IT-sector filings, not
+    just the one Reliance filing it was originally built against -- each
+    fixture is a real captured quarterly filing for a different company."""
+    responses: dict[str, bytes] = {}
+    for symbol, (filename, _revenue, _profit) in IT_SECTOR_FIXTURES.items():
+        discovery_url = (
+            "https://www.nseindia.com/api/corporates-financial-results"
+            f"?index=equities&period=Quarterly&symbol={symbol}"
+        )
+        xbrl_url = f"https://nsearchives.nseindia.com/corporate/xbrl/test-{symbol}.xml"
+        responses[discovery_url] = _discovery_response_for(symbol, xbrl_url)
+        responses[xbrl_url] = (
+            Path(__file__).resolve().parents[1] / "fixtures" / "xbrl" / filename
+        ).read_bytes()
+
+    provider = NseFundamentalsProvider(
+        http_client=FakeHttpClient(responses),
+        symbols=list(IT_SECTOR_FIXTURES.keys()),
+        configured=True,
+        min_request_interval_seconds=0,
+    )
+    envelope = provider.fetch_fundamentals()
+    assert envelope.metadata["skipped_symbols"] == {}
+    assert len(envelope.payload) == 5
+    by_symbol = {record["symbol"]: record for record in envelope.payload}
+    for symbol, (_filename, revenue, profit) in IT_SECTOR_FIXTURES.items():
+        assert by_symbol[symbol]["revenue_from_operations"] == revenue
+        assert by_symbol[symbol]["profit_for_period"] == profit
+
+
+def test_one_companys_failure_does_not_abort_the_rest_of_the_batch() -> None:
+    good_xbrl_url = "https://nsearchives.nseindia.com/corporate/xbrl/good.xml"
+    good_discovery_url = (
+        "https://www.nseindia.com/api/corporates-financial-results"
+        "?index=equities&period=Quarterly&symbol=GOOD"
+    )
+    client = FakeHttpClient(
+        {
+            good_discovery_url: _discovery_response_for("GOOD", good_xbrl_url),
+            good_xbrl_url: FIXTURE_PATH.read_bytes(),
+            # BROKEN's discovery URL is deliberately absent from responses --
+            # FakeHttpClient.get() raises AssertionError for it, simulating a
+            # real network/server failure for just that one company.
+        }
+    )
+    provider = NseFundamentalsProvider(
+        http_client=client,
+        symbols=["BROKEN", "GOOD"],
+        configured=True,
+        min_request_interval_seconds=0,
+    )
+    envelope = provider.fetch_fundamentals()
+    assert len(envelope.payload) == 1
+    assert envelope.payload[0]["symbol"] == "GOOD"
+    assert "BROKEN" in envelope.metadata["skipped_symbols"]
+    assert "AssertionError" in envelope.metadata["skipped_symbols"]["BROKEN"]
+
+
+def test_requests_are_throttled_between_companies() -> None:
+    good_xbrl_url = "https://nsearchives.nseindia.com/corporate/xbrl/good.xml"
+    good_discovery_url = (
+        "https://www.nseindia.com/api/corporates-financial-results"
+        "?index=equities&period=Quarterly&symbol=GOOD"
+    )
+    client = FakeHttpClient({good_discovery_url: _discovery_response_for("GOOD", good_xbrl_url)})
+    provider = NseFundamentalsProvider(
+        http_client=client,
+        symbols=["GOOD"],
+        configured=True,
+        min_request_interval_seconds=0.05,
+    )
+    started = time.monotonic()
+    provider.fetch_fundamentals()
+    elapsed = time.monotonic() - started
+    # Two real requests (discovery, then the XBRL doc -- even though the
+    # second one 404s via FakeHttpClient's AssertionError, throttling already
+    # happened before that failure) at >=0.05s apart must take >=0.05s total.
+    assert elapsed >= 0.05
 
 
 def test_fetch_fundamentals_refuses_when_not_configured() -> None:

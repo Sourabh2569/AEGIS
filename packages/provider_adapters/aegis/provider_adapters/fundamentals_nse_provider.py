@@ -17,25 +17,36 @@ Known gaps (do not fabricate data for these):
   items (total assets, total equity) are not present in this filing type;
   reading those would mean parsing a different filing (annual report XBRL),
   not attempted here.
-- Only the "Non-Consolidated" filing is read (matches the one real filing
-  this adapter was built and tested against --
-  tests/fixtures/xbrl/reliance_q3_fy2025_standalone.xml). A consolidated
-  variant may report different figures; not read here.
+- Only the "Non-Consolidated" filing is read (matches every real filing
+  this adapter was built and tested against -- see tests/fixtures/xbrl/,
+  one real captured quarterly filing each for RELIANCE, TCS, HCLTECH, INFY,
+  TECHM, WIPRO). A consolidated variant may report different figures; not
+  read here.
 - Only tags confirmed present and correctly scoped by real XBRL context in
-  that captured filing are mapped (see FUNDAMENTALS_TAGS). Any company or
+  those captured filings are mapped (see FUNDAMENTALS_TAGS). Any company or
   period whose filing doesn't carry a context matching the filing's own
   declared (fromDate, toDate) is honestly skipped, never guessed from a
   context-naming convention (e.g. "OneD"/"FourD" are filer-specific, not a
   reliable cross-company signal of "this quarter" vs "cumulative").
+- **Only companies filing under the generic Ind-AS taxonomy are supported.**
+  Banks/NBFCs/insurers file under a materially different taxonomy (confirmed
+  by fetching a real HDFCBANK filing: "BANKING_*.xml", tags like
+  InterestEarned/ProfitLossForThePeriod, not RevenueFromOperations/
+  ProfitBeforeTax/ProfitLossForPeriod) -- pointing this adapter at a
+  financial-sector symbol will honestly skip it (no mapped tags match), not
+  silently return wrong numbers. Supporting those sectors needs separate,
+  real tag-mapping work against a real captured filing from each, not
+  attempted here. See fundamentals_provider_decision.md.
 - Storage is keyed by real market symbol, not aegis_instrument_id -- a
-  deliberate simplification for this one-company pilot; scaling to the full
-  universe should remap through the same sector_by_instrument_id-style
-  lookup already used elsewhere in main.py.
+  deliberate simplification for this pilot's scale (currently one sector,
+  5-11 companies); a full-universe rollout should remap through the same
+  sector_by_instrument_id-style lookup already used elsewhere in main.py.
 """
 
 from __future__ import annotations
 
 import json
+import time
 import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -174,10 +185,18 @@ class NseFundamentalsProvider:
         symbols: list[str] | None = None,
         license_: ProviderLicense | None = None,
         configured: bool = False,
+        min_request_interval_seconds: float = 1.0,
     ) -> None:
         self._http_client = http_client or UrllibHttpClient()
         self._symbols = symbols or ["RELIANCE"]
         self.configured = configured
+        # Real politeness toward a public archive that wasn't built to serve
+        # bulk automated traffic -- one real HTTP request per this many
+        # seconds, across both the discovery API and XBRL downloads. Tests
+        # pass 0 to stay fast; see kite_connect_provider.py's identical
+        # historical_data_min_interval_seconds pattern.
+        self._min_request_interval_seconds = min_request_interval_seconds
+        self._last_request_at: float | None = None
         self._license = license_ or ProviderLicense(
             provider_id="fundamentals-nse",
             license_status=ProviderLicenseStatus.PENDING,
@@ -227,30 +246,48 @@ class NseFundamentalsProvider:
     def _now(self) -> datetime:
         return datetime.now(UTC)
 
+    def _throttle(self) -> None:
+        if self._last_request_at is not None:
+            elapsed = time.monotonic() - self._last_request_at
+            remaining = self._min_request_interval_seconds - elapsed
+            if remaining > 0:
+                time.sleep(remaining)
+        self._last_request_at = time.monotonic()
+
+    def _get(self, url: str) -> bytes:
+        self._throttle()
+        return self._http_client.get(url)
+
     def _latest_filing(self, symbol: str) -> FundamentalsFilingRef | None:
         url = (
             "https://www.nseindia.com/api/corporates-financial-results"
             f"?index=equities&period=Quarterly&symbol={symbol}"
         )
-        records = json.loads(self._http_client.get(url))
+        records = json.loads(self._get(url))
         return find_latest_standalone_filing(records, symbol=symbol)
 
     def fetch_fundamentals(self) -> ProviderResponseEnvelope:
         self._assert_configured()
         now = self._now().isoformat()
         payload: list[dict[str, Any]] = []
-        skipped: list[str] = []
+        skipped: dict[str, str] = {}
         for symbol in self._symbols:
-            filing = self._latest_filing(symbol)
-            if filing is None:
-                skipped.append(symbol)
-                continue
-            xml_bytes = self._http_client.get(filing.xbrl_url)
-            values = parse_xbrl_fundamentals(
-                xml_bytes, period_from=filing.period_from, period_to=filing.period_to
-            )
-            if not values:
-                skipped.append(symbol)
+            try:
+                filing = self._latest_filing(symbol)
+                if filing is None:
+                    skipped[symbol] = "no standalone quarterly filing found"
+                    continue
+                xml_bytes = self._get(filing.xbrl_url)
+                values = parse_xbrl_fundamentals(
+                    xml_bytes, period_from=filing.period_from, period_to=filing.period_to
+                )
+                if not values:
+                    skipped[symbol] = "filing found but no mapped tags matched its declared period"
+                    continue
+            except Exception as exc:  # noqa: BLE001 -- one company's failure (network
+                # error, malformed response, etc.) must never abort fetching the
+                # rest of the batch; the real reason is recorded, not swallowed.
+                skipped[symbol] = f"{type(exc).__name__}: {exc}"
                 continue
             payload.append(
                 {

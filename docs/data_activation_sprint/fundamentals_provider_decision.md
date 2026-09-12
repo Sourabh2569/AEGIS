@@ -65,12 +65,49 @@ automated access for this kind of research use is permitted, before ever
 setting `FUNDAMENTALS_NSE_ENABLED=true` and flipping the license to
 `APPROVED`.
 
+## Update: scaled from one company to one real sector (Information Technology)
+
+The initial pilot covered `RELIANCE` only. Scaling it up surfaced a real,
+important finding: **fundamentals filings are not one uniform format across
+sectors.** A real HDFCBANK filing was fetched and inspected -- banks file
+under a materially different XBRL taxonomy (`BANKING_*.xml`, tags like
+`InterestEarned`/`ProfitLossForThePeriod`) than the generic Ind-AS taxonomy
+(`INDAS_*.xml`, `RevenueFromOperations`/`ProfitBeforeTax`/
+`ProfitLossForPeriod`) Reliance's filing uses. "Financial Services" is
+AEGIS's largest real sector (11 companies: banks, NBFCs, insurers) but
+would need separate, real tag-mapping work per sub-industry to support
+honestly -- not attempted in this pass.
+
+**Information Technology was chosen instead**: 5 real companies already in
+`CURATED_INSTRUMENT_METADATA` (TCS, HCLTECH, INFY, TECHM, WIPRO), confirmed
+homogeneous -- every one of them files under the same generic Ind-AS
+taxonomy as Reliance. Verified by fetching all 5 real Q3 FY2024-25
+standalone filings live and confirming the existing parser (unchanged)
+correctly extracts real, plausible revenue/profit figures from each --
+checked into `tests/fixtures/xbrl/` alongside the original Reliance one and
+exercised by `test_fetch_fundamentals_across_a_real_multi_company_sector`.
+
+Two real adapter changes came out of scaling past one company:
+- **Per-company failure isolation**: one company's fetch failing (network
+  error, malformed response) no longer aborts the whole batch -- the real
+  reason is recorded per-symbol in `skipped_symbols` instead.
+- **Real request throttling**: a real minimum interval between HTTP
+  requests (`min_request_interval_seconds`, default 1s), mirroring
+  `kite_connect_provider.py`'s identical pattern -- basic politeness toward
+  a public archive that wasn't built for bulk automated traffic, now that
+  this fetches ~12 real requests instead of 2.
+
+`FUNDAMENTALS_PILOT_SECTOR`/`FUNDAMENTALS_PILOT_SYMBOLS` in
+`apps/api/aegis_api/main.py` derive the symbol list from the same real,
+NSE-verified `CURATED_INSTRUMENT_METADATA` sector data already used
+elsewhere (`sector_by_instrument_id`) -- not a separately maintained list.
+
 ## What this pilot deliberately does not cover
 
-- **One company only** (`RELIANCE`, already in `CURATED_INSTRUMENT_METADATA`).
-  Proving the pipeline is real and honest end-to-end mattered more than
-  coverage for this pass -- see the adapter's module docstring for the exact
-  "Known gaps."
+- **One sector only** (Information Technology, 5 companies). Financial
+  Services, and every other sector, needs its own real tag-mapping
+  verification before being added -- see "Known gaps" in the adapter's
+  module docstring.
 - **Only quarterly results, standalone, P&L-shaped fields** (revenue, profit
   before tax, profit for the period). No balance sheet (total assets, total
   equity) -- those live in a different filing type (annual report XBRL),
