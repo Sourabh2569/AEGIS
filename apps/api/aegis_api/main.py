@@ -203,10 +203,11 @@ fundamentals_nse_provider_record = DataProvider(
 providers[fundamentals_nse_provider_record.id] = fundamentals_nse_provider_record
 licenses[fundamentals_nse_provider_record.id] = ProviderLicense(
     provider_id=fundamentals_nse_provider_record.id,
-    license_status=ProviderLicenseStatus.PENDING,
+    license_status=ProviderLicenseStatus.REJECTED,
     permitted_use=(
-        "Real fundamentals ingestion pending founder review of NSE's terms of use for "
-        "automated access to its public XBRL corporate-filings archive -- see "
+        "None -- NSE's real Terms of Use (reviewed 2026-09-12) explicitly prohibit "
+        "'systematic or automated data collection activities (including scraping, data "
+        "mining, data extraction and data harvesting)'. See "
         "docs/data_activation_sprint/fundamentals_provider_decision.md"
     ),
     automation_rights=False,
@@ -214,7 +215,7 @@ licenses[fundamentals_nse_provider_record.id] = ProviderLicense(
     model_training_rights=False,
     dashboard_display_rights=False,
     data_retention_period="not-recorded",
-    legal_review_status="PENDING_TOS_REVIEW",
+    legal_review_status="REJECTED_TOS_PROHIBITS_AUTOMATION",
 )
 fundamentals_dataset = Dataset(
     name="fundamentals",
@@ -479,6 +480,10 @@ FUNDAMENTALS_PILOT_SYMBOLS = [
 
 
 def fundamentals_nse_adapter() -> NseFundamentalsProvider:
+    # This provider's real license is REJECTED (see the ProviderLicense
+    # registered above) -- NSE's Terms of Use prohibit automated data
+    # collection, reviewed and confirmed 2026-09-12. ProviderLicenseGuard
+    # refuses real ingestion regardless of FUNDAMENTALS_NSE_ENABLED.
     return NseFundamentalsProvider(
         symbols=FUNDAMENTALS_PILOT_SYMBOLS,
         license_=licenses[fundamentals_nse_provider_record.id],
@@ -2317,9 +2322,10 @@ def get_instrument_ohlcv(
 def get_instrument_fundamentals(symbol: str) -> dict[str, Any]:
     """Real, if present -- repo.latest_fundamentals is only ever populated by
     an actual ProviderIngestionService.ingest_fundamentals() run, which
-    itself refuses to execute while fundamentals_nse_provider_record's
-    license stays PENDING (see fundamentals_nse_adapter()). Never fabricates
-    a value for an instrument that hasn't had a real filing ingested."""
+    itself refuses to execute now that fundamentals_nse_provider_record's
+    license is REJECTED (NSE's Terms of Use prohibit automated collection --
+    see fundamentals_provider_decision.md). Never fabricates a value for an
+    instrument that hasn't had a real filing ingested."""
     canonical, _aegis_instrument_id = _resolve_symbol(symbol)
     record = repo.latest_fundamentals.get(canonical)
     if record is None:

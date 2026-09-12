@@ -1,5 +1,47 @@
 # Fundamentals Provider Decision
 
+**Status: reviewed 2026-09-12. NSE's Terms of Use prohibit this, so the
+provider's real license is `REJECTED`, not `PENDING`. This pipeline must
+not be pointed at NSE for real, sustained use.**
+
+NSE's Terms of Use (`https://www.nseindia.com/static/nse-terms-of-use`,
+read in full this session) state, verbatim:
+
+> "User is prohibited to conduct any systematic or automated data
+> collection activities (including scraping, data mining, data extraction
+> and data harvesting) on or in relation to our Website / Mobile
+> Application."
+
+The same page also restricts reuse of downloaded content more broadly
+("shall not be copied, modified, reverse engineer, reproduced, uploaded,
+transmitted, posted, stored ... without prior written permission of NSE").
+This is unambiguous and directly on point -- the adapter's real HTTP calls
+to NSE's discovery API and XBRL archive are exactly the kind of automated
+collection this clause names. Technical feasibility (confirmed real and
+working, see below) does not establish permission; the terms say no.
+
+**What this means concretely**: both `fundamentals_nse_provider.py`'s
+default `ProviderLicense` and the one registered in `apps/api/aegis_api/main.py`
+are now `ProviderLicenseStatus.REJECTED` (was `PENDING`).
+`ProviderLicenseGuard.assert_ingestion_allowed()` refuses
+`ProviderIngestionService.ingest_fundamentals()` unconditionally as a
+result -- this is a real, structural, permanent block, not a "review later"
+placeholder. The parsing/adapter code itself stays in the repo, tested and
+working, as a reference for a genuinely licensed source in the future --
+but it must never be pointed at NSE's real endpoints for sustained use.
+
+**A real compliant path, if this is worth pursuing further**: NSE does sell
+historical/bulk market data commercially (contact `marketdata@nse.co.in`,
+per NSE's own EOD/historical-data subscription page) -- but that channel is
+documented for EOD price/order/trade data (bhavcopy), not corporate-filings
+fundamentals specifically, and using it would mean a real commercial
+license agreement, not a config flag. Whether NSE (or another vendor) sells
+a licensed fundamentals/XBRL feed at all wasn't checked -- that's real,
+separate research for the founder to decide is worth pursuing, not
+something to build against speculatively.
+
+---
+
 AEGIS's `fundamentals_nse` adapter
 (`packages/provider_adapters/aegis/provider_adapters/fundamentals_nse_provider.py`)
 implements the `MarketDataProvider` protocol's `fetch_fundamentals()` for real,
@@ -37,33 +79,27 @@ out, which could have been mistaken for proof of blocking) or defaulting to
 a paid vendor without first checking the free, public, regulatory-disclosure
 path the brief itself preferred.
 
-## What was NOT verified, and is a real, separate action item
+## The ToS review, and why this stays blocked regardless of the enable flag
 
-**NSE's Terms of Use for automated/bulk access to this public archive have
-not been read and confirmed by the founder.** A page being technically
-fetchable does not by itself establish that sustained, automated access is
-permitted under the site's terms -- this needs the same real verification
-already applied to Gate 6 (SEBI's retail algo-trading circular) in
-`009_live_readiness_dossier.md`, not an assumption.
+This is the same real verification already applied to Gate 6 (SEBI's
+retail algo-trading circular) in `009_live_readiness_dossier.md` --
+technical feasibility was confirmed real, and then the terms governing
+that access were actually read, not assumed. The answer here is negative,
+unlike Gate 6.
 
-Until that review happens:
-- `fundamentals_nse_provider_record`'s `ProviderLicense` in `apps/api/aegis_api/main.py`
-  stays `PENDING` (`legal_review_status="PENDING_TOS_REVIEW"`).
+- `fundamentals_nse_provider_record`'s `ProviderLicense` in
+  `apps/api/aegis_api/main.py` is now `REJECTED`
+  (`legal_review_status="REJECTED_TOS_PROHIBITS_AUTOMATION"`).
 - `ProviderLicenseGuard.assert_ingestion_allowed()` refuses
-  `ProviderIngestionService.ingest_fundamentals()` for real while it's
-  `PENDING` -- verified by test
-  (`tests/integration/test_fundamentals_ingestion.py::test_ingest_fundamentals_is_blocked_while_license_is_pending`).
-- `FUNDAMENTALS_NSE_ENABLED` (`.env`) also defaults `false` -- a second,
-  independent off-switch, even though there's no credential to configure
-  (the endpoints are public); this keeps the pipeline from running by
-  accident before both the flag and the license are real, deliberate
-  choices.
-
-**Real action item for the founder**: read NSE's actual Terms of Use /
-disclaimer covering its public data archives, and confirm whether sustained
-automated access for this kind of research use is permitted, before ever
-setting `FUNDAMENTALS_NSE_ENABLED=true` and flipping the license to
-`APPROVED`.
+  `ProviderIngestionService.ingest_fundamentals()` unconditionally as a
+  result -- verified by test
+  (`tests/integration/test_fundamentals_ingestion.py::test_ingest_fundamentals_is_blocked_because_nse_tos_rejects_automation`).
+- `FUNDAMENTALS_NSE_ENABLED` (`.env`) still defaults `false` too, but note
+  this is now academic: even setting it `true` cannot make real ingestion
+  succeed, since `REJECTED` is a hard block in `ProviderLicenseGuard`
+  regardless of that flag. The flag was originally meant as an interim
+  off-switch pending review; the review is done, and its answer stands
+  independently of it now.
 
 ## Update: scaled from one company to one real sector (Information Technology)
 

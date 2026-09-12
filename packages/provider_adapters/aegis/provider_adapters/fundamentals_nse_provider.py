@@ -1,15 +1,19 @@
 """NSE fundamentals adapter -- real, structured company financial-statement
 data parsed from NSE's own public corporate-filings XBRL archive.
 
-See docs/data_activation_sprint/fundamentals_provider_decision.md for the
-real feasibility check performed before writing this (NSE's discovery API
-and static XBRL archive were both fetched live and confirmed publicly
-accessible with no login wall) and for the one real open item: NSE's Terms
-of Use for automated access to this archive has not yet been reviewed by
-the founder. This provider's ProviderLicense stays PENDING on purpose --
-ProviderLicenseGuard.assert_ingestion_allowed() refuses real ingestion until
-that review happens and the license is flipped to APPROVED, exactly
-mirroring how kite_connect_provider.py's own default license starts PENDING.
+**This provider's real ProviderLicense is REJECTED, permanently, by design.**
+NSE's own Terms of Use (https://www.nseindia.com/static/nse-terms-of-use,
+reviewed 2026-09-12) explicitly prohibit "systematic or automated data
+collection activities (including scraping, data mining, data extraction and
+data harvesting)" on their site -- exactly what this adapter's real HTTP
+calls do. Technical feasibility was real (confirmed live: NSE's discovery
+API and XBRL archive are both publicly fetchable, no login wall), but
+feasibility isn't permission. This code is kept as a working, tested
+reference for the real parsing logic (it may be reusable against a
+genuinely licensed data source later) but must never have its license
+flipped to APPROVED against NSE itself. See
+docs/data_activation_sprint/fundamentals_provider_decision.md for the full
+finding and what a compliant path would actually require.
 
 Known gaps (do not fabricate data for these):
 - Only quarterly RESULTS filings are read today -- these carry P&L-shaped
@@ -199,17 +203,22 @@ class NseFundamentalsProvider:
         self._last_request_at: float | None = None
         self._license = license_ or ProviderLicense(
             provider_id="fundamentals-nse",
-            license_status=ProviderLicenseStatus.PENDING,
+            license_status=ProviderLicenseStatus.REJECTED,
             permitted_use=(
-                "Real fundamentals ingestion pending founder review of NSE's terms of "
-                "use for automated access to its public XBRL corporate-filings archive"
+                "None -- NSE's real Terms of Use (https://www.nseindia.com/static/nse-terms-of-use, "
+                "reviewed 2026-09-12) explicitly state: 'User is prohibited to conduct any "
+                "systematic or automated data collection activities (including scraping, "
+                "data mining, data extraction and data harvesting) on or in relation to our "
+                "Website / Mobile Application.' This adapter's real HTTP calls to NSE's "
+                "public discovery API and XBRL archive are exactly that. See "
+                "docs/data_activation_sprint/fundamentals_provider_decision.md."
             ),
             automation_rights=False,
             backtesting_rights=False,
             model_training_rights=False,
             dashboard_display_rights=False,
             data_retention_period="not-recorded",
-            legal_review_status="PENDING_TOS_REVIEW",
+            legal_review_status="REJECTED_TOS_PROHIBITS_AUTOMATION",
         )
 
     def __getattr__(self, name: str) -> Any:

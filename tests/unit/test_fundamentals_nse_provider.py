@@ -263,11 +263,14 @@ def test_dataset_origin_is_honest_about_configuration() -> None:
     assert configured.dataset_origin == "ACTUAL_PROVIDER_DATA"
 
 
-def test_license_defaults_to_pending() -> None:
+def test_license_defaults_to_rejected_because_nse_tos_prohibits_automation() -> None:
+    # NSE's real Terms of Use were reviewed 2026-09-12 and explicitly
+    # prohibit automated data collection -- this isn't a placeholder
+    # "pending review" state, the review is done and the answer is no.
     provider = NseFundamentalsProvider(http_client=FakeHttpClient({}))
     license_ = provider.get_license_status()
     assert license_ is not None
-    assert license_.license_status == ProviderLicenseStatus.PENDING
+    assert license_.license_status == ProviderLicenseStatus.REJECTED
 
 
 def test_get_source_metadata_declares_real_capabilities_and_gaps() -> None:

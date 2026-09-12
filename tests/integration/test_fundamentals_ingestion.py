@@ -47,7 +47,7 @@ class FakeHttpClient:
         return self._responses[url]
 
 
-def _pending_provider() -> NseFundamentalsProvider:
+def _rejected_provider() -> NseFundamentalsProvider:
     return NseFundamentalsProvider(http_client=FakeHttpClient(), symbols=["RELIANCE"], configured=True)
 
 
@@ -75,10 +75,10 @@ def _service(tmp_path: Path) -> ProviderIngestionService:
     )
 
 
-def test_ingest_fundamentals_is_blocked_while_license_is_pending(tmp_path: Path) -> None:
+def test_ingest_fundamentals_is_blocked_because_nse_tos_rejects_automation(tmp_path: Path) -> None:
     service = _service(tmp_path)
-    provider = _pending_provider()
-    assert provider.get_license_status().license_status == ProviderLicenseStatus.PENDING
+    provider = _rejected_provider()
+    assert provider.get_license_status().license_status == ProviderLicenseStatus.REJECTED
     with pytest.raises(PermissionError):
         service.ingest_fundamentals(
             provider=provider, provider_id="fundamentals-nse", dataset_id="fundamentals"
