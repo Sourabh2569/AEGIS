@@ -565,6 +565,7 @@ class KiteConnectMarketDataProvider:
         *,
         client: KiteClientProtocol | None = None,
         tradingsymbols: list[str] | None = None,
+        metadata: dict[str, CuratedInstrumentMetadata] | None = None,
         benchmark_tradingsymbol: str = DEFAULT_BENCHMARK_TRADINGSYMBOL,
         lookback_days: int = 3650,
         license_: ProviderLicense | None = None,
@@ -572,7 +573,14 @@ class KiteConnectMarketDataProvider:
         historical_data_min_interval_seconds: float = HISTORICAL_DATA_MIN_INTERVAL_SECONDS,
     ) -> None:
         self._client = client
-        self._tradingsymbols = tradingsymbols or list(CURATED_INSTRUMENT_METADATA.keys())
+        # Injectable so this adapter is genuinely reusable for a second,
+        # separately-curated universe (e.g. the Sector Screener) -- every
+        # internal lookup below uses self._metadata, never the module-level
+        # CURATED_INSTRUMENT_METADATA directly, so a caller passing a
+        # different metadata dict + tradingsymbols list gets a fully correct
+        # adapter, not one that silently resolves zero symbols.
+        self._metadata = metadata if metadata is not None else CURATED_INSTRUMENT_METADATA
+        self._tradingsymbols = tradingsymbols or list(self._metadata.keys())
         self._benchmark_tradingsymbol = benchmark_tradingsymbol
         self._lookback_days = lookback_days
         self._historical_data_min_interval_seconds = historical_data_min_interval_seconds
@@ -645,7 +653,7 @@ class KiteConnectMarketDataProvider:
         payload: list[dict[str, Any]] = []
         unmapped: list[str] = []
         for symbol in self._tradingsymbols:
-            curated = CURATED_INSTRUMENT_METADATA.get(symbol)
+            curated = self._metadata.get(symbol)
             row = self._resolve_tradingsymbol(symbol)
             if curated is None or row is None:
                 unmapped.append(symbol)
@@ -744,7 +752,7 @@ class KiteConnectMarketDataProvider:
         self._assert_configured()
         payload: list[dict[str, Any]] = []
         for symbol in self._tradingsymbols:
-            curated = CURATED_INSTRUMENT_METADATA.get(symbol)
+            curated = self._metadata.get(symbol)
             if curated is None:
                 continue
             payload.extend(self._historical_bars(symbol, curated.aegis_instrument_id))
@@ -765,14 +773,14 @@ class KiteConnectMarketDataProvider:
         instrument_keys = [
             f"NSE:{symbol}"
             for symbol in self._tradingsymbols
-            if symbol in CURATED_INSTRUMENT_METADATA
+            if symbol in self._metadata
         ]
         quotes = self._client.quote(instrument_keys) if instrument_keys else {}  # type: ignore[union-attr]
         now = self._now().isoformat()
         payload: list[dict[str, Any]] = []
         for key, data in quotes.items():
             symbol = key.split(":", 1)[-1]
-            curated = CURATED_INSTRUMENT_METADATA.get(symbol)
+            curated = self._metadata.get(symbol)
             if curated is None:
                 continue
             depth = data.get("depth", {})

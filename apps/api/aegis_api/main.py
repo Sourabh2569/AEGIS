@@ -64,6 +64,7 @@ from aegis.provider_adapters.kite_connect_provider import (
 )
 from aegis.provider_adapters.live_readonly_provider import LiveReadOnlyMarketDataProvider
 from aegis.provider_adapters.mock_provider import MockMarketDataProvider
+from aegis.provider_adapters.sector_screener_instruments import SECTOR_SCREENER_INSTRUMENTS
 from aegis.research_activation.evidence_review import ResearchEvidenceReviewGate
 from aegis.research_activation.service import HistoricalResearchActivationService
 from aegis.research_registry.sprint2 import RESEARCH_LABELS
@@ -129,6 +130,22 @@ object_store = LocalObjectStore(work_dir / "object_store")
 ingestion_service = ProviderIngestionService(
     object_store=object_store,
     repository=repo,
+    audit_log=audit_log,
+)
+# Genuinely separate object store + repository for the Sector Screener
+# universe (Pharmaceuticals / Solar & Renewable Energy / Electronics
+# Manufacturing) -- load_real_eod_bars() globs *within* whatever root it's
+# given, so a real, physically separate root here is what keeps this
+# universe's price history from ever competing with the main 50-instrument
+# universe's freshness tie-break in load_real_eod_bars(object_store.root).
+# See docs/data_activation_sprint/ (Sector Screener isolation) for why this
+# matters -- a shared store was found this session to risk silently merging
+# a second universe into the existing backtests/actionables/paper-trading
+# pipeline the moment anyone ran a sync.
+sector_screener_object_store = LocalObjectStore(work_dir / "sector_screener_object_store")
+sector_screener_ingestion_service = ProviderIngestionService(
+    object_store=sector_screener_object_store,
+    repository=InMemoryRepository(),
     audit_log=audit_log,
 )
 instrument_master = InstrumentMasterService()
@@ -225,6 +242,36 @@ fundamentals_dataset = Dataset(
     criticality="NON_CRITICAL",
 )
 datasets[fundamentals_dataset.id] = fundamentals_dataset
+sector_screener_provider_record = DataProvider(
+    name="kite_connect_sector_screener",
+    provider_type="LIVE_READONLY_MARKET_DATA",
+    base_url_or_reference="provider-adapter://kite-connect-sector-screener",
+)
+providers[sector_screener_provider_record.id] = sector_screener_provider_record
+licenses[sector_screener_provider_record.id] = ProviderLicense(
+    provider_id=sector_screener_provider_record.id,
+    license_status=ProviderLicenseStatus.APPROVED,
+    permitted_use="Read-only Kite Connect market-data ingestion for the Sector Screener "
+    "universe (Pharmaceuticals / Solar & Renewable Energy / Electronics Manufacturing), "
+    "under the same active Kite Connect subscription already approved for the main "
+    "50-instrument universe -- same provider relationship, a different symbol list, "
+    "not a new compliance question.",
+    automation_rights=True,
+    backtesting_rights=False,
+    model_training_rights=False,
+    dashboard_display_rights=True,
+    data_retention_period="provider-contract-controlled",
+    legal_review_status="APPROVED",
+)
+sector_screener_eod_dataset = Dataset(
+    name="sector_screener_eod_prices",
+    domain="market_data",
+    description="End-of-day OHLCV bars for the Sector Screener universe, isolated from "
+    "the main 50-instrument universe's dataset",
+    owner="DATA_STEWARD",
+    criticality="NON_CRITICAL",
+)
+datasets[sector_screener_eod_dataset.id] = sector_screener_eod_dataset
 seed_dataset = Dataset(
     name="eod_prices",
     domain="market_data",
@@ -456,6 +503,23 @@ def live_readonly_adapter() -> LiveReadOnlyMarketDataProvider | KiteConnectMarke
     return LiveReadOnlyMarketDataProvider(
         licenses[live_readonly_provider_record.id],
         configured=settings.market_data_provider_configured(),
+    )
+
+
+def sector_screener_kite_adapter() -> KiteConnectMarketDataProvider:
+    """Same real Kite Connect credentials as live_readonly_adapter(), a
+    different, explicit tradingsymbols list -- SECTOR_SCREENER_INSTRUMENTS,
+    never CURATED_INSTRUMENT_METADATA. This is the safe extension point
+    KiteConnectMarketDataProvider.__init__ already supports; the real
+    isolation from the main universe comes from sector_screener_ingestion_service
+    using a separate object store, not from this symbol list alone."""
+    client = _build_kite_client(settings)
+    return KiteConnectMarketDataProvider(
+        client=client,
+        tradingsymbols=list(SECTOR_SCREENER_INSTRUMENTS.keys()),
+        metadata=SECTOR_SCREENER_INSTRUMENTS,
+        license_=licenses[sector_screener_provider_record.id],
+        configured=client is not None,
     )
 
 
@@ -958,6 +1022,124 @@ def sync_live_readonly_data(
             },
         }
     )
+
+
+@app.post("/api/v1/sector-screener/sync")
+def sync_sector_screener_data(
+    cid: str = Depends(correlation_id),
+    role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD)),
+) -> dict[str, Any]:
+    """Real EOD price ingestion for the Sector Screener universe, entirely
+    isolated from sync_live_readonly_data() above: a separate adapter
+    instance (sector_screener_kite_adapter(), a different tradingsymbols
+    list), a separate ingestion service (sector_screener_ingestion_service,
+    a separate object store root), and deliberately no call to
+    sync_instrument_master() -- these 35 instruments are never registered
+    into the shared instrument_master, so GET /api/v1/instruments stays
+    exactly as it is today."""
+    if not settings.market_data_provider_configured():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "state": "PROVIDER_SETUP_REQUIRED",
+                "label": "Kite Connect is not configured",
+                "remediation": "Configure MARKET_DATA_PROVIDER_API_KEY/ACCESS_TOKEN and run "
+                "`make kite-login`, same as the main universe -- this reuses the same "
+                "Kite Connect relationship, just a different symbol list.",
+            },
+        )
+    adapter = sector_screener_kite_adapter()
+    known_instrument_ids = {
+        metadata.aegis_instrument_id for metadata in SECTOR_SCREENER_INSTRUMENTS.values()
+    }
+    health = sector_screener_ingestion_service.check_provider_health(
+        provider=adapter, provider_id=sector_screener_provider_record.id, correlation_id=cid
+    )
+    eod_run = sector_screener_ingestion_service.ingest_eod_prices(
+        provider=adapter,
+        provider_id=sector_screener_provider_record.id,
+        dataset_id=sector_screener_eod_dataset.id,
+        dataset_name=sector_screener_eod_dataset.name,
+        known_instrument_ids=known_instrument_ids,
+        correlation_id=cid,
+    )
+    return jsonable(
+        {
+            "mode": settings.data_source_mode,
+            "health": health,
+            "runs": {"historical_eod_ohlcv": eod_run},
+        }
+    )
+
+
+@app.get("/api/v1/sector-screener/instruments")
+def get_sector_screener_instruments() -> dict[str, Any]:
+    """Real close/momentum/SMA/ATR per instrument, grouped by sector --
+    loaded via load_real_eod_bars(sector_screener_object_store.root), the
+    isolated capture, never the main universe's. Deliberately does not run
+    TrendFollowingBaselineStrategyV0 or any strategy ranking -- this is a
+    real-data research view, not a second trading strategy. Fundamentals
+    stay honestly "not available" for every instrument here, same as
+    everywhere else in AEGIS (NSE's Terms of Use rejection applies to any
+    symbol, not just the fundamentals pilot's five)."""
+    capture = load_real_eod_bars(sector_screener_object_store.root)
+    if capture is None:
+        return {
+            "as_of": None,
+            "dataset_origin": None,
+            "raw_snapshot_hash": None,
+            "sectors": {
+                sector: []
+                for sector in (
+                    "Pharmaceuticals",
+                    "Solar & Renewable Energy",
+                    "Electronics Manufacturing",
+                )
+            },
+            "warnings": [
+                "No real historical EOD data has been captured yet for the Sector "
+                "Screener universe -- run POST /api/v1/sector-screener/sync first."
+            ],
+        }
+    runner = RealMomentumResearchRunner(
+        capture,
+        {
+            metadata.aegis_instrument_id: metadata.sector
+            for metadata in SECTOR_SCREENER_INSTRUMENTS.values()
+        },
+    )
+    as_of = capture.end_date
+    candidates = {c.instrument_id: c for c in runner.build_candidates(as_of)}
+    sectors: dict[str, list[dict[str, Any]]] = {
+        "Pharmaceuticals": [],
+        "Solar & Renewable Energy": [],
+        "Electronics Manufacturing": [],
+    }
+    for symbol, metadata in SECTOR_SCREENER_INSTRUMENTS.items():
+        candidate = candidates.get(metadata.aegis_instrument_id)
+        sectors[metadata.sector].append(
+            {
+                "symbol": symbol,
+                "aegis_instrument_id": metadata.aegis_instrument_id,
+                "company_legal_name": metadata.company_legal_name,
+                "close": str(candidate.close) if candidate else None,
+                "momentum_60": str(candidate.momentum_60)
+                if candidate and candidate.momentum_60 is not None
+                else None,
+                "sma_50": str(candidate.sma_50) if candidate and candidate.sma_50 is not None else None,
+                "sma_200": str(candidate.sma_200)
+                if candidate and candidate.sma_200 is not None
+                else None,
+                "atr_14": str(candidate.atr_14) if candidate and candidate.atr_14 is not None else None,
+            }
+        )
+    return {
+        "as_of": as_of.isoformat(),
+        "dataset_origin": "ACTUAL_PROVIDER_DATA",
+        "raw_snapshot_hash": capture.raw_snapshot_hash,
+        "sectors": sectors,
+        "warnings": [],
+    }
 
 
 @app.get("/api/v1/provider-health")
