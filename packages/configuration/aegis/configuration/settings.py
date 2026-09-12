@@ -40,6 +40,13 @@ class Settings:
     market_data_corporate_actions_enabled: bool = True
     market_data_calendar_enabled: bool = True
     market_data_benchmark_enabled: bool = True
+    # Real HTTP access to NSE's public fundamentals archive is a plain,
+    # unauthenticated GET (see fundamentals_nse_provider.py) -- there's no
+    # credential to configure. This flag exists purely so the pipeline stays
+    # off by default until the founder's NSE Terms-of-Use review is done; the
+    # provider's ProviderLicense also stays PENDING regardless of this flag,
+    # so ingestion is blocked either way until both are true.
+    fundamentals_nse_enabled: bool = False
     live_broker_connection_enabled: bool = False
     paper_trading_use_live_data: bool = False
     paper_trading_enabled: bool = False
@@ -101,6 +108,7 @@ class Settings:
             market_data_benchmark_enabled=_as_bool(
                 os.getenv("MARKET_DATA_BENCHMARK_ENABLED"), True
             ),
+            fundamentals_nse_enabled=_as_bool(os.getenv("FUNDAMENTALS_NSE_ENABLED"), False),
             live_broker_connection_enabled=_as_bool(
                 os.getenv("LIVE_BROKER_CONNECTION_ENABLED"), False
             ),

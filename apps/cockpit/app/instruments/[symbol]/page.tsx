@@ -2,7 +2,7 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { IndianRupee, Activity, ShieldAlert, BarChart3 } from "lucide-react";
+import { IndianRupee, Activity, ShieldAlert, BarChart3, FileText } from "lucide-react";
 import { apiGet, authPost } from "../../api-client";
 import CockpitShell from "../../cockpit-shell";
 import { KpiCard, KpiStrip } from "../../kpi-strip";
@@ -60,6 +60,20 @@ type SignalResponse = {
 
 type PaperPortfolio = { paper_portfolio_id: string; name: string; status: string };
 
+type FundamentalsResponse =
+  | { available: false; reason: string }
+  | {
+      available: true;
+      dataset_origin: string;
+      period_from: string;
+      period_to: string;
+      filing_date: string;
+      revenue_from_operations: string | null;
+      profit_before_tax: string | null;
+      profit_for_period: string | null;
+      source_xbrl_url: string | null;
+    };
+
 function toNumber(value: string | null): number | null {
   return value === null ? null : Number(value);
 }
@@ -77,6 +91,7 @@ function Decision({ symbol }: { symbol: string }) {
   const [portfolios, setPortfolios] = useState<PaperPortfolio[]>([]);
   const [selectedPortfolio, setSelectedPortfolio] = useState("");
   const [loading, setLoading] = useState(true);
+  const [fundamentals, setFundamentals] = useState<FundamentalsResponse | null>(null);
   const [actionStatus, setActionStatus] = useState<{ kind: "ok" | "error" | "info"; text: string } | null>(
     null,
   );
@@ -102,7 +117,8 @@ function Decision({ symbol }: { symbol: string }) {
       apiGet<IndicatorsResponse | null>(`/api/v1/instruments/${symbol}/indicators`, null),
       apiGet<RuleEventsResponse | null>(`/api/v1/instruments/${symbol}/rule-events`, null),
       apiGet<PaperPortfolio[]>("/api/v1/paper-portfolios", []),
-    ]).then(([ohlcv, indicatorData, ruleEventData, portfolioList]) => {
+      apiGet<FundamentalsResponse | null>(`/api/v1/instruments/${symbol}/fundamentals`, null),
+    ]).then(([ohlcv, indicatorData, ruleEventData, portfolioList, fundamentalsData]) => {
       if (cancelled) return;
       setBars(ohlcv?.bars ?? []);
       setIndicators(
@@ -118,6 +134,7 @@ function Decision({ symbol }: { symbol: string }) {
       setRuleEvents(ruleEventData?.events ?? []);
       setPortfolios(portfolioList);
       if (portfolioList.length > 0) setSelectedPortfolio(portfolioList[0].paper_portfolio_id);
+      setFundamentals(fundamentalsData);
       setLoading(false);
     });
     return () => {
@@ -199,9 +216,13 @@ function Decision({ symbol }: { symbol: string }) {
             {signal?.raw_snapshot_hash.slice(0, 10) ?? "—"}… &middot; through {bars[bars.length - 1].date}
           </span>
         </div>
-        <div className="row unavailable">
+        <div className={`row ${fundamentals?.available ? "real" : "unavailable"}`}>
           <span className="label">Fundamentals</span>
-          <span className="value">Not available — no verified fundamentals provider yet</span>
+          <span className="value">
+            {fundamentals?.available
+              ? `Real, NSE XBRL (standalone) · ${fundamentals.period_from} to ${fundamentals.period_to} · filed ${fundamentals.filing_date}`
+              : (fundamentals?.reason ?? "Not available — no verified fundamentals provider yet")}
+          </span>
         </div>
         <div className="row unavailable">
           <span className="label">News / sentiment</span>
@@ -242,6 +263,53 @@ function Decision({ symbol }: { symbol: string }) {
           caption="minimum ₹100,000 to be eligible"
         />
       </KpiStrip>
+
+      {fundamentals?.available && (
+        <div className="panel" style={{ marginBottom: 18 }}>
+          <div className="panel-head">
+            <h2>
+              <FileText size={15} />
+              Real fundamentals — standalone, {fundamentals.period_from} to {fundamentals.period_to}
+            </h2>
+          </div>
+          <div className="panel-body">
+            <ul className="reasoning">
+              <li>
+                <span className="k">Revenue from operations</span>
+                <span className="v">
+                  {fundamentals.revenue_from_operations
+                    ? money(fundamentals.revenue_from_operations, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Profit before tax</span>
+                <span className="v">
+                  {fundamentals.profit_before_tax
+                    ? money(fundamentals.profit_before_tax, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Profit for the period</span>
+                <span className="v">
+                  {fundamentals.profit_for_period
+                    ? money(fundamentals.profit_for_period, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+            </ul>
+            <p className="hint" style={{ marginBottom: 0 }}>
+              Filed {fundamentals.filing_date} · real quarterly results, not a balance sheet —{" "}
+              {fundamentals.source_xbrl_url && (
+                <a href={fundamentals.source_xbrl_url} target="_blank" rel="noreferrer">
+                  source XBRL filing
+                </a>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid">
         <div className="panel">

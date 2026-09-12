@@ -78,6 +78,10 @@ class InMemoryRepository:
         # before this could answer "what's the latest real close for X"
         # without reading raw JSON off disk.
         self.latest_eod_prices: dict[str, dict[str, Any]] = {}
+        # Latest ingested fundamentals record per real market symbol (not
+        # aegis_instrument_id -- see fundamentals_nse_provider.py's module
+        # docstring for why this pilot keys by symbol directly).
+        self.latest_fundamentals: dict[str, dict[str, Any]] = {}
 
 
 class ProviderIngestionService:
@@ -338,6 +342,85 @@ class ProviderIngestionService:
             completed,
             "SYNC_MARKET_CALENDAR",
             {"raw_uri": raw_uri, "normalized_uri": normalized_uri, "curated_uri": curated_uri},
+        )
+        return completed
+
+    def ingest_fundamentals(
+        self,
+        *,
+        provider: MarketDataProvider,
+        provider_id: str,
+        dataset_id: str,
+        correlation_id: str | None = None,
+    ) -> ProviderIngestionRun:
+        """Mirrors sync_market_calendar's shape (no OHLCV-specific validation
+        applies to fundamentals data), but also records a real DatasetVersion
+        with a real raw_snapshot_hash and dataset_origin tag -- fundamentals
+        are real financial data, not operational metadata, so they get the
+        same dataset-level provenance record as EOD prices. There is no
+        fundamentals-specific data-quality rule set yet (see
+        validation_summary below) -- that's real future work, not attempted
+        here; this only proves a real, hashed, provenance-tagged payload was
+        captured end-to-end."""
+        correlation_id = correlation_id or str(uuid4())
+        self.license_guard.assert_ingestion_allowed(provider.get_license_status())
+        envelope = provider.fetch_fundamentals()
+        payload_hash = stable_payload_hash(envelope.payload)
+        run = self._start_layer_run(
+            provider_id, "fundamentals", envelope, payload_hash, correlation_id
+        )
+        raw_uri = self._capture_raw(provider_id, run.id, envelope, payload_hash)
+        normalized = [dict(record) for record in envelope.payload]
+        normalized_uri, curated_uri = self._capture_normalized_and_curated(
+            provider_id, envelope.endpoint, payload_hash, normalized
+        )
+
+        dataset_version = DatasetVersion(
+            dataset_id=dataset_id,
+            provider_id=provider_id,
+            schema_version=envelope.schema_version,
+            raw_snapshot_hash=payload_hash,
+            transformation_version="normalization.v1",
+            instrument_master_version="instrument-master.v1",
+            corporate_action_version="corporate-actions.v1",
+            validation_status="GREEN",
+            quality_score=100.0,
+            lineage_record_exists=True,
+        )
+        self.repository.dataset_versions[dataset_version.id] = dataset_version
+        self.repository.dataset_origins[dataset_version.id] = getattr(
+            provider, "dataset_origin", "FIXTURE_DATA"
+        )
+        for record in normalized:
+            symbol = str(record.get("symbol"))
+            self.repository.latest_fundamentals[symbol] = record
+
+        completed = self._complete_layer_run(
+            run,
+            envelope,
+            payload_hash,
+            records_accepted=len(normalized),
+            records_rejected=0,
+            validation_summary={
+                "status": "GREEN",
+                "dataset_version_id": dataset_version.id,
+                "note": (
+                    "No fundamentals-specific data-quality rules exist yet -- this "
+                    "confirms a real, hashed payload was captured, not that every "
+                    "field passed domain validation."
+                ),
+            },
+        )
+        self._audit_layer_event(
+            "FUNDAMENTALS_INGESTED",
+            completed,
+            "INGEST_FUNDAMENTALS",
+            {
+                "raw_uri": raw_uri,
+                "normalized_uri": normalized_uri,
+                "curated_uri": curated_uri,
+                "dataset_version_id": dataset_version.id,
+            },
         )
         return completed
 

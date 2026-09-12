@@ -57,6 +57,7 @@ from aegis.paper_trading.services import (
     all_readiness_green,
 )
 from aegis.provider_adapters.csv_provider import CsvFileProvider
+from aegis.provider_adapters.fundamentals_nse_provider import NseFundamentalsProvider
 from aegis.provider_adapters.kite_connect_provider import (
     CURATED_INSTRUMENT_METADATA,
     KiteConnectMarketDataProvider,
@@ -194,6 +195,35 @@ licenses[kite_connect_provider_record.id] = ProviderLicense(
     data_retention_period="provider-contract-controlled",
     legal_review_status="APPROVED",
 )
+fundamentals_nse_provider_record = DataProvider(
+    name="fundamentals_nse",
+    provider_type="LIVE_READONLY_MARKET_DATA",
+    base_url_or_reference="provider-adapter://fundamentals-nse",
+)
+providers[fundamentals_nse_provider_record.id] = fundamentals_nse_provider_record
+licenses[fundamentals_nse_provider_record.id] = ProviderLicense(
+    provider_id=fundamentals_nse_provider_record.id,
+    license_status=ProviderLicenseStatus.PENDING,
+    permitted_use=(
+        "Real fundamentals ingestion pending founder review of NSE's terms of use for "
+        "automated access to its public XBRL corporate-filings archive -- see "
+        "docs/data_activation_sprint/fundamentals_provider_decision.md"
+    ),
+    automation_rights=False,
+    backtesting_rights=False,
+    model_training_rights=False,
+    dashboard_display_rights=False,
+    data_retention_period="not-recorded",
+    legal_review_status="PENDING_TOS_REVIEW",
+)
+fundamentals_dataset = Dataset(
+    name="fundamentals",
+    domain="fundamentals",
+    description="Real company financial-statement data parsed from NSE's public XBRL archive",
+    owner="DATA_STEWARD",
+    criticality="NON_CRITICAL",
+)
+datasets[fundamentals_dataset.id] = fundamentals_dataset
 seed_dataset = Dataset(
     name="eod_prices",
     domain="market_data",
@@ -425,6 +455,14 @@ def live_readonly_adapter() -> LiveReadOnlyMarketDataProvider | KiteConnectMarke
     return LiveReadOnlyMarketDataProvider(
         licenses[live_readonly_provider_record.id],
         configured=settings.market_data_provider_configured(),
+    )
+
+
+def fundamentals_nse_adapter() -> NseFundamentalsProvider:
+    return NseFundamentalsProvider(
+        symbols=["RELIANCE"],
+        license_=licenses[fundamentals_nse_provider_record.id],
+        configured=settings.fundamentals_nse_enabled,
     )
 
 
@@ -2252,6 +2290,35 @@ def get_instrument_ohlcv(
             }
             for bar in windowed
         ],
+    }
+
+
+@app.get("/api/v1/instruments/{symbol}/fundamentals")
+def get_instrument_fundamentals(symbol: str) -> dict[str, Any]:
+    """Real, if present -- repo.latest_fundamentals is only ever populated by
+    an actual ProviderIngestionService.ingest_fundamentals() run, which
+    itself refuses to execute while fundamentals_nse_provider_record's
+    license stays PENDING (see fundamentals_nse_adapter()). Never fabricates
+    a value for an instrument that hasn't had a real filing ingested."""
+    canonical, _aegis_instrument_id = _resolve_symbol(symbol)
+    record = repo.latest_fundamentals.get(canonical)
+    if record is None:
+        return {
+            "symbol": canonical,
+            "available": False,
+            "reason": "Not available -- no verified fundamentals provider yet",
+        }
+    return {
+        "symbol": canonical,
+        "available": True,
+        "dataset_origin": "ACTUAL_PROVIDER_DATA",
+        "period_from": record.get("period_from"),
+        "period_to": record.get("period_to"),
+        "filing_date": record.get("filing_date"),
+        "revenue_from_operations": record.get("revenue_from_operations"),
+        "profit_before_tax": record.get("profit_before_tax"),
+        "profit_for_period": record.get("profit_for_period"),
+        "source_xbrl_url": record.get("source_xbrl_url"),
     }
 
 
