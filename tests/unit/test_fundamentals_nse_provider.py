@@ -10,6 +10,7 @@ from aegis.domain.models import ProviderLicense, ProviderLicenseStatus
 from aegis.provider_adapters.fundamentals_nse_provider import (
     FundamentalsFilingRef,
     NseFundamentalsProvider,
+    compute_ttm_eps,
     find_latest_standalone_filing,
     parse_xbrl_fundamentals,
 )
@@ -320,3 +321,65 @@ def test_blocked_broker_attributes_are_never_exposed() -> None:
     provider = NseFundamentalsProvider(http_client=FakeHttpClient({}))
     with pytest.raises(AttributeError):
         provider.place_order  # type: ignore[attr-defined]
+
+
+def _quarter(period_from: str, period_to: str, basic_eps: str | None) -> dict[str, str | None]:
+    return {"period_from": period_from, "period_to": period_to, "basic_eps": basic_eps}
+
+
+def test_compute_ttm_eps_needs_at_least_four_real_quarters() -> None:
+    history = {
+        "2025-06-30": _quarter("2025-04-01", "2025-06-30", "10.00"),
+        "2025-03-31": _quarter("2025-01-01", "2025-03-31", "9.00"),
+        "2024-12-31": _quarter("2024-10-01", "2024-12-31", "8.00"),
+    }
+    assert compute_ttm_eps(history) == (None, [])
+
+
+def test_compute_ttm_eps_sums_four_real_contiguous_quarters() -> None:
+    history = {
+        "2025-06-30": _quarter("2025-04-01", "2025-06-30", "10.00"),
+        "2025-03-31": _quarter("2025-01-01", "2025-03-31", "9.00"),
+        "2024-12-31": _quarter("2024-10-01", "2024-12-31", "8.00"),
+        "2024-09-30": _quarter("2024-07-01", "2024-09-30", "7.00"),
+    }
+    ttm_eps, quarters_used = compute_ttm_eps(history)
+    assert ttm_eps == "34.00"
+    assert quarters_used == ["2025-06-30", "2025-03-31", "2024-12-31", "2024-09-30"]
+
+
+def test_compute_ttm_eps_uses_only_the_four_most_recent_quarters() -> None:
+    history = {
+        "2025-06-30": _quarter("2025-04-01", "2025-06-30", "10.00"),
+        "2025-03-31": _quarter("2025-01-01", "2025-03-31", "9.00"),
+        "2024-12-31": _quarter("2024-10-01", "2024-12-31", "8.00"),
+        "2024-09-30": _quarter("2024-07-01", "2024-09-30", "7.00"),
+        "2024-06-30": _quarter("2024-04-01", "2024-06-30", "1000.00"),
+    }
+    ttm_eps, quarters_used = compute_ttm_eps(history)
+    assert ttm_eps == "34.00"
+    assert "2024-06-30" not in quarters_used
+
+
+def test_compute_ttm_eps_rejects_a_real_gap_between_quarters() -> None:
+    """A skipped quarter (e.g. the user never uploaded Q3) must not be
+    silently bridged -- these 4 quarters don't span a genuine trailing 12
+    months, so TTM must honestly be unavailable, not quietly wrong."""
+    history = {
+        "2025-06-30": _quarter("2025-04-01", "2025-06-30", "10.00"),
+        "2025-03-31": _quarter("2025-01-01", "2025-03-31", "9.00"),
+        # Q3 FY24-25 (Oct-Dec 2024) missing -- real gap before this one.
+        "2024-09-30": _quarter("2024-07-01", "2024-09-30", "7.00"),
+        "2024-06-30": _quarter("2024-04-01", "2024-06-30", "6.00"),
+    }
+    assert compute_ttm_eps(history) == (None, [])
+
+
+def test_compute_ttm_eps_requires_every_quarter_to_have_real_eps() -> None:
+    history = {
+        "2025-06-30": _quarter("2025-04-01", "2025-06-30", None),
+        "2025-03-31": _quarter("2025-01-01", "2025-03-31", "9.00"),
+        "2024-12-31": _quarter("2024-10-01", "2024-12-31", "8.00"),
+        "2024-09-30": _quarter("2024-07-01", "2024-09-30", "7.00"),
+    }
+    assert compute_ttm_eps(history) == (None, [])

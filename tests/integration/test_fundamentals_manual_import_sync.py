@@ -28,9 +28,11 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
         "ingestion_runs": set(app_main.repo.ingestion_runs),
     }
     app_main.repo.latest_fundamentals.clear()
+    app_main.repo.fundamentals_history.clear()
     monkeypatch.setattr(app_main, "fundamentals_manual_import_base_path", tmp_path)
     yield TestClient(app)
     app_main.repo.latest_fundamentals.clear()
+    app_main.repo.fundamentals_history.clear()
     for attr, before_keys in before.items():
         mapping = getattr(app_main.repo, attr)
         for key in set(mapping) - before_keys:

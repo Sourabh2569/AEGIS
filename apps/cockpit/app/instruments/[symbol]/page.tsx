@@ -82,7 +82,11 @@ type FundamentalsResponse =
       diluted_eps: string | null;
       paid_up_equity_share_capital: string | null;
       face_value_per_share: string | null;
+      debt_equity_ratio: string | null;
       source_xbrl_url: string | null;
+      ttm_eps: string | null;
+      ttm_eps_quarters: string[];
+      real_quarters_on_file: number;
     };
 
 function toNumber(value: string | null): number | null {
@@ -394,6 +398,27 @@ function Decision({ symbol }: { symbol: string }) {
                     : "not available"}
                 </span>
               </li>
+              <li>
+                <span className="k">Debt / Equity ratio</span>
+                <span className="v">
+                  {fundamentals.debt_equity_ratio ?? "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">EPS (TTM, basic)</span>
+                <span className="v">
+                  {fundamentals.ttm_eps ??
+                    `not available — ${fundamentals.real_quarters_on_file} of 4 real quarters on file`}
+                </span>
+              </li>
+              <li>
+                <span className="k">P/E (TTM)</span>
+                <span className="v">
+                  {fundamentals.ttm_eps && Number(fundamentals.ttm_eps) > 0 && inputs?.close
+                    ? `${(Number(inputs.close) / Number(fundamentals.ttm_eps)).toFixed(1)}x`
+                    : "not available"}
+                </span>
+              </li>
             </ul>
             <p className="hint" style={{ marginBottom: 0 }}>
               Filed {fundamentals.filing_date} · real quarterly results, not a balance sheet —{" "}
@@ -403,6 +428,13 @@ function Decision({ symbol }: { symbol: string }) {
                 </a>
               )}
             </p>
+            {fundamentals.ttm_eps && (
+              <p className="hint" style={{ marginBottom: 0, marginTop: 4 }}>
+                TTM EPS sums basic EPS from these real, contiguous quarters (most recent first):{" "}
+                {fundamentals.ttm_eps_quarters.join(", ")}. P/E uses the close price above, not a
+                same-day quote.
+              </p>
+            )}
           </div>
         </div>
       )}

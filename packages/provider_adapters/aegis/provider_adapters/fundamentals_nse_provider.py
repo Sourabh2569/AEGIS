@@ -60,7 +60,8 @@ import json
 import time
 import urllib.request
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
 from xml.etree import ElementTree
 
@@ -76,10 +77,13 @@ NSE_FIN_NAMESPACE = "http://www.bseindia.com/xbrl/fin/2020-03-31/in-bse-fin"
 
 # Only tags confirmed present, real, and correctly period-scoped in a real
 # captured filing -- see the module docstring's "Known gaps". Every key here
-# is a real, structured, unambiguous numeric line item straight from the
-# filing's P&L -- deliberately not the free-text "Notes" disclosure block
-# (self-reported ratios etc.), which would need fragile text parsing to
-# extract and isn't confirmed reliable across filers.
+# is its own real, structured XBRL numeric fact with its own contextRef --
+# including debt_equity_ratio, a company-disclosed ratio, but still a real
+# tagged fact, not text. Deliberately excluded: the free-text "Notes"
+# disclosure block, which bundles several other self-reported ratios
+# (current ratio, operating margin, etc.) as unstructured prose -- parsing
+# those would need fragile text extraction with no per-filer guarantee of
+# a consistent format, unlike every tag mapped below.
 FUNDAMENTALS_TAGS: dict[str, str] = {
     "revenue_from_operations": "RevenueFromOperations",
     "other_income": "OtherIncome",
@@ -95,7 +99,20 @@ FUNDAMENTALS_TAGS: dict[str, str] = {
     "diluted_eps": "DilutedEarningsLossPerShareFromContinuingAndDiscontinuedOperations",
     "paid_up_equity_share_capital": "PaidUpValueOfEquityShareCapital",
     "face_value_per_share": "FaceValueOfEquityShareCapital",
+    "debt_equity_ratio": "DebtEquityRatio",
 }
+
+# Deliberately NOT mapped, despite being real, present, structured XBRL tags
+# just like everything above: DebtServiceCoverageRatio and
+# InterestServiceCoverageRatio. Confirmed against RELIANCE's real, accepted
+# Q3 FY2025 Standalone filing -- both come out to 0.03-0.06, which is not
+# plausible for a company that same filing's own DebtEquityRatio shows
+# carries almost no debt (a low-debt company should show a very HIGH
+# coverage ratio, not a near-zero one). This looks like a filer
+# data-quality artifact in this specific optional disclosure, not a real
+# signal -- surfacing it as clean decision-support data would be worse than
+# not showing it at all. Revisit only after confirming the pattern across
+# several more real filers, not just this one.
 
 USER_AGENT = "Mozilla/5.0 (compatible; AEGIS-research/1.0)"
 
@@ -208,6 +225,53 @@ def parse_xbrl_fundamentals(
                 values[field_name] = element.text.strip()
                 break
     return values
+
+
+TTM_QUARTERS_REQUIRED = 4
+
+
+def compute_ttm_eps(history: dict[str, dict[str, Any]]) -> tuple[str | None, list[str]]:
+    """Real trailing-twelve-month basic EPS: the sum of the 4 most recent
+    real quarters' basic_eps -- never an approximation like annualizing a
+    single quarter (a quarterly EPS times 4 ignores real seasonality and
+    one-off items, and would make any P/E computed from it wrong by
+    roughly 4x). `history` maps a symbol's real period_to (ISO date) to its
+    ingested fundamentals record -- see
+    ProviderIngestionService.ingest_fundamentals's fundamentals_history.
+
+    Returns (ttm_eps, quarters_used) where quarters_used lists the exact
+    period_to dates summed, most recent first, for full traceability. Both
+    are empty/None unless all of these are real and true:
+    - at least 4 distinct real quarters exist for this symbol;
+    - the 4 most recent ones are genuinely contiguous (each quarter's
+      period_from picks up the day after the previous one's period_to --
+      catches a real gap, e.g. a skipped quarter, rather than silently
+      summing 4 quarters that don't actually span a trailing 12 months);
+    - every one of those 4 quarters has a real basic_eps value.
+    """
+    if len(history) < TTM_QUARTERS_REQUIRED:
+        return None, []
+    most_recent_periods = sorted(history.keys(), reverse=True)[:TTM_QUARTERS_REQUIRED]
+    quarters = [history[period_to] for period_to in most_recent_periods]
+    for more_recent, less_recent in zip(quarters, quarters[1:]):
+        earlier_start = more_recent.get("period_from")
+        later_end = less_recent.get("period_to")
+        if earlier_start is None or later_end is None:
+            return None, []
+        try:
+            expected_start = date.fromisoformat(later_end) + timedelta(days=1)
+            if date.fromisoformat(earlier_start) != expected_start:
+                return None, []
+        except ValueError:
+            return None, []
+    eps_values = [quarter.get("basic_eps") for quarter in quarters]
+    if any(value is None for value in eps_values):
+        return None, []
+    try:
+        ttm_eps = sum((Decimal(value) for value in eps_values), start=Decimal(0))
+    except InvalidOperation:
+        return None, []
+    return str(ttm_eps), most_recent_periods
 
 
 class NseFundamentalsProvider:

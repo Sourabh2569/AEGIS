@@ -58,7 +58,10 @@ from aegis.paper_trading.services import (
 )
 from aegis.provider_adapters.csv_provider import CsvFileProvider
 from aegis.provider_adapters.fundamentals_manual_import import FundamentalsManualImportProvider
-from aegis.provider_adapters.fundamentals_nse_provider import NseFundamentalsProvider
+from aegis.provider_adapters.fundamentals_nse_provider import (
+    NseFundamentalsProvider,
+    compute_ttm_eps,
+)
 from aegis.provider_adapters.kite_connect_provider import (
     CURATED_INSTRUMENT_METADATA,
     KiteConnectMarketDataProvider,
@@ -2630,6 +2633,8 @@ def get_instrument_fundamentals(symbol: str) -> dict[str, Any]:
             "available": False,
             "reason": "Not available -- no verified fundamentals provider yet",
         }
+    history = repo.fundamentals_history.get(canonical, {})
+    ttm_eps, ttm_eps_quarters = compute_ttm_eps(history)
     return {
         "symbol": canonical,
         "available": True,
@@ -2651,7 +2656,11 @@ def get_instrument_fundamentals(symbol: str) -> dict[str, Any]:
         "diluted_eps": record.get("diluted_eps"),
         "paid_up_equity_share_capital": record.get("paid_up_equity_share_capital"),
         "face_value_per_share": record.get("face_value_per_share"),
+        "debt_equity_ratio": record.get("debt_equity_ratio"),
         "source_xbrl_url": record.get("source_xbrl_url"),
+        "ttm_eps": ttm_eps,
+        "ttm_eps_quarters": ttm_eps_quarters,
+        "real_quarters_on_file": len(history),
     }
 
 

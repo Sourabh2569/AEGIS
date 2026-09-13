@@ -107,3 +107,86 @@ def test_ingest_fundamentals_real_flow_once_approved(tmp_path: Path) -> None:
     assert not dataset_version.raw_snapshot_hash.startswith("fixture-")
     origin = service.repository.dataset_origins[dataset_version.id]
     assert origin == "ACTUAL_PROVIDER_DATA"
+
+    # This is also what makes compute_ttm_eps possible at all -- one real
+    # ingested quarter is recorded under its own period_to, not just as
+    # "the latest".
+    history = service.repository.fundamentals_history["RELIANCE"]
+    assert set(history.keys()) == {"2024-12-31"}
+    assert history["2024-12-31"]["revenue_from_operations"] == "1282600000000.00"
+
+
+class _TwoQuarterFakeProvider:
+    """Minimal test-only provider isolating exactly one thing:
+    ingest_fundamentals's history bookkeeping across repeated real runs --
+    not a claim about any real company's financials (the quarters below
+    are synthetic, unlike every other fixture-backed test in this file)."""
+
+    name = "fake-two-quarter"
+    dataset_origin = "TEST_DATA"
+
+    def __init__(self, records: list[dict[str, str]]) -> None:
+        self._records = records
+        self._license = ProviderLicense(
+            provider_id="fake-two-quarter",
+            license_status=ProviderLicenseStatus.APPROVED,
+            permitted_use="test",
+            automation_rights=True,
+            backtesting_rights=False,
+            model_training_rights=False,
+            dashboard_display_rights=True,
+            data_retention_period="test",
+        )
+
+    def get_license_status(self) -> ProviderLicense:
+        return self._license
+
+    def fetch_fundamentals(self):
+        from aegis.provider_adapters.base import ProviderResponseEnvelope
+
+        return ProviderResponseEnvelope(
+            provider_name=self.name,
+            endpoint="fetch_fundamentals",
+            schema_version="fundamentals.v1",
+            source_reference="test://fake",
+            payload=self._records,
+        )
+
+
+def test_ingest_fundamentals_accumulates_real_history_across_separate_runs(
+    tmp_path: Path,
+) -> None:
+    """Two separate real ingestion runs for the same symbol, one real
+    quarter each -- fundamentals_history must accumulate both (keyed by
+    period_to), while latest_fundamentals keeps reflecting only the most
+    recent one. This is the exact mechanism compute_ttm_eps depends on to
+    ever see 4 real quarters."""
+    service = _service(tmp_path)
+    q1 = {
+        "symbol": "RELIANCE",
+        "period_from": "2024-04-01",
+        "period_to": "2024-06-30",
+        "basic_eps": "5.00",
+    }
+    q2 = {
+        "symbol": "RELIANCE",
+        "period_from": "2024-07-01",
+        "period_to": "2024-09-30",
+        "basic_eps": "6.00",
+    }
+    service.ingest_fundamentals(
+        provider=_TwoQuarterFakeProvider([q1]),
+        provider_id="fake-two-quarter",
+        dataset_id="fundamentals",
+    )
+    service.ingest_fundamentals(
+        provider=_TwoQuarterFakeProvider([q2]),
+        provider_id="fake-two-quarter",
+        dataset_id="fundamentals",
+    )
+
+    history = service.repository.fundamentals_history["RELIANCE"]
+    assert set(history.keys()) == {"2024-06-30", "2024-09-30"}
+    assert history["2024-06-30"]["basic_eps"] == "5.00"
+    assert history["2024-09-30"]["basic_eps"] == "6.00"
+    assert service.repository.latest_fundamentals["RELIANCE"]["period_to"] == "2024-09-30"

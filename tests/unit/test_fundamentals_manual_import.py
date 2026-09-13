@@ -132,6 +132,26 @@ def test_parse_manually_downloaded_filing_reads_the_expanded_pl_fields() -> None
     assert record["face_value_per_share"] == "1"
 
 
+def test_parse_manually_downloaded_filing_reads_debt_equity_ratio() -> None:
+    xml_bytes = (FIXTURES_DIR / "reliance_q3_fy2025_standalone.xml").read_bytes()
+    record = parse_manually_downloaded_filing(xml_bytes, "RELIANCE")
+    assert record is not None
+    assert record["debt_equity_ratio"] == "0.00"
+
+
+def test_parse_manually_downloaded_filing_excludes_the_unreliable_coverage_ratios() -> None:
+    """Deliberate exclusion, not a gap: RELIANCE's own real filing reports
+    DebtServiceCoverageRatio/InterestServiceCoverageRatio as 0.03/0.06,
+    implausible for a company the same filing's debt_equity_ratio shows
+    carries almost no debt -- see FUNDAMENTALS_TAGS's comment. A regression
+    that starts mapping these should be caught, not silently accepted."""
+    xml_bytes = (FIXTURES_DIR / "reliance_q3_fy2025_standalone.xml").read_bytes()
+    record = parse_manually_downloaded_filing(xml_bytes, "RELIANCE")
+    assert record is not None
+    assert "debt_service_coverage_ratio" not in record
+    assert "interest_service_coverage_ratio" not in record
+
+
 @pytest.mark.parametrize("symbol", sorted(REAL_FIXTURES))
 def test_parse_manually_downloaded_filing_is_fully_self_contained(symbol: str) -> None:
     """No external period/date input at all -- every real company's filing

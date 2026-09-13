@@ -82,6 +82,14 @@ class InMemoryRepository:
         # aegis_instrument_id -- see fundamentals_nse_provider.py's module
         # docstring for why this pilot keys by symbol directly).
         self.latest_fundamentals: dict[str, dict[str, Any]] = {}
+        # Every real quarter ever ingested per symbol, keyed by that
+        # quarter's real period_to date -- re-ingesting the same quarter
+        # (e.g. a corrected re-download) overwrites just that one entry,
+        # never duplicates it. This is what makes a genuine trailing-twelve-
+        # month figure (see fundamentals_nse_provider.compute_ttm_eps)
+        # possible at all -- latest_fundamentals alone only ever remembers
+        # one quarter per symbol.
+        self.fundamentals_history: dict[str, dict[str, dict[str, Any]]] = {}
 
 
 class ProviderIngestionService:
@@ -398,10 +406,13 @@ class ProviderIngestionService:
             # value at read time. See fundamentals_manual_import.py and
             # fundamentals_nse_provider.py, which have different real
             # dataset_origin values despite sharing this same ingestion path.
-            self.repository.latest_fundamentals[symbol] = {
-                **record,
-                "dataset_origin": dataset_origin,
-            }
+            tagged_record = {**record, "dataset_origin": dataset_origin}
+            self.repository.latest_fundamentals[symbol] = tagged_record
+            period_to = record.get("period_to")
+            if period_to is not None:
+                self.repository.fundamentals_history.setdefault(symbol, {})[
+                    period_to
+                ] = tagged_record
 
         completed = self._complete_layer_run(
             run,

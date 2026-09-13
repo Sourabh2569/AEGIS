@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 @pytest.fixture()
 def client() -> TestClient:
     app_main.repo.latest_fundamentals.clear()
+    app_main.repo.fundamentals_history.clear()
     return TestClient(app)
 
 
@@ -49,3 +50,32 @@ def test_fundamentals_endpoint_reflects_a_real_ingested_record(client: TestClien
     assert body["available"] is True
     assert body["dataset_origin"] == "ACTUAL_PROVIDER_DATA"
     assert body["revenue_from_operations"] == "1282600000000.00"
+    assert body["ttm_eps"] is None
+    assert body["real_quarters_on_file"] == 0
+
+
+def test_fundamentals_endpoint_reflects_real_ttm_eps_once_four_quarters_are_on_file(
+    client: TestClient,
+) -> None:
+    quarters = [
+        ("2024-01-01", "2024-03-31", "5.00"),
+        ("2024-04-01", "2024-06-30", "6.00"),
+        ("2024-07-01", "2024-09-30", "7.00"),
+        ("2024-10-01", "2024-12-31", "8.00"),
+    ]
+    for period_from, period_to, basic_eps in quarters:
+        record = {
+            "symbol": "RELIANCE",
+            "period_from": period_from,
+            "period_to": period_to,
+            "basic_eps": basic_eps,
+        }
+        app_main.repo.latest_fundamentals["RELIANCE"] = record
+        app_main.repo.fundamentals_history.setdefault("RELIANCE", {})[period_to] = record
+
+    response = client.get("/api/v1/instruments/RELIANCE/fundamentals")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["real_quarters_on_file"] == 4
+    assert body["ttm_eps"] == "26.00"
+    assert body["ttm_eps_quarters"] == ["2024-12-31", "2024-09-30", "2024-06-30", "2024-03-31"]
