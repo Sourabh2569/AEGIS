@@ -407,12 +407,26 @@ class ProviderIngestionService:
             # fundamentals_nse_provider.py, which have different real
             # dataset_origin values despite sharing this same ingestion path.
             tagged_record = {**record, "dataset_origin": dataset_origin}
-            self.repository.latest_fundamentals[symbol] = tagged_record
             period_to = record.get("period_to")
+            symbol_history = self.repository.fundamentals_history.setdefault(symbol, {})
             if period_to is not None:
-                self.repository.fundamentals_history.setdefault(symbol, {})[
-                    period_to
-                ] = tagged_record
+                symbol_history[period_to] = tagged_record
+            # latest_fundamentals must reflect whichever real quarter is
+            # genuinely the most recent by period_to, not just whichever
+            # one this particular ingest call happened to process -- a
+            # multi-quarter manual-import batch is not guaranteed to
+            # arrive in chronological order (e.g. the last of several
+            # files uploaded together to build a TTM figure can easily be
+            # an older quarter than one uploaded earlier in that same
+            # batch, since each upload overwrites the same on-disk file).
+            # Caught via live use: TTM EPS stayed correct (it always reads
+            # the full history), but the "latest" fundamentals card showed
+            # a stale quarter after an out-of-order multi-upload.
+            if symbol_history:
+                newest_period_to = max(symbol_history)
+                self.repository.latest_fundamentals[symbol] = symbol_history[newest_period_to]
+            else:
+                self.repository.latest_fundamentals[symbol] = tagged_record
 
         completed = self._complete_layer_run(
             run,

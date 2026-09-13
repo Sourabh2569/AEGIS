@@ -190,3 +190,44 @@ def test_ingest_fundamentals_accumulates_real_history_across_separate_runs(
     assert history["2024-06-30"]["basic_eps"] == "5.00"
     assert history["2024-09-30"]["basic_eps"] == "6.00"
     assert service.repository.latest_fundamentals["RELIANCE"]["period_to"] == "2024-09-30"
+
+
+def test_ingest_fundamentals_keeps_latest_pointing_at_the_true_latest_out_of_order(
+    tmp_path: Path,
+) -> None:
+    """Real bug found via live use: a multi-quarter manual-import batch is
+    not guaranteed to arrive in chronological order (the Cockpit's
+    multi-file upload processes files in whatever order the browser's file
+    list gives them). latest_fundamentals used to just take whatever the
+    most recent ingest call happened to process -- ingesting an OLDER
+    quarter after a NEWER one already existed silently made the "latest"
+    convenience pointer stale, even though fundamentals_history (and so
+    compute_ttm_eps) stayed correct throughout."""
+    service = _service(tmp_path)
+    newer = {
+        "symbol": "RELIANCE",
+        "period_from": "2024-07-01",
+        "period_to": "2024-09-30",
+        "basic_eps": "6.00",
+    }
+    older = {
+        "symbol": "RELIANCE",
+        "period_from": "2024-04-01",
+        "period_to": "2024-06-30",
+        "basic_eps": "5.00",
+    }
+    service.ingest_fundamentals(
+        provider=_TwoQuarterFakeProvider([newer]),
+        provider_id="fake-two-quarter",
+        dataset_id="fundamentals",
+    )
+    # The older quarter arrives second, e.g. filling a gap -- must not
+    # clobber the newer one that's already on file.
+    service.ingest_fundamentals(
+        provider=_TwoQuarterFakeProvider([older]),
+        provider_id="fake-two-quarter",
+        dataset_id="fundamentals",
+    )
+
+    assert service.repository.latest_fundamentals["RELIANCE"]["period_to"] == "2024-09-30"
+    assert service.repository.latest_fundamentals["RELIANCE"]["basic_eps"] == "6.00"

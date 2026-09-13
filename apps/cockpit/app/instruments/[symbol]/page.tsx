@@ -412,7 +412,7 @@ function Decision({ symbol }: { symbol: string }) {
                 </span>
               </li>
               <li>
-                <span className="k">P/E (TTM)</span>
+                <span className="k">P/E (TTM, standalone)</span>
                 <span className="v">
                   {fundamentals.ttm_eps && Number(fundamentals.ttm_eps) > 0 && inputs?.close
                     ? `${(Number(inputs.close) / Number(fundamentals.ttm_eps)).toFixed(1)}x`
@@ -432,7 +432,12 @@ function Decision({ symbol }: { symbol: string }) {
               <p className="hint" style={{ marginBottom: 0, marginTop: 4 }}>
                 TTM EPS sums basic EPS from these real, contiguous quarters (most recent first):{" "}
                 {fundamentals.ttm_eps_quarters.join(", ")}. P/E uses the close price above, not a
-                same-day quote.
+                same-day quote. This P/E divides a real, market-wide price by Standalone-only
+                earnings (AEGIS only parses Standalone filings) — for a company with large
+                subsidiaries carrying material profit outside the standalone entity (e.g.
+                Reliance&apos;s Jio and Retail), this reads meaningfully higher than the
+                commonly-quoted market P/E, which uses Consolidated EPS. Treat it as a real but
+                narrower ratio, not a like-for-like comparison to P/E figures reported elsewhere.
               </p>
             )}
           </div>
