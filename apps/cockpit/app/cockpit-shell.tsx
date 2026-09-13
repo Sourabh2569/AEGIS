@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Compass, LineChart, TrendingUp, Zap, Briefcase, LogOut, Factory } from "lucide-react";
+import { Compass, LineChart, TrendingUp, Zap, Briefcase, LogOut, Factory, ShieldOff } from "lucide-react";
 import { clearToken } from "./api-client";
 import RequireAuth from "./require-auth";
 
@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: "/actionables", label: "Actionables", icon: Zap, match: (path: string) => path.startsWith("/actionables") },
   { href: "/portfolio", label: "Portfolio", icon: Briefcase, match: (path: string) => path.startsWith("/portfolio") },
   { href: "/sector-screener", label: "Sector Screener", icon: Factory, match: (path: string) => path.startsWith("/sector-screener") },
+  { href: "/operations", label: "Operations", icon: ShieldOff, match: (path: string) => path.startsWith("/operations") },
 ];
 
 function Sidebar() {
