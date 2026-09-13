@@ -872,6 +872,26 @@ main.content {
   border-bottom: none;
 }
 
+.data-table td.num {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+.data-table tr.table-section td {
+  padding-top: 14px;
+  padding-bottom: 4px;
+  border-bottom: none;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: normal;
+}
+
+.data-table tr.table-section:first-child td {
+  padding-top: 4px;
+}
+
 .side-badge {
   font-family: var(--font-mono);
   font-weight: 700;
