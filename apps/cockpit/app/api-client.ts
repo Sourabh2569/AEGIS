@@ -78,6 +78,30 @@ export async function authPost<T>(path: string, body?: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+/** Same auth/401/error handling as authPost, but for multipart file uploads
+ * -- no Content-Type header set here, the browser fills in the multipart
+ * boundary itself when given a FormData body. */
+export async function authPostFormData<T>(path: string, formData: FormData): Promise<T> {
+  const token = getToken();
+  const response = await fetch(`${apiBase}${path}`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: formData,
+  });
+  if (response.status === 401) {
+    clearToken();
+    if (typeof window !== "undefined") {
+      window.location.assign("/login");
+    }
+    throw new Error("Your session has expired -- signing you out.");
+  }
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(extractErrorDetail(payload.detail) ?? response.statusText ?? "Request failed");
+  }
+  return (await response.json()) as T;
+}
+
 /** The backend returns `detail` as either a plain string or a structured
  * object (e.g. {"code": "..."} or {"state": ..., "label": ..., ...} for the
  * NO_REAL_HISTORICAL_DATA_CAPTURED family) -- surface whichever real text is

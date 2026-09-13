@@ -1,8 +1,8 @@
 "use client";
 
-import { ShieldOff, AlertTriangle } from "lucide-react";
+import { ShieldOff, AlertTriangle, FileUp } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { apiGet, authPost } from "../api-client";
+import { apiGet, authPost, authPostFormData } from "../api-client";
 import CockpitShell from "../cockpit-shell";
 import { PanelSkeleton } from "../skeleton";
 
@@ -268,6 +268,95 @@ function Incidents() {
   );
 }
 
+type UploadResult = {
+  symbol: string;
+  accepted: boolean;
+  skip_reason: string | null;
+  run: { records_accepted: number };
+};
+
+function FundamentalsImport() {
+  const [symbol, setSymbol] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [status, setStatus] = useState<ActionStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function handleUpload() {
+    if (!file || !symbol.trim()) return;
+    setBusy(true);
+    setStatus(null);
+    try {
+      const formData = new FormData();
+      formData.append("symbol", symbol.trim());
+      formData.append("file", file);
+      const result = await authPostFormData<UploadResult>(
+        "/api/v1/fundamentals-manual-import/upload",
+        formData
+      );
+      if (result.accepted) {
+        setStatus({
+          kind: "ok",
+          text: `${result.symbol}: parsed and stored (dataset_origin: APPROVED_FILE_IMPORT).`,
+        });
+        setSymbol("");
+        setFile(null);
+      } else {
+        setStatus({
+          kind: "error",
+          text: `${result.symbol}: not accepted — ${result.skip_reason ?? "unknown reason"}`,
+        });
+      }
+    } catch (err) {
+      setStatus({ kind: "error", text: err instanceof Error ? err.message : "Upload failed" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="panel" style={{ marginBottom: 18 }}>
+      <div className="panel-head">
+        <h2>
+          <FileUp size={15} />
+          Fundamentals — manual import
+        </h2>
+      </div>
+      <div className="panel-body">
+        <p className="hint" style={{ marginBottom: 10 }}>
+          NSE&apos;s Terms of Use prohibit automated scraping of financial-results filings, so
+          this is the compliant path: download a real quarterly XBRL filing yourself from{" "}
+          <a
+            href="https://www.nseindia.com/companies-listing/corporate-filings-financial-results"
+            target="_blank"
+            rel="noreferrer"
+          >
+            NSE&apos;s Financial Results page
+          </a>{" "}
+          — Equity tab, search the symbol, pick the Non-Consolidated row, download its XBRL —
+          then upload that file here.
+        </p>
+        <div className="reject-form" style={{ flexWrap: "wrap" }}>
+          <input
+            placeholder="Symbol, e.g. CIPLA"
+            value={symbol}
+            onChange={(event) => setSymbol(event.target.value.toUpperCase())}
+            style={{ width: 160 }}
+          />
+          <input
+            type="file"
+            accept=".xml"
+            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+          />
+          <button className="primary" disabled={busy || !file || !symbol.trim()} onClick={handleUpload}>
+            {busy ? "Uploading…" : "Upload & parse"}
+          </button>
+        </div>
+        {status && <p className={`action-status ${status.kind}`}>{status.text}</p>}
+      </div>
+    </div>
+  );
+}
+
 function Operations() {
   return (
     <>
@@ -285,6 +374,7 @@ function Operations() {
       </div>
       <KillSwitches />
       <Incidents />
+      <FundamentalsImport />
     </>
   );
 }

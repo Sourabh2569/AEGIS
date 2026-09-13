@@ -77,7 +77,7 @@ from aegis.strategies.baselines import (
     EqualWeightUniverseBenchmarkStrategyV0,
     TrendFollowingBaselineStrategyV0,
 )
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -1126,6 +1126,60 @@ def sync_fundamentals_manual_import(
     )
     return jsonable(
         {
+            "base_path": str(fundamentals_manual_import_base_path),
+            "run": run,
+        }
+    )
+
+
+@app.post("/api/v1/fundamentals-manual-import/upload")
+async def upload_fundamentals_manual_import(
+    symbol: str = Form(...),
+    file: UploadFile = File(...),
+    cid: str = Depends(correlation_id),
+    role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD)),
+) -> dict[str, Any]:
+    """Cockpit upload path for the same manual-import flow as the /sync
+    endpoint above -- saves the uploaded XBRL file as
+    work/fundamentals_manual_import/{SYMBOL}.xml (overwriting any prior
+    quarter's file for that symbol) and immediately runs the same real
+    ingestion. One click in the Cockpit replaces dropping a file on disk by
+    hand and calling /sync separately; the underlying compliance story is
+    unchanged -- a human still deliberately downloaded this file themselves
+    from NSE, this just moves where they hand it to AEGIS."""
+    clean_symbol = symbol.strip().upper()
+    if not clean_symbol or not re.fullmatch(r"[A-Z0-9]+", clean_symbol):
+        raise HTTPException(status_code=422, detail="symbol must be a plain ticker, e.g. CIPLA.")
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=422, detail="Uploaded file is empty.")
+    destination = fundamentals_manual_import_base_path / f"{clean_symbol}.xml"
+    destination.write_bytes(contents)
+
+    provider = FundamentalsManualImportProvider(
+        base_path=fundamentals_manual_import_base_path,
+        license_=licenses[fundamentals_manual_import_provider_record.id],
+    )
+    # A separate, pure-read fetch before the real ingestion call below --
+    # ingest_fundamentals's run summary hardcodes records_rejected=0 and
+    # never surfaces envelope.metadata (see service.py), so this is the only
+    # honest way to tell the caller whether *this specific* uploaded symbol
+    # actually parsed, instead of just the directory-wide accepted count.
+    diagnostic = provider.fetch_fundamentals()
+    skip_reason = diagnostic.metadata.get("skipped_symbols", {}).get(clean_symbol)
+
+    run = ingestion_service.ingest_fundamentals(
+        provider=provider,
+        provider_id=fundamentals_manual_import_provider_record.id,
+        dataset_id=fundamentals_dataset.id,
+        correlation_id=cid,
+    )
+    return jsonable(
+        {
+            "symbol": clean_symbol,
+            "saved_to": str(destination),
+            "accepted": skip_reason is None,
+            "skip_reason": skip_reason,
             "base_path": str(fundamentals_manual_import_base_path),
             "run": run,
         }
