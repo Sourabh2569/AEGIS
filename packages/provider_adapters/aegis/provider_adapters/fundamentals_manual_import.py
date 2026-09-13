@@ -21,11 +21,16 @@ period/date input is required, unlike fundamentals_nse_provider.py's
 adapter, which needed the discovery API's filing metadata for this.
 
 Known gaps (same as fundamentals_nse_provider.py, inherited by reusing its
-parse_xbrl_fundamentals()): only the generic Ind-AS XBRL taxonomy
-(in-bse-fin 2020-03-31) is supported. A file under a different taxonomy
-(e.g. a bank's "BANKING_*.xml") is honestly skipped -- its tags simply
-won't match this namespace, so no context/value is ever found, never
-guessed.
+parse_xbrl_fundamentals() and _find_by_local_name()): only the generic
+Ind-AS company taxonomy is supported, matched by tag local-name regardless
+of which real namespace URI wraps it -- confirmed necessary since NSE/SEBI
+have already shipped at least one real taxonomy migration mid-flight
+(BSE's "in-bse-fin 2020-03-31" through ~Jan 2025, then SEBI's own
+"in-capmkt 2026-01-31"). A file under a genuinely different taxonomy
+(e.g. a bank's "BANKING_*.xml", which uses different tag names entirely --
+InterestEarned, not RevenueFromOperations) is honestly skipped -- its tags
+simply don't match any mapped local name, so no context/value is ever
+found, never guessed.
 """
 
 from __future__ import annotations
@@ -38,7 +43,7 @@ from xml.etree import ElementTree
 from aegis.domain.models import ProviderLicense, ProviderLicenseStatus
 from aegis.provider_adapters.base import ProviderHealthResult, ProviderResponseEnvelope
 from aegis.provider_adapters.fundamentals_nse_provider import (
-    NSE_FIN_NAMESPACE,
+    _find_by_local_name,
     parse_xbrl_fundamentals,
 )
 
@@ -54,14 +59,13 @@ def find_reporting_periods(xml_bytes: bytes) -> dict[str, tuple[str, str]]:
     """Real, self-declared reporting periods read directly from the filing
     -- maps contextRef -> (start_date, end_date), both ISO strings."""
     root = ElementTree.fromstring(xml_bytes)
-    ns = {"fin": NSE_FIN_NAMESPACE}
     starts: dict[str, str] = {}
     ends: dict[str, str] = {}
-    for element in root.findall("fin:DateOfStartOfReportingPeriod", ns):
+    for element in _find_by_local_name(root, "DateOfStartOfReportingPeriod"):
         context_ref = element.get("contextRef")
         if context_ref and element.text:
             starts[context_ref] = element.text.strip()
-    for element in root.findall("fin:DateOfEndOfReportingPeriod", ns):
+    for element in _find_by_local_name(root, "DateOfEndOfReportingPeriod"):
         context_ref = element.get("contextRef")
         if context_ref and element.text:
             ends[context_ref] = element.text.strip()
@@ -93,9 +97,8 @@ def extract_board_approval_date(xml_bytes: bytes, context_ref: str) -> str | Non
     """The real date the company's board approved these results -- the same
     real-world event NSE's own discovery API reports as "filingDate"."""
     root = ElementTree.fromstring(xml_bytes)
-    ns = {"fin": NSE_FIN_NAMESPACE}
-    for element in root.findall(
-        "fin:DateOfBoardMeetingWhenFinancialResultsWereApproved", ns
+    for element in _find_by_local_name(
+        root, "DateOfBoardMeetingWhenFinancialResultsWereApproved"
     ):
         if element.get("contextRef") == context_ref and element.text:
             return element.text.strip()

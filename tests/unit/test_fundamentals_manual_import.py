@@ -51,6 +51,39 @@ def test_extract_board_approval_date_reads_the_real_filing_date() -> None:
     assert extract_board_approval_date(xml_bytes, "OneD") == "2025-01-16"
 
 
+# NSE/SEBI migrated the Ind-AS company taxonomy mid-flight: every fixture
+# above uses BSE's "in-bse-fin 2020-03-31" namespace, but a real RELIANCE
+# filing downloaded live from NSE for Q1 FY2026-27 uses SEBI's own
+# "in-capmkt 2026-01-31" namespace instead -- same tag local names,
+# different wrapping namespace URI. These confirm the local-name-based
+# matching (_find_by_local_name) handles both real namespaces, not just
+# the one every other fixture happens to use.
+NEW_TAXONOMY_FIXTURE = "reliance_q1_fy2027_standalone_sebi_capmkt_taxonomy.xml"
+
+
+def test_find_reporting_periods_reads_the_newer_sebi_capmkt_taxonomy() -> None:
+    xml_bytes = (FIXTURES_DIR / NEW_TAXONOMY_FIXTURE).read_bytes()
+    periods = find_reporting_periods(xml_bytes)
+    assert periods["OneD"] == ("2026-04-01", "2026-06-30")
+
+
+def test_extract_board_approval_date_reads_the_newer_sebi_capmkt_taxonomy() -> None:
+    xml_bytes = (FIXTURES_DIR / NEW_TAXONOMY_FIXTURE).read_bytes()
+    assert extract_board_approval_date(xml_bytes, "OneD") == "2026-07-17"
+
+
+def test_parse_manually_downloaded_filing_reads_the_newer_sebi_capmkt_taxonomy() -> None:
+    xml_bytes = (FIXTURES_DIR / NEW_TAXONOMY_FIXTURE).read_bytes()
+    record = parse_manually_downloaded_filing(xml_bytes, "RELIANCE")
+    assert record is not None
+    assert record["period_from"] == "2026-04-01"
+    assert record["period_to"] == "2026-06-30"
+    assert record["filing_date"] == "2026-07-17"
+    assert record["revenue_from_operations"] == "3118500000000"
+    assert record["profit_before_tax"] == "306300000000"
+    assert record["profit_for_period"] == "231960000000"
+
+
 @pytest.mark.parametrize("symbol", sorted(REAL_FIXTURES))
 def test_parse_manually_downloaded_filing_is_fully_self_contained(symbol: str) -> None:
     """No external period/date input at all -- every real company's filing

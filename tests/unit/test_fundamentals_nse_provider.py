@@ -117,6 +117,22 @@ def test_parse_xbrl_fundamentals_returns_empty_for_unmatched_period() -> None:
     assert values == {}
 
 
+def test_parse_xbrl_fundamentals_reads_a_real_filing_under_the_newer_sebi_capmkt_taxonomy() -> None:
+    """NSE/SEBI migrated the Ind-AS company taxonomy mid-flight: this real
+    RELIANCE Q1 FY2026-27 filing uses SEBI's "in-capmkt 2026-01-31"
+    namespace, not the "in-bse-fin 2020-03-31" namespace every other
+    fixture uses -- same tag local names, different namespace URI. Proves
+    parse_xbrl_fundamentals's local-name matching isn't hardcoded to the
+    one namespace the rest of this test file happens to use."""
+    xml_bytes = (
+        FIXTURE_PATH.parent / "reliance_q1_fy2027_standalone_sebi_capmkt_taxonomy.xml"
+    ).read_bytes()
+    values = parse_xbrl_fundamentals(xml_bytes, period_from="2026-04-01", period_to="2026-06-30")
+    assert values["revenue_from_operations"] == "3118500000000"
+    assert values["profit_before_tax"] == "306300000000"
+    assert values["profit_for_period"] == "231960000000"
+
+
 def test_fetch_fundamentals_end_to_end_against_fake_client() -> None:
     xml_bytes = FIXTURE_PATH.read_bytes()
     client = FakeHttpClient(

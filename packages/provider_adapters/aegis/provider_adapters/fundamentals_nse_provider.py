@@ -32,8 +32,15 @@ Known gaps (do not fabricate data for these):
   declared (fromDate, toDate) is honestly skipped, never guessed from a
   context-naming convention (e.g. "OneD"/"FourD" are filer-specific, not a
   reliable cross-company signal of "this quarter" vs "cumulative").
-- **Only companies filing under the generic Ind-AS taxonomy are supported.**
-  Banks/NBFCs/insurers file under a materially different taxonomy (confirmed
+- **Only companies filing under the generic Ind-AS company taxonomy are
+  supported**, matched by tag local-name regardless of the wrapping XBRL
+  namespace URI (see _find_by_local_name) -- confirmed necessary since
+  NSE/SEBI have already migrated that taxonomy's namespace mid-flight at
+  least once (BSE's "in-bse-fin 2020-03-31", used by every fixture this
+  adapter was originally built against, through ~Jan 2025; then SEBI's own
+  "in-capmkt 2026-01-31", confirmed against a real RELIANCE Q1 FY2026-27
+  filing with identical tag local names). Banks/NBFCs/insurers file under a
+  materially different taxonomy regardless of namespace version (confirmed
   by fetching a real HDFCBANK filing: "BANKING_*.xml", tags like
   InterestEarned/ProfitLossForThePeriod, not RevenueFromOperations/
   ProfitBeforeTax/ProfitLossForPeriod) -- pointing this adapter at a
@@ -61,6 +68,10 @@ from aegis.domain.models import ProviderLicense, ProviderLicenseStatus
 from aegis.provider_adapters.base import ProviderHealthResult, ProviderResponseEnvelope
 
 XBRLI_NAMESPACE = "http://www.xbrl.org/2003/instance"
+# Legacy BSE-published Ind-AS company taxonomy -- every filing this adapter
+# was originally built and tested against (RELIANCE/TCS/HCLTECH/INFY/TECHM/
+# WIPRO, all filed ~Jan 2025) used this. Kept only as a documented data
+# point; no code below reads it -- see _find_by_local_name.
 NSE_FIN_NAMESPACE = "http://www.bseindia.com/xbrl/fin/2020-03-31/in-bse-fin"
 
 # Only tags confirmed present, real, and correctly period-scoped in a real
@@ -72,6 +83,25 @@ FUNDAMENTALS_TAGS: dict[str, str] = {
 }
 
 USER_AGENT = "Mozilla/5.0 (compatible; AEGIS-research/1.0)"
+
+
+def _find_by_local_name(
+    root: ElementTree.Element, local_name: str
+) -> list[ElementTree.Element]:
+    """Matches an element by its bare tag name, ignoring whatever XBRL
+    namespace URI wraps it -- confirmed necessary against two real captured
+    filings: the original 2025 fixtures use BSE's "in-bse-fin 2020-03-31"
+    taxonomy, but a real RELIANCE filing for Q1 FY2026-27 (period
+    2026-04-01 to 2026-06-30, board-approved 2026-07-17) uses SEBI's own
+    "in-capmkt 2026-01-31" taxonomy instead -- a real, live taxonomy
+    migration, not a one-off. Every field name this adapter maps
+    (RevenueFromOperations, ProfitBeforeTax, ProfitLossForPeriod,
+    DateOfStartOfReportingPeriod, DateOfEndOfReportingPeriod,
+    DateOfBoardMeetingWhenFinancialResultsWereApproved) was confirmed
+    identical under both real namespaces, so matching on local name alone
+    is real, verified behavior, not a guess -- and it means a future SEBI
+    taxonomy date bump doesn't silently break this without a code change."""
+    return [element for element in root.iter() if element.tag.rsplit("}", 1)[-1] == local_name]
 
 
 class HttpClient(Protocol):
@@ -140,7 +170,7 @@ def parse_xbrl_fundamentals(
     scoped to one of those contexts. Returns {} (never a partial guess) if no
     context matches; callers must treat that as "not available"."""
     root = ElementTree.fromstring(xml_bytes)
-    ns = {"xbrli": XBRLI_NAMESPACE, "fin": NSE_FIN_NAMESPACE}
+    ns = {"xbrli": XBRLI_NAMESPACE}
 
     matching_context_ids: set[str] = set()
     for context in root.findall("xbrli:context", ns):
@@ -158,7 +188,7 @@ def parse_xbrl_fundamentals(
 
     values: dict[str, str] = {}
     for field_name, tag in FUNDAMENTALS_TAGS.items():
-        for element in root.findall(f"fin:{tag}", ns):
+        for element in _find_by_local_name(root, tag):
             if element.get("contextRef") in matching_context_ids and element.text:
                 values[field_name] = element.text.strip()
                 break
