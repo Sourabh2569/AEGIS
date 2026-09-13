@@ -1189,6 +1189,39 @@ async def upload_fundamentals_manual_import(
     )
 
 
+@app.get("/api/v1/fundamentals-manual-import/history/{symbol}")
+def get_fundamentals_manual_import_history(symbol: str) -> dict[str, Any]:
+    """Every real quarter already on file for this symbol -- lets the
+    Cockpit's upload panel show what's there before the user picks a file,
+    so they don't have to guess or accidentally re-upload a quarter that's
+    already in. Deliberately does not go through _resolve_symbol: manual
+    import is meant to work for any real company, not just the curated
+    universes main.py already knows about. Never fabricates a "not
+    uploaded yet" gap into a filled one -- an empty result just means
+    nothing real has been uploaded for this symbol."""
+    canonical = symbol.strip().upper()
+    history = repo.fundamentals_history.get(canonical, {})
+    quarters = sorted(
+        (
+            {
+                "period_from": record.get("period_from"),
+                "period_to": period_to,
+                "filing_date": record.get("filing_date"),
+            }
+            for period_to, record in history.items()
+        ),
+        key=lambda q: q["period_to"],
+        reverse=True,
+    )
+    ttm_eps, ttm_eps_quarters = compute_ttm_eps(history)
+    return {
+        "symbol": canonical,
+        "quarters": quarters,
+        "ttm_eps": ttm_eps,
+        "ttm_eps_quarters": ttm_eps_quarters,
+    }
+
+
 @app.get("/api/v1/sector-screener/instruments")
 def get_sector_screener_instruments() -> dict[str, Any]:
     """Real close/momentum/SMA/ATR per instrument, grouped by sector --

@@ -88,6 +88,61 @@ def test_sync_real_downloaded_file_flows_through_to_the_existing_endpoint(
     assert app_main.repo.dataset_origins[dataset_version_id] == "APPROVED_FILE_IMPORT"
 
 
+def test_history_endpoint_is_honest_for_a_symbol_with_nothing_uploaded(
+    client: TestClient,
+) -> None:
+    response = client.get("/api/v1/fundamentals-manual-import/history/CIPLA")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["quarters"] == []
+    assert body["ttm_eps"] is None
+
+
+def test_history_endpoint_lists_a_real_uploaded_quarter(client: TestClient) -> None:
+    client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE"},
+        files={
+            "file": (
+                "f.xml",
+                (FIXTURES_DIR / "reliance_q3_fy2025_standalone.xml").read_bytes(),
+                "text/xml",
+            )
+        },
+    )
+    response = client.get("/api/v1/fundamentals-manual-import/history/RELIANCE")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["quarters"] == [
+        {"period_from": "2024-10-01", "period_to": "2024-12-31", "filing_date": "2025-01-16"}
+    ]
+    assert body["ttm_eps"] is None  # only 1 of 4 real quarters uploaded so far
+
+
+def test_history_endpoint_reports_real_ttm_once_four_quarters_are_on_file(
+    client: TestClient,
+) -> None:
+    for period_from, period_to, basic_eps in [
+        ("2024-01-01", "2024-03-31", "5.00"),
+        ("2024-04-01", "2024-06-30", "6.00"),
+        ("2024-07-01", "2024-09-30", "7.00"),
+        ("2024-10-01", "2024-12-31", "8.00"),
+    ]:
+        app_main.repo.fundamentals_history.setdefault("RELIANCE", {})[period_to] = {
+            "symbol": "RELIANCE",
+            "period_from": period_from,
+            "period_to": period_to,
+            "basic_eps": basic_eps,
+        }
+    response = client.get("/api/v1/fundamentals-manual-import/history/RELIANCE")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["quarters"]) == 4
+    assert body["quarters"][0]["period_to"] == "2024-12-31"  # most recent first
+    assert body["ttm_eps"] == "26.00"
+
+
 def test_upload_endpoint_saves_the_file_and_ingests_it_in_one_call(
     client: TestClient, tmp_path: Path
 ) -> None:

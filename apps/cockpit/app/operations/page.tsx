@@ -275,42 +275,89 @@ type UploadResult = {
   run: { records_accepted: number };
 };
 
+type FundamentalsQuarter = { period_from: string; period_to: string; filing_date: string };
+
+type FundamentalsHistory = {
+  symbol: string;
+  quarters: FundamentalsQuarter[];
+  ttm_eps: string | null;
+  ttm_eps_quarters: string[];
+};
+
+const EMPTY_HISTORY: FundamentalsHistory = {
+  symbol: "",
+  quarters: [],
+  ttm_eps: null,
+  ttm_eps_quarters: [],
+};
+
 function FundamentalsImport() {
   const [symbol, setSymbol] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<ActionStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [history, setHistory] = useState<FundamentalsHistory | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const loadHistory = useCallback((forSymbol: string) => {
+    const trimmed = forSymbol.trim();
+    if (!trimmed) {
+      setHistory(null);
+      return;
+    }
+    setHistoryLoading(true);
+    apiGet<FundamentalsHistory>(
+      `/api/v1/fundamentals-manual-import/history/${encodeURIComponent(trimmed)}`,
+      EMPTY_HISTORY
+    )
+      .then(setHistory)
+      .finally(() => setHistoryLoading(false));
+  }, []);
+
+  // Debounced lookup -- fires 400ms after the user stops typing a symbol,
+  // so "quarters on file" shows up before they even pick a file, letting
+  // them see what's missing instead of guessing or re-uploading a quarter
+  // that's already in.
+  useEffect(() => {
+    const timer = setTimeout(() => loadHistory(symbol), 400);
+    return () => clearTimeout(timer);
+  }, [symbol, loadHistory]);
 
   async function handleUpload() {
-    if (!file || !symbol.trim()) return;
+    const cleanSymbol = symbol.trim();
+    if (files.length === 0 || !cleanSymbol) return;
     setBusy(true);
     setStatus(null);
-    try {
-      const formData = new FormData();
-      formData.append("symbol", symbol.trim());
-      formData.append("file", file);
-      const result = await authPostFormData<UploadResult>(
-        "/api/v1/fundamentals-manual-import/upload",
-        formData
-      );
-      if (result.accepted) {
-        setStatus({
-          kind: "ok",
-          text: `${result.symbol}: parsed and stored (dataset_origin: APPROVED_FILE_IMPORT).`,
-        });
-        setSymbol("");
-        setFile(null);
-      } else {
-        setStatus({
-          kind: "error",
-          text: `${result.symbol}: not accepted — ${result.skip_reason ?? "unknown reason"}`,
-        });
+    const outcomes: string[] = [];
+    // Sequential, not Promise.all -- every file for this symbol overwrites
+    // the same work/fundamentals_manual_import/{SYMBOL}.xml on the backend,
+    // so concurrent uploads would race on that same destination.
+    for (const file of files) {
+      try {
+        const formData = new FormData();
+        formData.append("symbol", cleanSymbol);
+        formData.append("file", file);
+        const result = await authPostFormData<UploadResult>(
+          "/api/v1/fundamentals-manual-import/upload",
+          formData
+        );
+        outcomes.push(
+          result.accepted
+            ? `${file.name}: accepted`
+            : `${file.name}: not accepted — ${result.skip_reason ?? "unknown reason"}`
+        );
+      } catch (err) {
+        outcomes.push(`${file.name}: ${err instanceof Error ? err.message : "upload failed"}`);
       }
-    } catch (err) {
-      setStatus({ kind: "error", text: err instanceof Error ? err.message : "Upload failed" });
-    } finally {
-      setBusy(false);
     }
+    const failures = outcomes.filter((line) => !line.includes(": accepted"));
+    setStatus({
+      kind: failures.length === 0 ? "ok" : "error",
+      text: `${cleanSymbol} — ${files.length} file(s): ${outcomes.join(" · ")}`,
+    });
+    setFiles([]);
+    loadHistory(cleanSymbol);
+    setBusy(false);
   }
 
   return (
@@ -333,7 +380,9 @@ function FundamentalsImport() {
             NSE&apos;s Financial Results page
           </a>{" "}
           — Equity tab, search the symbol, pick the Non-Consolidated row, download its XBRL —
-          then upload that file here.
+          then upload that file here. Select multiple files at once (e.g. the last 4 real
+          quarters) to set a symbol up for a trailing-twelve-month figure in one go; after that,
+          just the newest quarter each time keeps it current.
         </p>
         <div className="reject-form" style={{ flexWrap: "wrap" }}>
           <input
@@ -345,12 +394,53 @@ function FundamentalsImport() {
           <input
             type="file"
             accept=".xml"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            multiple
+            onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
           />
-          <button className="primary" disabled={busy || !file || !symbol.trim()} onClick={handleUpload}>
-            {busy ? "Uploading…" : "Upload & parse"}
+          <button
+            className="primary"
+            disabled={busy || files.length === 0 || !symbol.trim()}
+            onClick={handleUpload}
+          >
+            {busy
+              ? "Uploading…"
+              : files.length > 1
+                ? `Upload & parse (${files.length} files)`
+                : "Upload & parse"}
           </button>
         </div>
+
+        {symbol.trim() && (
+          <div style={{ marginTop: 12 }}>
+            {historyLoading ? (
+              <p className="hint">Checking what&apos;s already on file for {symbol.trim()}…</p>
+            ) : history && history.quarters.length > 0 ? (
+              <>
+                <p className="hint" style={{ marginBottom: 4 }}>
+                  Quarters already on file for {symbol.trim()}:
+                </p>
+                <ul className="reasoning">
+                  {history.quarters.map((quarter) => (
+                    <li key={quarter.period_to}>
+                      <span className="k">
+                        {quarter.period_from} to {quarter.period_to}
+                      </span>
+                      <span className="v">filed {quarter.filing_date}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>
+                  {history.ttm_eps
+                    ? `TTM EPS available: ${history.ttm_eps} (from ${history.ttm_eps_quarters.join(", ")})`
+                    : `TTM EPS not available yet — ${history.quarters.length} of 4 real, contiguous quarters on file.`}
+                </p>
+              </>
+            ) : (
+              <p className="hint">No quarters uploaded yet for {symbol.trim()}.</p>
+            )}
+          </div>
+        )}
+
         {status && <p className={`action-status ${status.kind}`}>{status.text}</p>}
       </div>
     </div>
