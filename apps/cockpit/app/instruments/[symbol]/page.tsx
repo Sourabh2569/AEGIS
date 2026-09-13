@@ -69,9 +69,21 @@ type ConsolidatedFundamentals =
       period_to: string;
       filing_date: string;
       revenue_from_operations: string | null;
+      other_income: string | null;
+      total_income: string | null;
+      total_expenses: string | null;
+      employee_benefit_expense: string | null;
+      finance_costs: string | null;
+      depreciation_and_amortisation: string | null;
+      profit_before_tax: string | null;
+      tax_expense: string | null;
       profit_for_period: string | null;
       basic_eps: string | null;
       diluted_eps: string | null;
+      paid_up_equity_share_capital: string | null;
+      face_value_per_share: string | null;
+      debt_equity_ratio: string | null;
+      source_xbrl_url: string | null;
       ttm_eps: string | null;
       ttm_eps_quarters: string[];
       real_quarters_on_file: number;
@@ -492,10 +504,89 @@ function Decision({ symbol }: { symbol: string }) {
                 </span>
               </li>
               <li>
+                <span className="k">Other income</span>
+                <span className="v">
+                  {fundamentals.consolidated.other_income
+                    ? money(fundamentals.consolidated.other_income, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Total income</span>
+                <span className="v">
+                  {fundamentals.consolidated.total_income
+                    ? money(fundamentals.consolidated.total_income, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Total expenses</span>
+                <span className="v">
+                  {fundamentals.consolidated.total_expenses
+                    ? money(fundamentals.consolidated.total_expenses, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Employee benefit expense</span>
+                <span className="v">
+                  {fundamentals.consolidated.employee_benefit_expense
+                    ? money(fundamentals.consolidated.employee_benefit_expense, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Finance costs</span>
+                <span className="v">
+                  {fundamentals.consolidated.finance_costs
+                    ? money(fundamentals.consolidated.finance_costs, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Depreciation &amp; amortisation</span>
+                <span className="v">
+                  {fundamentals.consolidated.depreciation_and_amortisation
+                    ? money(fundamentals.consolidated.depreciation_and_amortisation, {
+                        compact: true,
+                      })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Profit before tax</span>
+                <span className="v">
+                  {fundamentals.consolidated.profit_before_tax
+                    ? money(fundamentals.consolidated.profit_before_tax, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Tax expense</span>
+                <span className="v">
+                  {fundamentals.consolidated.tax_expense
+                    ? money(fundamentals.consolidated.tax_expense, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
                 <span className="k">Profit for the period</span>
                 <span className="v">
                   {fundamentals.consolidated.profit_for_period
                     ? money(fundamentals.consolidated.profit_for_period, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Net profit margin</span>
+                <span className="v">
+                  {fundamentals.consolidated.profit_for_period &&
+                  fundamentals.consolidated.revenue_from_operations
+                    ? `${(
+                        (Number(fundamentals.consolidated.profit_for_period) /
+                          Number(fundamentals.consolidated.revenue_from_operations)) *
+                        100
+                      ).toFixed(1)}%`
                     : "not available"}
                 </span>
               </li>
@@ -505,6 +596,22 @@ function Decision({ symbol }: { symbol: string }) {
                   {fundamentals.consolidated.basic_eps ?? "n/a"} /{" "}
                   {fundamentals.consolidated.diluted_eps ?? "n/a"}
                 </span>
+              </li>
+              <li>
+                <span className="k">Shares outstanding (implied)</span>
+                <span className="v">
+                  {fundamentals.consolidated.paid_up_equity_share_capital &&
+                  fundamentals.consolidated.face_value_per_share
+                    ? Math.round(
+                        Number(fundamentals.consolidated.paid_up_equity_share_capital) /
+                          Number(fundamentals.consolidated.face_value_per_share),
+                      ).toLocaleString("en-IN")
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Debt / Equity ratio</span>
+                <span className="v">{fundamentals.consolidated.debt_equity_ratio ?? "not available"}</span>
               </li>
               <li>
                 <span className="k">EPS (TTM, basic)</span>
@@ -525,10 +632,30 @@ function Decision({ symbol }: { symbol: string }) {
               </li>
             </ul>
             <p className="hint" style={{ marginBottom: 0 }}>
-              Filed {fundamentals.consolidated.filing_date} · this is the figure comparable to a
-              commonly-quoted market P/E, since it includes subsidiaries the Standalone entity
-              above excludes.
+              Filed {fundamentals.consolidated.filing_date} · real quarterly results, not a
+              balance sheet —{" "}
+              {fundamentals.consolidated.source_xbrl_url && (
+                <a href={fundamentals.consolidated.source_xbrl_url} target="_blank" rel="noreferrer">
+                  source XBRL filing
+                </a>
+              )}
             </p>
+            {fundamentals.consolidated.ttm_eps && (
+              <p className="hint" style={{ marginBottom: 0, marginTop: 4 }}>
+                TTM EPS sums basic EPS from these real, contiguous quarters (most recent first):{" "}
+                {fundamentals.consolidated.ttm_eps_quarters.join(", ")}. P/E uses the close price
+                above, not a same-day quote. This is the figure comparable to a commonly-quoted
+                market P/E, since Consolidated includes subsidiaries the Standalone entity above
+                excludes.
+              </p>
+            )}
+            {fundamentals.consolidated.debt_equity_ratio && (
+              <p className="hint" style={{ marginBottom: 0, marginTop: 4 }}>
+                Debt/Equity is the company&apos;s own self-reported figure from this filing, not
+                derived by AEGIS — treat it as real but not necessarily on the same debt
+                definition (gross vs. net) as figures quoted elsewhere.
+              </p>
+            )}
           </div>
         </div>
       )}

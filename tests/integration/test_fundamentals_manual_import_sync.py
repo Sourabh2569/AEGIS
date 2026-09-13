@@ -384,6 +384,20 @@ def test_upload_with_nature_consolidated_accepts_the_same_real_file(
     assert body["consolidated"]["available"] is True
     assert body["consolidated"]["revenue_from_operations"] == "3118500000000"
     assert body["consolidated"]["basic_eps"] == "15.48"
+    # Full P&L parity with the Standalone block, not just the minimal
+    # revenue/profit/EPS subset -- these are real, already-parsed fields
+    # that were previously left off the Consolidated response.
+    assert body["consolidated"]["other_income"] == "65500000000"
+    assert body["consolidated"]["total_income"] == "3184000000000"
+    assert body["consolidated"]["total_expenses"] == "2877700000000"
+    assert body["consolidated"]["employee_benefit_expense"] == "77170000000"
+    assert body["consolidated"]["finance_costs"] == "83370000000"
+    assert body["consolidated"]["depreciation_and_amortisation"] == "151000000000"
+    assert body["consolidated"]["profit_before_tax"] == "306300000000"
+    assert body["consolidated"]["tax_expense"] == "76290000000"
+    assert body["consolidated"]["paid_up_equity_share_capital"] == "135330000000"
+    assert body["consolidated"]["face_value_per_share"] == "10"
+    assert body["consolidated"]["debt_equity_ratio"] == "0.004"
 
 
 def test_history_endpoint_keeps_standalone_and_consolidated_entirely_separate(
