@@ -8,7 +8,7 @@ pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
 import aegis_api.main as app_main
-from aegis.data_ingestion.fundamentals_store import SqliteFundamentalsStore
+from aegis.data_ingestion.fundamentals_store import FundamentalsRawArchive, SqliteFundamentalsStore
 from aegis_api.main import app
 from fastapi.testclient import TestClient
 
@@ -46,6 +46,12 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
     # for the same pattern).
     monkeypatch.setattr(
         app_main, "fundamentals_store", SqliteFundamentalsStore(tmp_path / "fundamentals.sqlite")
+    )
+    # Same isolation for the raw-file archive -- otherwise every accepted
+    # upload in this file's tests would permanently write into the
+    # session-wide AEGIS_WORK_DIR archive directory too.
+    monkeypatch.setattr(
+        app_main, "fundamentals_raw_archive", FundamentalsRawArchive(tmp_path / "archive")
     )
     yield TestClient(app)
     app_main.repo.latest_fundamentals.clear()
@@ -134,7 +140,12 @@ def test_history_endpoint_lists_a_real_uploaded_quarter(client: TestClient) -> N
     assert response.status_code == 200
     body = response.json()
     assert body["quarters"] == [
-        {"period_from": "2024-10-01", "period_to": "2024-12-31", "filing_date": "2025-01-16"}
+        {
+            "period_from": "2024-10-01",
+            "period_to": "2024-12-31",
+            "filing_date": "2025-01-16",
+            "archived": True,
+        }
     ]
     assert body["ttm_eps"] is None  # only 1 of 4 real quarters uploaded so far
 
@@ -565,3 +576,113 @@ def test_rehydrate_from_store_repopulates_the_repo_exactly_like_a_real_restart(
     body = response.json()
     assert body["available"] is True
     assert body["revenue_from_operations"] == "1282600000000.00"
+
+
+def test_raw_file_download_returns_the_exact_uploaded_bytes(client: TestClient) -> None:
+    original_bytes = (FIXTURES_DIR / "reliance_q3_fy2025_standalone.xml").read_bytes()
+    client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE"},
+        files={"file": ("f.xml", original_bytes, "text/xml")},
+    )
+
+    response = client.get("/api/v1/fundamentals-manual-import/history/RELIANCE/2024-12-31/raw")
+    assert response.status_code == 200
+    assert response.content == original_bytes
+    assert "RELIANCE" in response.headers["content-disposition"]
+
+
+def test_raw_file_download_is_honest_when_nothing_is_archived(client: TestClient) -> None:
+    response = client.get("/api/v1/fundamentals-manual-import/history/RELIANCE/2024-12-31/raw")
+    assert response.status_code == 404
+
+
+def test_raw_file_download_keeps_standalone_and_consolidated_separate(client: TestClient) -> None:
+    client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE", "nature": "consolidated"},
+        files={
+            "file": ("f.xml", (FIXTURES_DIR / CONSOLIDATED_FIXTURE).read_bytes(), "text/xml")
+        },
+    )
+
+    standalone_response = client.get(
+        "/api/v1/fundamentals-manual-import/history/RELIANCE/2026-06-30/raw"
+    )
+    assert standalone_response.status_code == 404  # never uploaded as Standalone
+
+    consolidated_response = client.get(
+        "/api/v1/fundamentals-manual-import/history/RELIANCE/2026-06-30/raw?nature=consolidated"
+    )
+    assert consolidated_response.status_code == 200
+
+
+def test_a_rejected_upload_is_archived_too_not_silently_discarded(client: TestClient) -> None:
+    """Even a mistaken upload (wrong nature here -- a real Consolidated file
+    sent to the Standalone path) must not vanish -- it's real evidence of
+    what a human actually tried to upload."""
+    rejected_bytes = (FIXTURES_DIR / CONSOLIDATED_FIXTURE).read_bytes()
+    response = client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE"},
+        files={"file": ("f.xml", rejected_bytes, "text/xml")},
+    )
+    assert response.json()["accepted"] is False
+
+    archive_dir = app_main.fundamentals_raw_archive.root / "STANDALONE" / "RELIANCE"
+    rejected_files = list(archive_dir.glob("rejected-*.xml"))
+    assert len(rejected_files) == 1
+    assert rejected_files[0].read_bytes() == rejected_bytes
+
+
+def test_deleting_a_quarter_also_removes_its_archived_raw_file(client: TestClient) -> None:
+    client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE"},
+        files={
+            "file": (
+                "f.xml",
+                (FIXTURES_DIR / "reliance_q3_fy2025_standalone.xml").read_bytes(),
+                "text/xml",
+            )
+        },
+    )
+    assert (
+        client.get("/api/v1/fundamentals-manual-import/history/RELIANCE/2024-12-31/raw").status_code
+        == 200
+    )
+
+    client.delete(
+        "/api/v1/fundamentals-manual-import/history/RELIANCE/2024-12-31",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+    )
+
+    assert (
+        client.get("/api/v1/fundamentals-manual-import/history/RELIANCE/2024-12-31/raw").status_code
+        == 404
+    )
+
+
+def test_raw_archive_survives_a_real_process_restart_through_the_api(
+    client: TestClient,
+) -> None:
+    """The actual point of this whole feature: a brand-new
+    FundamentalsRawArchive pointed at the same directory -- standing in for
+    the API process restarting -- must still see the real file a prior
+    process archived."""
+    original_bytes = (FIXTURES_DIR / "reliance_q3_fy2025_standalone.xml").read_bytes()
+    client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE"},
+        files={"file": ("f.xml", original_bytes, "text/xml")},
+    )
+
+    reloaded = FundamentalsRawArchive(app_main.fundamentals_raw_archive.root)
+    assert reloaded.load(nature="STANDALONE", symbol="RELIANCE", period_to="2024-12-31") == (
+        original_bytes
+    )

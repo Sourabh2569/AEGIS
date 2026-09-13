@@ -28,7 +28,7 @@ from aegis.backtesting.repositories import BacktestRepository
 from aegis.backtesting.sprint2 import Sprint2ResearchScenarioRunner
 from aegis.configuration.settings import Settings
 from aegis.data_activation.service import DataActivationService
-from aegis.data_ingestion.fundamentals_store import SqliteFundamentalsStore
+from aegis.data_ingestion.fundamentals_store import FundamentalsRawArchive, SqliteFundamentalsStore
 from aegis.data_ingestion.service import (
     InMemoryRepository,
     LocalObjectStore,
@@ -83,6 +83,7 @@ from aegis.strategies.baselines import (
 )
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 settings = Settings.from_env()
@@ -145,6 +146,11 @@ fundamentals_manual_import_consolidated_base_path = (
     work_dir / "fundamentals_manual_import_consolidated"
 )
 fundamentals_manual_import_consolidated_base_path.mkdir(parents=True, exist_ok=True)
+# Permanent copy of every raw filing ever uploaded through the panel above --
+# the two directories above are single working slots per symbol, overwritten
+# on every new upload, so an earlier quarter's original file is otherwise
+# gone the moment a newer one replaces it. See FundamentalsRawArchive.
+fundamentals_raw_archive = FundamentalsRawArchive(work_dir / "fundamentals_archive")
 object_store = LocalObjectStore(work_dir / "object_store")
 ingestion_service = ProviderIngestionService(
     object_store=object_store,
@@ -1204,6 +1210,41 @@ def _persist_fundamentals_records(records: list[dict[str, Any]], required_nature
             fundamentals_store.upsert(symbol, nature_key, period_to, stored_record)
 
 
+def _archive_fundamentals_uploads(
+    *, diagnostic: Any, required_nature: str, base_path: Path
+) -> None:
+    """Permanently archives every real file currently sitting in base_path
+    that this diagnostic fetch just looked at -- accepted ones under their
+    real period_to (so a re-upload of the same quarter replaces its own
+    archived copy, never a duplicate), rejected ones under a timestamp (so
+    even a mistaken upload isn't silently discarded). Shared by /upload and
+    /sync so a /sync run touching many symbols at once gets the same
+    permanent-archive guarantee as a single /upload -- re-archiving a
+    symbol whose file hasn't changed is a harmless overwrite of identical
+    bytes, same idempotent shape as _persist_fundamentals_records above."""
+    accepted_period_to = {
+        record.get("symbol"): record.get("period_to") for record in diagnostic.payload
+    }
+    skipped_symbols = diagnostic.metadata.get("skipped_symbols", {})
+    for path in sorted(base_path.glob("*.xml")):
+        symbol = path.stem.upper()
+        period_to = accepted_period_to.get(symbol)
+        if period_to:
+            fundamentals_raw_archive.save_accepted(
+                nature=required_nature,
+                symbol=symbol,
+                period_to=period_to,
+                content=path.read_bytes(),
+            )
+        elif symbol in skipped_symbols:
+            fundamentals_raw_archive.save_rejected(
+                nature=required_nature,
+                symbol=symbol,
+                uploaded_at=utc_now().strftime("%Y%m%d-%H%M%S"),
+                content=path.read_bytes(),
+            )
+
+
 @app.post("/api/v1/fundamentals-manual-import/sync")
 def sync_fundamentals_manual_import(
     nature: str = Query(default="standalone"),
@@ -1234,6 +1275,9 @@ def sync_fundamentals_manual_import(
         correlation_id=cid,
     )
     _persist_fundamentals_records(diagnostic.payload, required_nature)
+    _archive_fundamentals_uploads(
+        diagnostic=diagnostic, required_nature=required_nature, base_path=base_path
+    )
     return jsonable(
         {
             "base_path": str(base_path),
@@ -1291,6 +1335,13 @@ async def upload_fundamentals_manual_import(
         correlation_id=cid,
     )
     _persist_fundamentals_records(diagnostic.payload, required_nature)
+    # Permanent copy of the exact bytes just uploaded -- destination above
+    # is a single working slot that a later upload for this symbol will
+    # overwrite; this is what survives that.
+    _archive_fundamentals_uploads(
+        diagnostic=diagnostic, required_nature=required_nature, base_path=base_path
+    )
+
     return jsonable(
         {
             "symbol": clean_symbol,
@@ -1328,6 +1379,7 @@ def get_fundamentals_manual_import_history(
     uploaded yet" gap into a filled one -- an empty result just means
     nothing real has been uploaded for this symbol under this nature."""
     canonical = symbol.strip().upper()
+    _, _, required_nature = _fundamentals_manual_import_config(nature)
     history_by_symbol, _ = _fundamentals_history_maps(nature)
     history = history_by_symbol.get(canonical, {})
     quarters = sorted(
@@ -1336,6 +1388,9 @@ def get_fundamentals_manual_import_history(
                 "period_from": record.get("period_from"),
                 "period_to": period_to,
                 "filing_date": record.get("filing_date"),
+                "archived": fundamentals_raw_archive.has(
+                    nature=required_nature, symbol=canonical, period_to=period_to
+                ),
             }
             for period_to, record in history.items()
         ),
@@ -1349,6 +1404,40 @@ def get_fundamentals_manual_import_history(
         "ttm_eps": ttm_eps,
         "ttm_eps_quarters": ttm_eps_quarters,
     }
+
+
+@app.get("/api/v1/fundamentals-manual-import/history/{symbol}/{period_to}/raw")
+def get_fundamentals_manual_import_raw_file(
+    symbol: str, period_to: str, nature: str = Query(default="standalone")
+) -> Response:
+    """Returns the exact original XBRL bytes a human uploaded for this real
+    quarter -- the whole point of FundamentalsRawArchive: the working slot
+    at {base_path}/{SYMBOL}.xml only ever holds the most recent upload, so
+    without this, an earlier quarter's original file would be unrecoverable
+    the moment a newer one replaced it. 404s honestly if this quarter
+    predates the archive existing, or was never a real upload."""
+    canonical = symbol.strip().upper()
+    _, _, required_nature = _fundamentals_manual_import_config(nature)
+    content = fundamentals_raw_archive.load(
+        nature=required_nature, symbol=canonical, period_to=period_to
+    )
+    if content is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No archived raw filing for {canonical} ({required_nature}) "
+                f"ending {period_to} -- it may predate this archive existing."
+            ),
+        )
+    return Response(
+        content=content,
+        media_type="application/xml",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{canonical}_{required_nature}_{period_to}.xml"'
+            )
+        },
+    )
 
 
 @app.delete("/api/v1/fundamentals-manual-import/history/{symbol}/{period_to}")
@@ -1382,6 +1471,13 @@ def delete_fundamentals_manual_import_quarter(
     if not history:
         del history_by_symbol[canonical]
     fundamentals_store.delete(canonical, required_nature.upper(), period_to)
+    # Unlike the object-store snapshot below (permanent evidence that an
+    # ingestion run really executed), the raw archive's whole purpose is
+    # "give back the correct original file for this quarter" -- keeping a
+    # file the user just told us was wrong sitting under that quarter's
+    # slot would make the archive actively misleading later, not more
+    # honest. A genuinely mistaken upload should come out of both places.
+    fundamentals_raw_archive.delete(nature=required_nature, symbol=canonical, period_to=period_to)
 
     # latest_fundamentals must keep reflecting whichever quarter is now
     # genuinely the most recent for this symbol -- not just "whatever was

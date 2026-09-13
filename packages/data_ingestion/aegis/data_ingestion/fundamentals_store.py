@@ -85,3 +85,64 @@ class SqliteFundamentalsStore:
         for symbol, period_to, record_json in rows:
             history.setdefault(symbol, {})[period_to] = json.loads(record_json)
         return history
+
+
+class FundamentalsRawArchive:
+    """Permanent copy of the exact raw bytes a human uploaded -- separate
+    from {base_path}/{SYMBOL}.xml (the single working slot
+    FundamentalsManualImportProvider reads from), which gets overwritten
+    every time a newer quarter is uploaded for the same symbol. Without
+    this, the original filing for an earlier quarter is gone forever the
+    moment a newer one replaces it in that slot -- only its already-parsed
+    numeric fields survive, in SqliteFundamentalsStore. Real, replayable
+    evidence: if a field is ever added to FUNDAMENTALS_TAGS later, every
+    historical filing can be re-parsed from here without re-downloading it
+    from NSE, and a human can always pull the exact original document back.
+
+    One real file on disk per (nature, symbol, period_to) -- a genuinely
+    new quarter never collides with another (different period_to means a
+    different path); the exact same quarter uploaded again (a deliberate
+    corrected re-download) overwrites its own file, mirroring
+    SqliteFundamentalsStore.upsert's same real-world case. A file that
+    fails to parse at all (wrong nature, garbage, no quarterly period) is
+    still archived -- under a timestamp, since there's no real period_to
+    to key it by -- so nothing a human uploaded is ever silently discarded,
+    including their own mistakes.
+    """
+
+    def __init__(self, root: Path | str) -> None:
+        self.root = Path(root)
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def _accepted_path(self, nature: str, symbol: str, period_to: str) -> Path:
+        return self.root / nature.upper() / symbol.upper() / f"{period_to}.xml"
+
+    def save_accepted(self, *, nature: str, symbol: str, period_to: str, content: bytes) -> Path:
+        path = self._accepted_path(nature, symbol, period_to)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        return path
+
+    def save_rejected(self, *, nature: str, symbol: str, uploaded_at: str, content: bytes) -> Path:
+        """uploaded_at should be a filesystem-safe timestamp (the caller's
+        real upload time) -- there's no real period_to to key a rejected
+        file by, since it never successfully parsed one."""
+        directory = self.root / nature.upper() / symbol.upper()
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"rejected-{uploaded_at}.xml"
+        path.write_bytes(content)
+        return path
+
+    def load(self, *, nature: str, symbol: str, period_to: str) -> bytes | None:
+        path = self._accepted_path(nature, symbol, period_to)
+        return path.read_bytes() if path.exists() else None
+
+    def has(self, *, nature: str, symbol: str, period_to: str) -> bool:
+        return self._accepted_path(nature, symbol, period_to).exists()
+
+    def delete(self, *, nature: str, symbol: str, period_to: str) -> None:
+        """Mirrors SqliteFundamentalsStore.delete -- a quarter removed
+        because it was a mistaken upload shouldn't leave its original file
+        sitting around either."""
+        path = self._accepted_path(nature, symbol, period_to)
+        path.unlink(missing_ok=True)
