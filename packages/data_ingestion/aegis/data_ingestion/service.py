@@ -551,6 +551,26 @@ class ProviderIngestionService:
         )
         return snapshot
 
+    def _put_layer_or_reuse(self, layer: str, object_name: str, payload: Any) -> str:
+        """object_name always embeds payload's own content hash (see every
+        caller below), so LocalObjectStore raising FileExistsError can only
+        mean an earlier real ingestion run already captured this exact
+        content -- the object store is deliberately strict about never
+        silently overwriting (see test_missing_object_storage_fails_safely),
+        but that write-once guarantee is about protecting raw evidence, not
+        about forbidding a second ingestion run that happens to observe
+        unchanged data (e.g. re-uploading the same manually-downloaded
+        filing, or a resync with no new filings since last time -- or the
+        API process restarting, which wipes the in-memory repository but
+        not this on-disk store). Reuse the real, already-captured object
+        instead of failing the whole run; the repository bookkeeping in
+        _capture_raw/_capture_normalized_and_curated still records this run
+        as having observed it, same as any other run."""
+        try:
+            return self.object_store.put_layer_once(layer, object_name, payload)
+        except FileExistsError:
+            return f"file://{self.object_store.root / layer / object_name}"
+
     def _capture_raw(
         self,
         provider_id: str,
@@ -559,7 +579,7 @@ class ProviderIngestionService:
         payload_hash: str,
     ) -> str:
         object_name = f"{provider_id}/{envelope.endpoint}/{payload_hash}.json"
-        uri = self.object_store.put_raw_once(object_name, envelope.payload)
+        uri = self._put_layer_or_reuse("raw", object_name, envelope.payload)
         raw = RawDataObject(
             provider_id=provider_id,
             source_reference=envelope.source_reference,
@@ -576,8 +596,8 @@ class ProviderIngestionService:
         self, provider_id: str, endpoint: str, payload_hash: str, payload: Any
     ) -> tuple[str, str]:
         object_name = f"{provider_id}/{endpoint}/{payload_hash}.json"
-        normalized_uri = self.object_store.put_layer_once("normalized", object_name, payload)
-        curated_uri = self.object_store.put_layer_once("curated", object_name, payload)
+        normalized_uri = self._put_layer_or_reuse("normalized", object_name, payload)
+        curated_uri = self._put_layer_or_reuse("curated", object_name, payload)
         self.repository.layer_objects["normalized"].append(
             {
                 "provider_id": provider_id,

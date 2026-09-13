@@ -145,6 +145,39 @@ def test_upload_endpoint_requires_a_real_role(client: TestClient) -> None:
     assert response.status_code in (401, 403)
 
 
+def test_uploading_the_identical_file_twice_does_not_crash(client: TestClient) -> None:
+    """Real bug found via live use: LocalObjectStore's raw layer is
+    write-once and content-addressed by payload hash (see
+    test_missing_object_storage_fails_safely), so ingesting the exact same
+    file twice used to raise an unhandled FileExistsError -- a raw 500 with
+    no CORS headers, which browsers confusingly report as a CORS failure.
+    ProviderIngestionService._put_layer_or_reuse now treats that collision
+    as "nothing changed," not a crash."""
+    xml_bytes = (FIXTURES_DIR / "reliance_q3_fy2025_standalone.xml").read_bytes()
+
+    first = client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE"},
+        files={"file": ("f.xml", xml_bytes, "text/xml")},
+    )
+    assert first.status_code == 200
+    assert first.json()["accepted"] is True
+
+    second = client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE"},
+        files={"file": ("f.xml", xml_bytes, "text/xml")},
+    )
+    assert second.status_code == 200
+    assert second.json()["accepted"] is True
+
+    read_response = client.get("/api/v1/instruments/RELIANCE/fundamentals")
+    assert read_response.status_code == 200
+    assert read_response.json()["available"] is True
+
+
 def test_upload_endpoint_rejects_a_malformed_symbol(client: TestClient) -> None:
     response = client.post(
         "/api/v1/fundamentals-manual-import/upload",
