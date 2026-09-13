@@ -458,6 +458,16 @@ function Decision({ symbol }: { symbol: string }) {
                 narrower ratio, not a like-for-like comparison to P/E figures reported elsewhere.
               </p>
             )}
+            {fundamentals.debt_equity_ratio && (
+              <p className="hint" style={{ marginBottom: 0, marginTop: 4 }}>
+                Debt/Equity is the company&apos;s own self-reported figure from this filing, not
+                derived by AEGIS. A value this low likely reflects a net-debt basis (borrowings
+                net of cash and liquid investments) rather than gross debt — externally-reported
+                D/E figures for the same company commonly use gross debt and can read materially
+                higher. Treat this as real but not necessarily comparable to figures quoted
+                elsewhere without checking which definition they use.
+              </p>
+            )}
           </div>
         </div>
       )}
