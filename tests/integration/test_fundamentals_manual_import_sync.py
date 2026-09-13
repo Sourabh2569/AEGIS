@@ -243,3 +243,78 @@ def test_upload_endpoint_rejects_a_malformed_symbol(client: TestClient) -> None:
         files={"file": ("f.xml", b"<x/>", "text/xml")},
     )
     assert response.status_code == 422
+
+
+def test_delete_quarter_endpoint_requires_a_real_role(client: TestClient) -> None:
+    response = client.delete("/api/v1/fundamentals-manual-import/history/RELIANCE/2024-12-31")
+    assert response.status_code in (401, 403)
+
+
+def test_delete_quarter_endpoint_is_honest_about_a_quarter_that_was_never_uploaded(
+    client: TestClient,
+) -> None:
+    response = client.delete(
+        "/api/v1/fundamentals-manual-import/history/RELIANCE/2024-12-31",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+    )
+    assert response.status_code == 404
+
+
+def test_delete_quarter_removes_a_mistaken_upload(client: TestClient) -> None:
+    client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE"},
+        files={
+            "file": (
+                "f.xml",
+                (FIXTURES_DIR / "reliance_q3_fy2025_standalone.xml").read_bytes(),
+                "text/xml",
+            )
+        },
+    )
+    delete_response = client.delete(
+        "/api/v1/fundamentals-manual-import/history/RELIANCE/2024-12-31",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+    )
+    assert delete_response.status_code == 200
+    body = delete_response.json()
+    assert body["deleted_period_to"] == "2024-12-31"
+    assert body["remaining_quarters"] == []
+
+    # Both the history and the "latest" convenience pointer must honestly
+    # reflect that nothing real is on file any more for this symbol -- not
+    # a stale echo of the deleted upload.
+    history_response = client.get("/api/v1/fundamentals-manual-import/history/RELIANCE")
+    assert history_response.json()["quarters"] == []
+    fundamentals_response = client.get("/api/v1/instruments/RELIANCE/fundamentals")
+    assert fundamentals_response.json()["available"] is False
+
+
+def test_delete_quarter_falls_back_to_the_next_most_recent_remaining_quarter(
+    client: TestClient,
+) -> None:
+    """Deleting the mistakenly-uploaded *latest* quarter must not leave
+    latest_fundamentals pointing at stale/deleted data -- it should fall
+    back to whichever real quarter is now genuinely the most recent."""
+    for period_from, period_to, basic_eps in [
+        ("2024-07-01", "2024-09-30", "7.00"),
+        ("2024-10-01", "2024-12-31", "8.00"),
+    ]:
+        app_main.repo.fundamentals_history.setdefault("RELIANCE", {})[period_to] = {
+            "symbol": "RELIANCE",
+            "period_from": period_from,
+            "period_to": period_to,
+            "basic_eps": basic_eps,
+        }
+        app_main.repo.latest_fundamentals["RELIANCE"] = app_main.repo.fundamentals_history[
+            "RELIANCE"
+        ][period_to]
+
+    response = client.delete(
+        "/api/v1/fundamentals-manual-import/history/RELIANCE/2024-12-31",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+    )
+    assert response.status_code == 200
+    assert response.json()["remaining_quarters"] == ["2024-09-30"]
+    assert app_main.repo.latest_fundamentals["RELIANCE"]["period_to"] == "2024-09-30"

@@ -1,8 +1,8 @@
 "use client";
 
-import { ShieldOff, AlertTriangle, FileUp } from "lucide-react";
+import { ShieldOff, AlertTriangle, FileUp, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { apiGet, authPost, authPostFormData } from "../api-client";
+import { apiGet, authDelete, authPost, authPostFormData } from "../api-client";
 import CockpitShell from "../cockpit-shell";
 import { PanelSkeleton } from "../skeleton";
 
@@ -298,6 +298,7 @@ function FundamentalsImport() {
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<FundamentalsHistory | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [deletingPeriod, setDeletingPeriod] = useState<string | null>(null);
 
   const loadHistory = useCallback((forSymbol: string) => {
     const trimmed = forSymbol.trim();
@@ -358,6 +359,24 @@ function FundamentalsImport() {
     setFiles([]);
     loadHistory(cleanSymbol);
     setBusy(false);
+  }
+
+  async function handleDeleteQuarter(periodTo: string) {
+    const cleanSymbol = symbol.trim();
+    if (!cleanSymbol) return;
+    setDeletingPeriod(periodTo);
+    setStatus(null);
+    try {
+      await authDelete(
+        `/api/v1/fundamentals-manual-import/history/${encodeURIComponent(cleanSymbol)}/${encodeURIComponent(periodTo)}`
+      );
+      setStatus({ kind: "ok", text: `${cleanSymbol}: removed the quarter ending ${periodTo}.` });
+      loadHistory(cleanSymbol);
+    } catch (err) {
+      setStatus({ kind: "error", text: err instanceof Error ? err.message : "Delete failed" });
+    } finally {
+      setDeletingPeriod(null);
+    }
   }
 
   return (
@@ -425,7 +444,17 @@ function FundamentalsImport() {
                       <span className="k">
                         {quarter.period_from} to {quarter.period_to}
                       </span>
-                      <span className="v">filed {quarter.filing_date}</span>
+                      <span className="v">
+                        filed {quarter.filing_date}
+                        <button
+                          title={`Delete this quarter (${quarter.period_from} to ${quarter.period_to}) -- for a wrong upload by mistake`}
+                          disabled={deletingPeriod === quarter.period_to}
+                          onClick={() => handleDeleteQuarter(quarter.period_to)}
+                          style={{ marginLeft: 8, padding: "2px 6px" }}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </span>
                     </li>
                   ))}
                 </ul>

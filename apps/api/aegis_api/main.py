@@ -117,7 +117,7 @@ app.add_middleware(
         "http://localhost:3002",
         "http://127.0.0.1:3002",
     ],
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["X-Aegis-Role", "Content-Type", "Authorization"],
 )
 audit_log = AuditLog()
@@ -1220,6 +1220,63 @@ def get_fundamentals_manual_import_history(symbol: str) -> dict[str, Any]:
         "ttm_eps": ttm_eps,
         "ttm_eps_quarters": ttm_eps_quarters,
     }
+
+
+@app.delete("/api/v1/fundamentals-manual-import/history/{symbol}/{period_to}")
+def delete_fundamentals_manual_import_quarter(
+    symbol: str,
+    period_to: str,
+    cid: str = Depends(correlation_id),
+    role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD)),
+) -> dict[str, Any]:
+    """Corrects a wrong upload (wrong company, wrong file, a fat-fingered
+    symbol) by removing one quarter from the live, queryable state --
+    fundamentals_history, and latest_fundamentals if this was that
+    symbol's most recent one. Deliberately does NOT touch the permanent
+    raw/normalized/curated object-store snapshot or its DatasetVersion --
+    those stay real, immutable evidence of what was actually ingested and
+    when (see LocalObjectStore's write-once guarantee and AuditLog's
+    no-delete API); this only corrects what AEGIS currently treats as
+    true today. The correction itself is audited, never silent."""
+    canonical = symbol.strip().upper()
+    history = repo.fundamentals_history.get(canonical)
+    if history is None or period_to not in history:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No quarter ending {period_to} on file for {canonical}.",
+        )
+    removed = history.pop(period_to)
+    if not history:
+        del repo.fundamentals_history[canonical]
+
+    # latest_fundamentals must keep reflecting whichever quarter is now
+    # genuinely the most recent for this symbol -- not just "whatever was
+    # ingested last", which may have been the mistaken upload just removed.
+    remaining = repo.fundamentals_history.get(canonical, {})
+    if remaining:
+        newest_period_to = max(remaining)
+        repo.latest_fundamentals[canonical] = remaining[newest_period_to]
+    else:
+        repo.latest_fundamentals.pop(canonical, None)
+
+    audit_log.record(
+        event_type="FUNDAMENTALS_QUARTER_DELETED",
+        entity_type="FundamentalsRecord",
+        entity_id=f"{canonical}:{period_to}",
+        actor_type="USER",
+        actor_id=role.value,
+        action="DELETE",
+        before_state=removed,
+        after_state=None,
+        correlation_id=cid,
+    )
+    return jsonable(
+        {
+            "symbol": canonical,
+            "deleted_period_to": period_to,
+            "remaining_quarters": sorted(remaining, reverse=True),
+        }
+    )
 
 
 @app.get("/api/v1/sector-screener/instruments")

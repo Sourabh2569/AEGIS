@@ -78,6 +78,28 @@ export async function authPost<T>(path: string, body?: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+/** Same auth/401/error handling as authPost, but for DELETE requests with
+ * no body (correcting a mistaken record, deactivating something, etc). */
+export async function authDelete<T>(path: string): Promise<T> {
+  const token = getToken();
+  const response = await fetch(`${apiBase}${path}`, {
+    method: "DELETE",
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  if (response.status === 401) {
+    clearToken();
+    if (typeof window !== "undefined") {
+      window.location.assign("/login");
+    }
+    throw new Error("Your session has expired -- signing you out.");
+  }
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(extractErrorDetail(payload.detail) ?? response.statusText ?? "Request failed");
+  }
+  return (await response.json()) as T;
+}
+
 /** Same auth/401/error handling as authPost, but for multipart file uploads
  * -- no Content-Type header set here, the browser fills in the multipart
  * boundary itself when given a FormData body. */
