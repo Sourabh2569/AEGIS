@@ -2896,8 +2896,19 @@ def get_instrument_fundamentals(symbol: str) -> dict[str, Any]:
     instrument that hasn't had a real filing ingested. Always includes a
     "consolidated" block too (see _consolidated_fundamentals_block),
     independent of whether Standalone is available -- the two are entirely
-    separate uploads and either can exist without the other."""
-    canonical, _aegis_instrument_id = _resolve_symbol(symbol)
+    separate uploads and either can exist without the other.
+
+    Deliberately does not go through _resolve_symbol (which only knows the
+    main 50-instrument curated universe) -- fundamentals storage is already
+    keyed by plain symbol string, not aegis_instrument_id, specifically so
+    it works for any real company a human has manually imported filings
+    for, including Sector Screener companies never in the main universe
+    (see get_fundamentals_manual_import_history, which established this
+    same "no curated-universe gate" principle first). An unrecognized
+    symbol just honestly reports unavailable, same as a recognized one with
+    nothing uploaded yet -- there is no way to tell those two cases apart
+    without fabricating a verdict on whether the symbol itself is real."""
+    canonical = symbol.strip().upper()
     record = repo.latest_fundamentals.get(canonical)
     consolidated = _consolidated_fundamentals_block(canonical)
     if record is None:

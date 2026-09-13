@@ -1,6 +1,7 @@
 "use client";
 
 import { Factory } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiGet } from "../api-client";
 import CockpitShell from "../cockpit-shell";
@@ -41,7 +42,10 @@ function ScreenerCard({ row }: { row: ScreenerRow }) {
   const momentumPct = pct(row.momentum_60);
   const momentumTone = row.momentum_60 !== null ? (Number(row.momentum_60) >= 0 ? "pos" : "neg") : null;
   return (
-    <div className={`instrument-card ${toneAccentClass(row.momentum_60)}`}>
+    <Link
+      href={`/sector-screener/${row.symbol}`}
+      className={`instrument-card ${toneAccentClass(row.momentum_60)}`}
+    >
       <div className="instrument-card-head">
         <span className={`instrument-avatar ${momentumTone ?? "loading"}`}>
           {row.symbol.slice(0, 2)}
@@ -57,7 +61,7 @@ function ScreenerCard({ row }: { row: ScreenerRow }) {
           {momentumPct && <span className={`delta-pill ${momentumTone}`}>{momentumPct}</span>}
         </span>
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -98,8 +102,9 @@ function SectorScreener() {
           <p className="hint">
             Real price and momentum across Pharmaceuticals, Solar &amp; Renewable Energy, and
             Electronics Manufacturing — a separate, isolated universe from the main Nifty
-            momentum strategy. Fundamentals are not yet available for any of these companies
-            (see the Instrument Decision View for why).
+            momentum strategy. Click any company for its full fundamentals dashboard —
+            fundamentals here work the same manual-upload way as the main universe, for any of
+            these 35 real companies.
           </p>
         </div>
       </div>

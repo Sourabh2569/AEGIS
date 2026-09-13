@@ -25,9 +25,19 @@ def test_fundamentals_endpoint_is_honest_when_nothing_ingested_yet(client: TestC
     assert body["reason"] == "Not available -- no verified fundamentals provider yet"
 
 
-def test_fundamentals_endpoint_rejects_unknown_symbol(client: TestClient) -> None:
+def test_fundamentals_endpoint_is_honest_for_a_symbol_outside_the_main_curated_universe(
+    client: TestClient,
+) -> None:
+    """No _resolve_symbol gate here on purpose: fundamentals storage is
+    keyed by plain symbol string, not aegis_instrument_id, so it works for
+    real companies never in the main 50-instrument universe (e.g. Sector
+    Screener companies like DIXON). An unrecognized symbol can't be told
+    apart from a recognized one with nothing uploaded yet -- both honestly
+    report unavailable rather than a 404 implying the symbol itself is
+    invalid, which this endpoint has no way to actually verify."""
     response = client.get("/api/v1/instruments/NOT-A-REAL-SYMBOL/fundamentals")
-    assert response.status_code == 404
+    assert response.status_code == 200
+    assert response.json()["available"] is False
 
 
 def test_fundamentals_endpoint_reflects_a_real_ingested_record(client: TestClient) -> None:
@@ -79,3 +89,23 @@ def test_fundamentals_endpoint_reflects_real_ttm_eps_once_four_quarters_are_on_f
     assert body["real_quarters_on_file"] == 4
     assert body["ttm_eps"] == "26.00"
     assert body["ttm_eps_quarters"] == ["2024-12-31", "2024-09-30", "2024-06-30", "2024-03-31"]
+
+
+def test_fundamentals_endpoint_works_for_a_real_sector_screener_only_company(
+    client: TestClient,
+) -> None:
+    """DIXON is real and in SECTOR_SCREENER_INSTRUMENTS but never in the
+    main 50-instrument CURATED_INSTRUMENT_METADATA -- this is the actual
+    point of dropping the _resolve_symbol gate: the Sector Screener's own
+    detail page needs this endpoint to work for its companies too."""
+    app_main.repo.latest_fundamentals["DIXON"] = {
+        "symbol": "DIXON",
+        "period_from": "2024-10-01",
+        "period_to": "2024-12-31",
+        "revenue_from_operations": "50000000000.00",
+    }
+    response = client.get("/api/v1/instruments/DIXON/fundamentals")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["available"] is True
+    assert body["revenue_from_operations"] == "50000000000.00"
