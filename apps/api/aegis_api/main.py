@@ -28,6 +28,7 @@ from aegis.backtesting.repositories import BacktestRepository
 from aegis.backtesting.sprint2 import Sprint2ResearchScenarioRunner
 from aegis.configuration.settings import Settings
 from aegis.data_activation.service import DataActivationService
+from aegis.data_ingestion.fundamentals_store import SqliteFundamentalsStore
 from aegis.data_ingestion.service import (
     InMemoryRepository,
     LocalObjectStore,
@@ -177,6 +178,31 @@ paper_calendar = PaperTradingCalendarService.from_csv(
 paper_repo = SqlitePaperTradingRepository(paper_store_path)
 paper_session_queue = SqlitePaperSessionQueue(paper_queue_path)
 momentum_report_store = SqliteMomentumReportStore(work_dir / "momentum_reports.sqlite")
+# Durable -- without this, every real manually-uploaded fundamentals quarter
+# lives only in repo.fundamentals_history/latest_fundamentals (in-memory)
+# and is lost on every API restart, exactly what happened repeatedly during
+# manual-import testing. Rehydrate both natures into the repo immediately so
+# every existing read path (GET .../fundamentals, the history endpoint, TTM
+# EPS) sees real data across a restart with no code changes elsewhere.
+fundamentals_store = SqliteFundamentalsStore(work_dir / "fundamentals.sqlite")
+
+
+def _rehydrate_fundamentals_from_store() -> None:
+    for nature, history_by_symbol, latest_by_symbol in (
+        ("STANDALONE", repo.fundamentals_history, repo.latest_fundamentals),
+        (
+            "CONSOLIDATED",
+            repo.fundamentals_history_consolidated,
+            repo.latest_fundamentals_consolidated,
+        ),
+    ):
+        for symbol, quarters in fundamentals_store.load_history(nature).items():
+            history_by_symbol[symbol] = quarters
+            newest_period_to = max(quarters)
+            latest_by_symbol[symbol] = quarters[newest_period_to]
+
+
+_rehydrate_fundamentals_from_store()
 
 providers: dict[str, DataProvider] = {}
 licenses: dict[str, ProviderLicense] = {}
@@ -1159,6 +1185,25 @@ def _fundamentals_manual_import_config(nature: str) -> tuple[Path, str, str]:
     raise HTTPException(status_code=422, detail='nature must be "standalone" or "consolidated".')
 
 
+def _persist_fundamentals_records(records: list[dict[str, Any]], required_nature: str) -> None:
+    """Writes each just-ingested record to the durable store -- reads the
+    final tagged version back out of the in-memory map (which
+    ingest_fundamentals has already updated by the time this is called) so
+    what's persisted exactly matches what's live, including dataset_origin
+    (added only inside ingest_fundamentals, not present on the provider's
+    raw parsed record)."""
+    history_by_symbol, _ = _fundamentals_history_maps(required_nature.lower())
+    nature_key = required_nature.upper()
+    for record in records:
+        symbol = record.get("symbol")
+        period_to = record.get("period_to")
+        if not symbol or not period_to:
+            continue
+        stored_record = history_by_symbol.get(symbol, {}).get(period_to)
+        if stored_record is not None:
+            fundamentals_store.upsert(symbol, nature_key, period_to, stored_record)
+
+
 @app.post("/api/v1/fundamentals-manual-import/sync")
 def sync_fundamentals_manual_import(
     nature: str = Query(default="standalone"),
@@ -1181,12 +1226,14 @@ def sync_fundamentals_manual_import(
         license_=licenses[provider_id],
         required_nature=required_nature,
     )
+    diagnostic = provider.fetch_fundamentals()
     run = ingestion_service.ingest_fundamentals(
         provider=provider,
         provider_id=provider_id,
         dataset_id=fundamentals_dataset.id,
         correlation_id=cid,
     )
+    _persist_fundamentals_records(diagnostic.payload, required_nature)
     return jsonable(
         {
             "base_path": str(base_path),
@@ -1243,6 +1290,7 @@ async def upload_fundamentals_manual_import(
         dataset_id=fundamentals_dataset.id,
         correlation_id=cid,
     )
+    _persist_fundamentals_records(diagnostic.payload, required_nature)
     return jsonable(
         {
             "symbol": clean_symbol,
@@ -1322,6 +1370,7 @@ def delete_fundamentals_manual_import_quarter(
     no-delete API); this only corrects what AEGIS currently treats as
     true today. The correction itself is audited, never silent."""
     canonical = symbol.strip().upper()
+    _, _, required_nature = _fundamentals_manual_import_config(nature)
     history_by_symbol, latest_by_symbol = _fundamentals_history_maps(nature)
     history = history_by_symbol.get(canonical)
     if history is None or period_to not in history:
@@ -1332,6 +1381,7 @@ def delete_fundamentals_manual_import_quarter(
     removed = history.pop(period_to)
     if not history:
         del history_by_symbol[canonical]
+    fundamentals_store.delete(canonical, required_nature.upper(), period_to)
 
     # latest_fundamentals must keep reflecting whichever quarter is now
     # genuinely the most recent for this symbol -- not just "whatever was

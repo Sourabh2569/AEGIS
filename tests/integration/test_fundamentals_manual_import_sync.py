@@ -8,6 +8,7 @@ pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
 import aegis_api.main as app_main
+from aegis.data_ingestion.fundamentals_store import SqliteFundamentalsStore
 from aegis_api.main import app
 from fastapi.testclient import TestClient
 
@@ -39,6 +40,13 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
     )
     (tmp_path / "standalone").mkdir()
     (tmp_path / "consolidated").mkdir()
+    # Isolate the durable store too -- not just the in-memory maps -- so
+    # this file's tests don't accumulate rows in the session-wide
+    # AEGIS_WORK_DIR sqlite file (see test_momentum_report_persistence.py
+    # for the same pattern).
+    monkeypatch.setattr(
+        app_main, "fundamentals_store", SqliteFundamentalsStore(tmp_path / "fundamentals.sqlite")
+    )
     yield TestClient(app)
     app_main.repo.latest_fundamentals.clear()
     app_main.repo.fundamentals_history.clear()
@@ -456,3 +464,104 @@ def test_delete_consolidated_quarter_does_not_touch_standalone(client: TestClien
     assert body["available"] is True  # Standalone untouched
     assert body["period_to"] == "2024-12-31"
     assert body["consolidated"]["available"] is False  # Consolidated now empty
+
+
+def test_uploaded_quarters_survive_a_fresh_store_instance(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """The actual point of this whole change: a brand-new
+    SqliteFundamentalsStore pointed at the same file -- standing in for the
+    API process restarting -- must see what a real upload wrote, not just
+    the live in-memory maps. This is what fixes the repeated data loss from
+    earlier in this session, where every API restart wiped uploaded
+    quarters."""
+    client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE"},
+        files={
+            "file": (
+                "f.xml",
+                (FIXTURES_DIR / "reliance_q3_fy2025_standalone.xml").read_bytes(),
+                "text/xml",
+            )
+        },
+    )
+    client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE", "nature": "consolidated"},
+        files={
+            "file": ("f.xml", (FIXTURES_DIR / CONSOLIDATED_FIXTURE).read_bytes(), "text/xml")
+        },
+    )
+
+    db_path = app_main.fundamentals_store.db_path
+    reloaded = SqliteFundamentalsStore(db_path)
+
+    standalone_history = reloaded.load_history("STANDALONE")
+    assert standalone_history["RELIANCE"]["2024-12-31"]["revenue_from_operations"] == (
+        "1282600000000.00"
+    )
+    consolidated_history = reloaded.load_history("CONSOLIDATED")
+    assert consolidated_history["RELIANCE"]["2026-06-30"]["revenue_from_operations"] == (
+        "3118500000000"
+    )
+
+
+def test_deleted_quarter_stays_gone_after_a_fresh_store_instance(
+    client: TestClient, tmp_path: Path
+) -> None:
+    client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE"},
+        files={
+            "file": (
+                "f.xml",
+                (FIXTURES_DIR / "reliance_q3_fy2025_standalone.xml").read_bytes(),
+                "text/xml",
+            )
+        },
+    )
+    client.delete(
+        "/api/v1/fundamentals-manual-import/history/RELIANCE/2024-12-31",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+    )
+
+    reloaded = SqliteFundamentalsStore(app_main.fundamentals_store.db_path)
+    assert reloaded.load_history("STANDALONE") == {}
+
+
+def test_rehydrate_from_store_repopulates_the_repo_exactly_like_a_real_restart(
+    client: TestClient,
+) -> None:
+    """Exercises the exact function main.py runs once at real process
+    startup -- proves the fix end-to-end, not just that the sqlite file has
+    the right rows in it. Simulates a restart by clearing the in-memory
+    maps a fresh InMemoryRepository would start with, then calling the same
+    _rehydrate_fundamentals_from_store() the real app calls on import."""
+    client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE"},
+        files={
+            "file": (
+                "f.xml",
+                (FIXTURES_DIR / "reliance_q3_fy2025_standalone.xml").read_bytes(),
+                "text/xml",
+            )
+        },
+    )
+
+    # Stand in for a real restart: a fresh process's repo starts empty.
+    app_main.repo.latest_fundamentals.clear()
+    app_main.repo.fundamentals_history.clear()
+
+    app_main._rehydrate_fundamentals_from_store()
+
+    assert app_main.repo.latest_fundamentals["RELIANCE"]["period_to"] == "2024-12-31"
+    response = client.get("/api/v1/instruments/RELIANCE/fundamentals")
+    body = response.json()
+    assert body["available"] is True
+    assert body["revenue_from_operations"] == "1282600000000.00"
