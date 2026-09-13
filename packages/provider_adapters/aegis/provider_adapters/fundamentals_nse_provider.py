@@ -75,11 +75,26 @@ XBRLI_NAMESPACE = "http://www.xbrl.org/2003/instance"
 NSE_FIN_NAMESPACE = "http://www.bseindia.com/xbrl/fin/2020-03-31/in-bse-fin"
 
 # Only tags confirmed present, real, and correctly period-scoped in a real
-# captured filing -- see the module docstring's "Known gaps".
+# captured filing -- see the module docstring's "Known gaps". Every key here
+# is a real, structured, unambiguous numeric line item straight from the
+# filing's P&L -- deliberately not the free-text "Notes" disclosure block
+# (self-reported ratios etc.), which would need fragile text parsing to
+# extract and isn't confirmed reliable across filers.
 FUNDAMENTALS_TAGS: dict[str, str] = {
     "revenue_from_operations": "RevenueFromOperations",
+    "other_income": "OtherIncome",
+    "total_income": "Income",
+    "total_expenses": "Expenses",
+    "employee_benefit_expense": "EmployeeBenefitExpense",
+    "finance_costs": "FinanceCosts",
+    "depreciation_and_amortisation": "DepreciationDepletionAndAmortisationExpense",
     "profit_before_tax": "ProfitBeforeTax",
+    "tax_expense": "TaxExpense",
     "profit_for_period": "ProfitLossForPeriod",
+    "basic_eps": "BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations",
+    "diluted_eps": "DilutedEarningsLossPerShareFromContinuingAndDiscontinuedOperations",
+    "paid_up_equity_share_capital": "PaidUpValueOfEquityShareCapital",
+    "face_value_per_share": "FaceValueOfEquityShareCapital",
 }
 
 USER_AGENT = "Mozilla/5.0 (compatible; AEGIS-research/1.0)"

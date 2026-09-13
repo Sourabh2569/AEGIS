@@ -69,8 +69,19 @@ type FundamentalsResponse =
       period_to: string;
       filing_date: string;
       revenue_from_operations: string | null;
+      other_income: string | null;
+      total_income: string | null;
+      total_expenses: string | null;
+      employee_benefit_expense: string | null;
+      finance_costs: string | null;
+      depreciation_and_amortisation: string | null;
       profit_before_tax: string | null;
+      tax_expense: string | null;
       profit_for_period: string | null;
+      basic_eps: string | null;
+      diluted_eps: string | null;
+      paid_up_equity_share_capital: string | null;
+      face_value_per_share: string | null;
       source_xbrl_url: string | null;
     };
 
@@ -283,6 +294,54 @@ function Decision({ symbol }: { symbol: string }) {
                 </span>
               </li>
               <li>
+                <span className="k">Other income</span>
+                <span className="v">
+                  {fundamentals.other_income
+                    ? money(fundamentals.other_income, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Total income</span>
+                <span className="v">
+                  {fundamentals.total_income
+                    ? money(fundamentals.total_income, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Total expenses</span>
+                <span className="v">
+                  {fundamentals.total_expenses
+                    ? money(fundamentals.total_expenses, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Employee benefit expense</span>
+                <span className="v">
+                  {fundamentals.employee_benefit_expense
+                    ? money(fundamentals.employee_benefit_expense, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Finance costs</span>
+                <span className="v">
+                  {fundamentals.finance_costs
+                    ? money(fundamentals.finance_costs, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Depreciation &amp; amortisation</span>
+                <span className="v">
+                  {fundamentals.depreciation_and_amortisation
+                    ? money(fundamentals.depreciation_and_amortisation, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
                 <span className="k">Profit before tax</span>
                 <span className="v">
                   {fundamentals.profit_before_tax
@@ -291,10 +350,47 @@ function Decision({ symbol }: { symbol: string }) {
                 </span>
               </li>
               <li>
+                <span className="k">Tax expense</span>
+                <span className="v">
+                  {fundamentals.tax_expense
+                    ? money(fundamentals.tax_expense, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
                 <span className="k">Profit for the period</span>
                 <span className="v">
                   {fundamentals.profit_for_period
                     ? money(fundamentals.profit_for_period, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Net profit margin</span>
+                <span className="v">
+                  {fundamentals.profit_for_period && fundamentals.revenue_from_operations
+                    ? `${(
+                        (Number(fundamentals.profit_for_period) /
+                          Number(fundamentals.revenue_from_operations)) *
+                        100
+                      ).toFixed(1)}%`
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">EPS (basic / diluted)</span>
+                <span className="v">
+                  {fundamentals.basic_eps ?? "n/a"} / {fundamentals.diluted_eps ?? "n/a"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Shares outstanding (implied)</span>
+                <span className="v">
+                  {fundamentals.paid_up_equity_share_capital && fundamentals.face_value_per_share
+                    ? Math.round(
+                        Number(fundamentals.paid_up_equity_share_capital) /
+                          Number(fundamentals.face_value_per_share),
+                      ).toLocaleString("en-IN")
                     : "not available"}
                 </span>
               </li>

@@ -15,8 +15,15 @@ Fully self-contained parsing: every field this needs is read directly from
 the XBRL file itself -- the real reporting period (from the filing's own
 DateOfStartOfReportingPeriod / DateOfEndOfReportingPeriod tags, picking
 whichever real period is closest to one quarter in length, since filings
-also declare a longer cumulative year-to-date period) and the real filing
-date (DateOfBoardMeetingWhenFinancialResultsWereApproved). No external
+also declare a longer cumulative year-to-date period), the real filing
+date (DateOfBoardMeetingWhenFinancialResultsWereApproved), and the real
+Standalone/Consolidated nature (NatureOfReportStandaloneConsolidated) --
+files are rejected unless that tag says "Standalone", since a human doing
+a manual download has no trusted upstream filter guaranteeing they picked
+the right row (unlike fundamentals_nse_provider.py's automated pipeline,
+which filters on NSE discovery-API metadata before ever fetching the XBRL;
+caught for real when a genuinely Consolidated RELIANCE filing was uploaded
+and needed to be rejected, not silently mislabeled). No external
 period/date input is required, unlike fundamentals_nse_provider.py's
 adapter, which needed the discovery API's filing metadata for this.
 
@@ -105,15 +112,62 @@ def extract_board_approval_date(xml_bytes: bytes, context_ref: str) -> str | Non
     return None
 
 
+def find_nature_of_report(xml_bytes: bytes, context_ref: str) -> str | None:
+    """The real self-declared "Standalone" vs "Consolidated" tag for a given
+    context. fundamentals_nse_provider.py's automated pipeline filters this
+    upstream, from NSE's discovery-API metadata, before ever fetching the
+    XBRL file -- but a human doing a manual download has no such trusted
+    upstream filter, so the file's own declaration is the only real source
+    of truth here. Confirmed real and present under both taxonomies this
+    adapter supports (BSE's in-bse-fin and SEBI's in-capmkt)."""
+    root = ElementTree.fromstring(xml_bytes)
+    for element in _find_by_local_name(root, "NatureOfReportStandaloneConsolidated"):
+        if element.get("contextRef") == context_ref and element.text:
+            return element.text.strip()
+    return None
+
+
+def describe_why_unparseable(xml_bytes: bytes) -> str:
+    """Best-effort, honest explanation for why parse_manually_downloaded_filing
+    returned None -- re-derives the same real facts it computes internally,
+    to report the most specific real cause instead of one generic message
+    for every possible failure."""
+    periods = find_reporting_periods(xml_bytes)
+    quarterly = select_quarterly_period(periods)
+    if quarterly is None:
+        return (
+            "no real quarterly-length reporting period found in the file -- "
+            "see the module docstring's Known gaps"
+        )
+    context_ref, _, _ = quarterly
+    nature = find_nature_of_report(xml_bytes, context_ref)
+    if nature is not None and nature != "Standalone":
+        return (
+            f"this file is a real {nature} filing, not Standalone -- AEGIS only "
+            "accepts Standalone (labelled \"Non-Consolidated\" on NSE's website) "
+            "results; go back to NSE's Financial Results page and download that "
+            "row instead"
+        )
+    return (
+        "no mapped tags found for the real quarterly period in this file -- "
+        "see the module docstring's Known gaps"
+    )
+
+
 def parse_manually_downloaded_filing(xml_bytes: bytes, symbol: str) -> dict[str, Any] | None:
     """Fully self-contained: every field comes from the file itself. Returns
     None (never a partial guess) if the file doesn't declare a real
-    quarterly-length reporting period or no mapped tags match it."""
+    quarterly-length reporting period, declares itself Consolidated rather
+    than Standalone, or no mapped tags match it -- see
+    describe_why_unparseable for which of these actually happened."""
     periods = find_reporting_periods(xml_bytes)
     quarterly = select_quarterly_period(periods)
     if quarterly is None:
         return None
     context_ref, period_from, period_to = quarterly
+    nature = find_nature_of_report(xml_bytes, context_ref)
+    if nature is not None and nature != "Standalone":
+        return None
     values = parse_xbrl_fundamentals(xml_bytes, period_from=period_from, period_to=period_to)
     if not values:
         return None
@@ -164,16 +218,14 @@ class FundamentalsManualImportProvider:
         if self.base_path.exists():
             for path in sorted(self.base_path.glob("*.xml")):
                 symbol = path.stem.upper()
+                xml_bytes = path.read_bytes()
                 try:
-                    record = parse_manually_downloaded_filing(path.read_bytes(), symbol)
+                    record = parse_manually_downloaded_filing(xml_bytes, symbol)
                 except ElementTree.ParseError as exc:
                     skipped[symbol] = f"not a valid XML file: {exc}"
                     continue
                 if record is None:
-                    skipped[symbol] = (
-                        "no real quarterly reporting period or mapped tags found in the file "
-                        "-- see the module docstring's Known gaps"
-                    )
+                    skipped[symbol] = describe_why_unparseable(xml_bytes)
                     continue
                 payload.append(record)
         return ProviderResponseEnvelope(

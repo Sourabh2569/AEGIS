@@ -7,7 +7,9 @@ import pytest
 from aegis.domain.models import ProviderLicenseStatus
 from aegis.provider_adapters.fundamentals_manual_import import (
     FundamentalsManualImportProvider,
+    describe_why_unparseable,
     extract_board_approval_date,
+    find_nature_of_report,
     find_reporting_periods,
     parse_manually_downloaded_filing,
     select_quarterly_period,
@@ -55,10 +57,13 @@ def test_extract_board_approval_date_reads_the_real_filing_date() -> None:
 # above uses BSE's "in-bse-fin 2020-03-31" namespace, but a real RELIANCE
 # filing downloaded live from NSE for Q1 FY2026-27 uses SEBI's own
 # "in-capmkt 2026-01-31" namespace instead -- same tag local names,
-# different wrapping namespace URI. These confirm the local-name-based
-# matching (_find_by_local_name) handles both real namespaces, not just
-# the one every other fixture happens to use.
-NEW_TAXONOMY_FIXTURE = "reliance_q1_fy2027_standalone_sebi_capmkt_taxonomy.xml"
+# different wrapping namespace URI. This particular real filing also turned
+# out to be a genuine Consolidated result (its own
+# NatureOfReportStandaloneConsolidated tag says so) -- caught via live use
+# when it was uploaded expecting Standalone acceptance. It still exercises
+# the new namespace's low-level tag-reading correctly; the taxonomy has no
+# bearing on the separate Standalone/Consolidated check.
+NEW_TAXONOMY_FIXTURE = "reliance_q1_fy2027_consolidated_sebi_capmkt_taxonomy.xml"
 
 
 def test_find_reporting_periods_reads_the_newer_sebi_capmkt_taxonomy() -> None:
@@ -72,16 +77,59 @@ def test_extract_board_approval_date_reads_the_newer_sebi_capmkt_taxonomy() -> N
     assert extract_board_approval_date(xml_bytes, "OneD") == "2026-07-17"
 
 
-def test_parse_manually_downloaded_filing_reads_the_newer_sebi_capmkt_taxonomy() -> None:
+def test_find_nature_of_report_reads_standalone_from_the_original_taxonomy() -> None:
+    xml_bytes = (FIXTURES_DIR / "reliance_q3_fy2025_standalone.xml").read_bytes()
+    assert find_nature_of_report(xml_bytes, "OneD") == "Standalone"
+
+
+def test_find_nature_of_report_reads_consolidated_from_the_newer_taxonomy() -> None:
     xml_bytes = (FIXTURES_DIR / NEW_TAXONOMY_FIXTURE).read_bytes()
+    assert find_nature_of_report(xml_bytes, "OneD") == "Consolidated"
+
+
+def test_parse_manually_downloaded_filing_rejects_a_real_consolidated_filing() -> None:
+    """Real bug found via live use: a human can easily download the wrong
+    row on NSE's site. This real RELIANCE Q1 FY2026-27 file parses cleanly
+    in every other respect (real period, real filing date, real mapped
+    tags) but is genuinely Consolidated, not Standalone -- must be
+    rejected, not silently accepted and mislabeled."""
+    xml_bytes = (FIXTURES_DIR / NEW_TAXONOMY_FIXTURE).read_bytes()
+    assert parse_manually_downloaded_filing(xml_bytes, "RELIANCE") is None
+
+
+def test_describe_why_unparseable_names_the_real_consolidated_mismatch() -> None:
+    xml_bytes = (FIXTURES_DIR / NEW_TAXONOMY_FIXTURE).read_bytes()
+    reason = describe_why_unparseable(xml_bytes)
+    assert "Consolidated" in reason
+    assert "not Standalone" in reason
+
+
+def test_parse_manually_downloaded_filing_reads_the_expanded_pl_fields() -> None:
+    """Real values confirmed against the live RELIANCE and TCS filings this
+    session -- these fields (other income, total income/expenses, employee
+    costs, finance costs, D&A, tax expense, EPS, paid-up equity capital)
+    were sitting unused in files this parser already reads; a regression
+    here means one of them stopped being extracted correctly."""
+    xml_bytes = (FIXTURES_DIR / "reliance_q3_fy2025_standalone.xml").read_bytes()
     record = parse_manually_downloaded_filing(xml_bytes, "RELIANCE")
     assert record is not None
-    assert record["period_from"] == "2026-04-01"
-    assert record["period_to"] == "2026-06-30"
-    assert record["filing_date"] == "2026-07-17"
-    assert record["revenue_from_operations"] == "3118500000000"
-    assert record["profit_before_tax"] == "306300000000"
-    assert record["profit_for_period"] == "231960000000"
+    assert record["other_income"] == "32140000000.00"
+    assert record["total_income"] == "1314740000000.00"
+    assert record["total_expenses"] == "1198770000000.00"
+    assert record["employee_benefit_expense"] == "21810000000.00"
+    assert record["finance_costs"] == "23710000000.00"
+    assert record["depreciation_and_amortisation"] == "44590000000.00"
+    assert record["tax_expense"] == "28760000000.00"
+    assert record["basic_eps"] == "6.44"
+    assert record["diluted_eps"] == "6.44"
+    assert record["paid_up_equity_share_capital"] == "135320000000.00"
+    assert record["face_value_per_share"] == "10"
+
+    xml_bytes = (FIXTURES_DIR / "tcs_q3_fy2025_standalone.xml").read_bytes()
+    record = parse_manually_downloaded_filing(xml_bytes, "TCS")
+    assert record is not None
+    assert record["basic_eps"] == "32.71"
+    assert record["face_value_per_share"] == "1"
 
 
 @pytest.mark.parametrize("symbol", sorted(REAL_FIXTURES))
