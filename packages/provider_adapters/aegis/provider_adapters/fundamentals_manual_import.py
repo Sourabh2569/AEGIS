@@ -127,11 +127,13 @@ def find_nature_of_report(xml_bytes: bytes, context_ref: str) -> str | None:
     return None
 
 
-def describe_why_unparseable(xml_bytes: bytes) -> str:
+def describe_why_unparseable(xml_bytes: bytes, *, required_nature: str = "Standalone") -> str:
     """Best-effort, honest explanation for why parse_manually_downloaded_filing
     returned None -- re-derives the same real facts it computes internally,
     to report the most specific real cause instead of one generic message
-    for every possible failure."""
+    for every possible failure. required_nature is whichever of
+    "Standalone"/"Consolidated" this particular import path expects (see
+    FundamentalsManualImportProvider's required_nature)."""
     periods = find_reporting_periods(xml_bytes)
     quarterly = select_quarterly_period(periods)
     if quarterly is None:
@@ -141,11 +143,12 @@ def describe_why_unparseable(xml_bytes: bytes) -> str:
         )
     context_ref, _, _ = quarterly
     nature = find_nature_of_report(xml_bytes, context_ref)
-    if nature is not None and nature != "Standalone":
+    if nature is not None and nature != required_nature:
         return (
-            f"this file is a real {nature} filing, not Standalone -- AEGIS only "
-            "accepts Standalone (labelled \"Non-Consolidated\" on NSE's website) "
-            "results; go back to NSE's Financial Results page and download that "
+            f"this file is a real {nature} filing, not {required_nature} -- this import "
+            f"expects {required_nature} (labelled "
+            f"\"{'Non-Consolidated' if required_nature == 'Standalone' else 'Consolidated'}\" "
+            "on NSE's website); go back to NSE's Financial Results page and download that "
             "row instead"
         )
     return (
@@ -154,19 +157,26 @@ def describe_why_unparseable(xml_bytes: bytes) -> str:
     )
 
 
-def parse_manually_downloaded_filing(xml_bytes: bytes, symbol: str) -> dict[str, Any] | None:
+def parse_manually_downloaded_filing(
+    xml_bytes: bytes, symbol: str, *, required_nature: str = "Standalone"
+) -> dict[str, Any] | None:
     """Fully self-contained: every field comes from the file itself. Returns
     None (never a partial guess) if the file doesn't declare a real
-    quarterly-length reporting period, declares itself Consolidated rather
-    than Standalone, or no mapped tags match it -- see
-    describe_why_unparseable for which of these actually happened."""
+    quarterly-length reporting period, declares a different
+    Standalone/Consolidated nature than required_nature, or no mapped tags
+    match it -- see describe_why_unparseable for which of these actually
+    happened. required_nature lets the same parser serve two genuinely
+    separate, never-conflated import paths (see
+    FundamentalsManualImportProvider) -- Standalone and Consolidated
+    filings report materially different figures for the same company and
+    quarter, and must never be silently mixed."""
     periods = find_reporting_periods(xml_bytes)
     quarterly = select_quarterly_period(periods)
     if quarterly is None:
         return None
     context_ref, period_from, period_to = quarterly
     nature = find_nature_of_report(xml_bytes, context_ref)
-    if nature is not None and nature != "Standalone":
+    if nature is not None and nature != required_nature:
         return None
     values = parse_xbrl_fundamentals(xml_bytes, period_from=period_from, period_to=period_to)
     if not values:
@@ -177,6 +187,7 @@ def parse_manually_downloaded_filing(xml_bytes: bytes, symbol: str) -> dict[str,
         "period_to": period_to,
         "filing_date": extract_board_approval_date(xml_bytes, context_ref),
         "source_xbrl_url": None,
+        "nature": required_nature.upper(),
         **values,
     }
 
@@ -184,15 +195,33 @@ def parse_manually_downloaded_filing(xml_bytes: bytes, symbol: str) -> dict[str,
 class FundamentalsManualImportProvider:
     """Real fundamentals sourced entirely from human-downloaded local files
     -- no network access, ever. See the module docstring for why this is a
-    real, honest, zero-compliance-risk path, unlike fundamentals_nse_provider.py."""
+    real, honest, zero-compliance-risk path, unlike fundamentals_nse_provider.py.
+
+    required_nature selects which of the two genuinely separate import
+    paths this instance serves: "Standalone" (the original, still the
+    default) or "Consolidated" (added so P/E can be computed against
+    Consolidated EPS -- the figure actually comparable to a commonly-quoted
+    market P/E, since the market price reflects the whole group, not just
+    the standalone parent entity). Each nature is meant to be configured
+    with its own, separate base_path -- see fundamentals_nature, which
+    tags every record so the two are never conflated downstream even if
+    ingested through the same ProviderIngestionService.ingest_fundamentals."""
 
     name = "fundamentals_manual_import"
     dataset_origin = "APPROVED_FILE_IMPORT"
     data_source_mode = "LOCAL_FILE_IMPORT"
     broker_order_access = False
 
-    def __init__(self, base_path: Path, license_: ProviderLicense | None = None) -> None:
+    def __init__(
+        self,
+        base_path: Path,
+        license_: ProviderLicense | None = None,
+        *,
+        required_nature: str = "Standalone",
+    ) -> None:
         self.base_path = base_path
+        self.required_nature = required_nature
+        self.fundamentals_nature = required_nature.upper()
         self._license = license_ or ProviderLicense(
             provider_id="fundamentals-manual-import",
             license_status=ProviderLicenseStatus.APPROVED,
@@ -220,12 +249,16 @@ class FundamentalsManualImportProvider:
                 symbol = path.stem.upper()
                 xml_bytes = path.read_bytes()
                 try:
-                    record = parse_manually_downloaded_filing(xml_bytes, symbol)
+                    record = parse_manually_downloaded_filing(
+                        xml_bytes, symbol, required_nature=self.required_nature
+                    )
                 except ElementTree.ParseError as exc:
                     skipped[symbol] = f"not a valid XML file: {exc}"
                     continue
                 if record is None:
-                    skipped[symbol] = describe_why_unparseable(xml_bytes)
+                    skipped[symbol] = describe_why_unparseable(
+                        xml_bytes, required_nature=self.required_nature
+                    )
                     continue
                 payload.append(record)
         return ProviderResponseEnvelope(

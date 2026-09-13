@@ -60,8 +60,25 @@ type SignalResponse = {
 
 type PaperPortfolio = { paper_portfolio_id: string; name: string; status: string };
 
+type ConsolidatedFundamentals =
+  | { available: false; real_quarters_on_file: number; ttm_eps: null; ttm_eps_quarters: [] }
+  | {
+      available: true;
+      dataset_origin: string;
+      period_from: string;
+      period_to: string;
+      filing_date: string;
+      revenue_from_operations: string | null;
+      profit_for_period: string | null;
+      basic_eps: string | null;
+      diluted_eps: string | null;
+      ttm_eps: string | null;
+      ttm_eps_quarters: string[];
+      real_quarters_on_file: number;
+    };
+
 type FundamentalsResponse =
-  | { available: false; reason: string }
+  | { available: false; reason: string; consolidated: ConsolidatedFundamentals }
   | {
       available: true;
       dataset_origin: string;
@@ -87,6 +104,7 @@ type FundamentalsResponse =
       ttm_eps: string | null;
       ttm_eps_quarters: string[];
       real_quarters_on_file: number;
+      consolidated: ConsolidatedFundamentals;
     };
 
 function toNumber(value: string | null): number | null {
@@ -440,6 +458,67 @@ function Decision({ symbol }: { symbol: string }) {
                 narrower ratio, not a like-for-like comparison to P/E figures reported elsewhere.
               </p>
             )}
+          </div>
+        </div>
+      )}
+
+      {fundamentals?.consolidated.available && (
+        <div className="panel" style={{ marginBottom: 18 }}>
+          <div className="panel-head">
+            <h2>
+              <FileText size={15} />
+              Real fundamentals — consolidated, {fundamentals.consolidated.period_from} to{" "}
+              {fundamentals.consolidated.period_to}
+            </h2>
+          </div>
+          <div className="panel-body">
+            <ul className="reasoning">
+              <li>
+                <span className="k">Revenue from operations</span>
+                <span className="v">
+                  {fundamentals.consolidated.revenue_from_operations
+                    ? money(fundamentals.consolidated.revenue_from_operations, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">Profit for the period</span>
+                <span className="v">
+                  {fundamentals.consolidated.profit_for_period
+                    ? money(fundamentals.consolidated.profit_for_period, { compact: true })
+                    : "not available"}
+                </span>
+              </li>
+              <li>
+                <span className="k">EPS (basic / diluted)</span>
+                <span className="v">
+                  {fundamentals.consolidated.basic_eps ?? "n/a"} /{" "}
+                  {fundamentals.consolidated.diluted_eps ?? "n/a"}
+                </span>
+              </li>
+              <li>
+                <span className="k">EPS (TTM, basic)</span>
+                <span className="v">
+                  {fundamentals.consolidated.ttm_eps ??
+                    `not available — ${fundamentals.consolidated.real_quarters_on_file} of 4 real quarters on file`}
+                </span>
+              </li>
+              <li>
+                <span className="k">P/E (TTM, consolidated)</span>
+                <span className="v">
+                  {fundamentals.consolidated.ttm_eps &&
+                  Number(fundamentals.consolidated.ttm_eps) > 0 &&
+                  inputs?.close
+                    ? `${(Number(inputs.close) / Number(fundamentals.consolidated.ttm_eps)).toFixed(1)}x`
+                    : "not available"}
+                </span>
+              </li>
+            </ul>
+            <p className="hint" style={{ marginBottom: 0 }}>
+              Filed {fundamentals.consolidated.filing_date} · this is the figure comparable to a
+              commonly-quoted market P/E, since it includes subsidiaries the Standalone entity
+              above excludes.
+            </p>
           </div>
         </div>
       )}

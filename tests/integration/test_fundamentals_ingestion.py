@@ -125,8 +125,9 @@ class _TwoQuarterFakeProvider:
     name = "fake-two-quarter"
     dataset_origin = "TEST_DATA"
 
-    def __init__(self, records: list[dict[str, str]]) -> None:
+    def __init__(self, records: list[dict[str, str]], *, fundamentals_nature: str = "STANDALONE") -> None:
         self._records = records
+        self.fundamentals_nature = fundamentals_nature
         self._license = ProviderLicense(
             provider_id="fake-two-quarter",
             license_status=ProviderLicenseStatus.APPROVED,
@@ -231,3 +232,46 @@ def test_ingest_fundamentals_keeps_latest_pointing_at_the_true_latest_out_of_ord
 
     assert service.repository.latest_fundamentals["RELIANCE"]["period_to"] == "2024-09-30"
     assert service.repository.latest_fundamentals["RELIANCE"]["basic_eps"] == "6.00"
+
+
+def test_ingest_fundamentals_routes_consolidated_to_entirely_separate_repository_maps(
+    tmp_path: Path,
+) -> None:
+    """Standalone and Consolidated are genuinely different figures for the
+    same company and quarter (subsidiaries' earnings sit outside the
+    standalone parent entity) -- ingesting a Consolidated record must
+    never touch latest_fundamentals/fundamentals_history (the Standalone
+    maps), and vice versa, even for the exact same symbol and period_to."""
+    service = _service(tmp_path)
+    standalone_q = {
+        "symbol": "RELIANCE",
+        "period_from": "2024-10-01",
+        "period_to": "2024-12-31",
+        "basic_eps": "6.44",
+    }
+    consolidated_q = {
+        "symbol": "RELIANCE",
+        "period_from": "2024-10-01",
+        "period_to": "2024-12-31",
+        "basic_eps": "13.10",
+    }
+    service.ingest_fundamentals(
+        provider=_TwoQuarterFakeProvider([standalone_q], fundamentals_nature="STANDALONE"),
+        provider_id="fake-standalone",
+        dataset_id="fundamentals",
+    )
+    service.ingest_fundamentals(
+        provider=_TwoQuarterFakeProvider([consolidated_q], fundamentals_nature="CONSOLIDATED"),
+        provider_id="fake-consolidated",
+        dataset_id="fundamentals",
+    )
+
+    assert service.repository.latest_fundamentals["RELIANCE"]["basic_eps"] == "6.44"
+    assert service.repository.latest_fundamentals_consolidated["RELIANCE"]["basic_eps"] == "13.10"
+    assert service.repository.fundamentals_history["RELIANCE"]["2024-12-31"]["basic_eps"] == "6.44"
+    assert (
+        service.repository.fundamentals_history_consolidated["RELIANCE"]["2024-12-31"][
+            "basic_eps"
+        ]
+        == "13.10"
+    )

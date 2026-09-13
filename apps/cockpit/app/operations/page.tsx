@@ -291,8 +291,11 @@ const EMPTY_HISTORY: FundamentalsHistory = {
   ttm_eps_quarters: [],
 };
 
+type FundamentalsNature = "standalone" | "consolidated";
+
 function FundamentalsImport() {
   const [symbol, setSymbol] = useState("");
+  const [nature, setNature] = useState<FundamentalsNature>("standalone");
   const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<ActionStatus | null>(null);
   const [busy, setBusy] = useState(false);
@@ -300,7 +303,7 @@ function FundamentalsImport() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [deletingPeriod, setDeletingPeriod] = useState<string | null>(null);
 
-  const loadHistory = useCallback((forSymbol: string) => {
+  const loadHistory = useCallback((forSymbol: string, forNature: FundamentalsNature) => {
     const trimmed = forSymbol.trim();
     if (!trimmed) {
       setHistory(null);
@@ -308,21 +311,22 @@ function FundamentalsImport() {
     }
     setHistoryLoading(true);
     apiGet<FundamentalsHistory>(
-      `/api/v1/fundamentals-manual-import/history/${encodeURIComponent(trimmed)}`,
+      `/api/v1/fundamentals-manual-import/history/${encodeURIComponent(trimmed)}?nature=${forNature}`,
       EMPTY_HISTORY
     )
       .then(setHistory)
       .finally(() => setHistoryLoading(false));
   }, []);
 
-  // Debounced lookup -- fires 400ms after the user stops typing a symbol,
-  // so "quarters on file" shows up before they even pick a file, letting
-  // them see what's missing instead of guessing or re-uploading a quarter
+  // Debounced lookup -- fires 400ms after the user stops typing a symbol
+  // (or right away when the Standalone/Consolidated toggle changes), so
+  // "quarters on file" shows up before they even pick a file, letting them
+  // see what's missing instead of guessing or re-uploading a quarter
   // that's already in.
   useEffect(() => {
-    const timer = setTimeout(() => loadHistory(symbol), 400);
+    const timer = setTimeout(() => loadHistory(symbol, nature), 400);
     return () => clearTimeout(timer);
-  }, [symbol, loadHistory]);
+  }, [symbol, nature, loadHistory]);
 
   async function handleUpload() {
     const cleanSymbol = symbol.trim();
@@ -330,13 +334,14 @@ function FundamentalsImport() {
     setBusy(true);
     setStatus(null);
     const outcomes: string[] = [];
-    // Sequential, not Promise.all -- every file for this symbol overwrites
-    // the same work/fundamentals_manual_import/{SYMBOL}.xml on the backend,
-    // so concurrent uploads would race on that same destination.
+    // Sequential, not Promise.all -- every file for this symbol+nature
+    // overwrites the same destination file on the backend, so concurrent
+    // uploads would race on it.
     for (const file of files) {
       try {
         const formData = new FormData();
         formData.append("symbol", cleanSymbol);
+        formData.append("nature", nature);
         formData.append("file", file);
         const result = await authPostFormData<UploadResult>(
           "/api/v1/fundamentals-manual-import/upload",
@@ -354,10 +359,10 @@ function FundamentalsImport() {
     const failures = outcomes.filter((line) => !line.includes(": accepted"));
     setStatus({
       kind: failures.length === 0 ? "ok" : "error",
-      text: `${cleanSymbol} — ${files.length} file(s): ${outcomes.join(" · ")}`,
+      text: `${cleanSymbol} (${nature}) — ${files.length} file(s): ${outcomes.join(" · ")}`,
     });
     setFiles([]);
-    loadHistory(cleanSymbol);
+    loadHistory(cleanSymbol, nature);
     setBusy(false);
   }
 
@@ -368,10 +373,10 @@ function FundamentalsImport() {
     setStatus(null);
     try {
       await authDelete(
-        `/api/v1/fundamentals-manual-import/history/${encodeURIComponent(cleanSymbol)}/${encodeURIComponent(periodTo)}`
+        `/api/v1/fundamentals-manual-import/history/${encodeURIComponent(cleanSymbol)}/${encodeURIComponent(periodTo)}?nature=${nature}`
       );
       setStatus({ kind: "ok", text: `${cleanSymbol}: removed the quarter ending ${periodTo}.` });
-      loadHistory(cleanSymbol);
+      loadHistory(cleanSymbol, nature);
     } catch (err) {
       setStatus({ kind: "error", text: err instanceof Error ? err.message : "Delete failed" });
     } finally {
@@ -398,10 +403,13 @@ function FundamentalsImport() {
           >
             NSE&apos;s Financial Results page
           </a>{" "}
-          — Equity tab, search the symbol, pick the Non-Consolidated row, download its XBRL —
-          then upload that file here. Select multiple files at once (e.g. the last 4 real
-          quarters) to set a symbol up for a trailing-twelve-month figure in one go; after that,
-          just the newest quarter each time keeps it current.
+          — Equity tab, search the symbol, pick the Non-Consolidated (Standalone) or
+          Consolidated row depending on the toggle below, download its XBRL — then upload that
+          file here. Select multiple files at once (e.g. the last 4 real quarters) to set a
+          symbol up for a trailing-twelve-month figure in one go; after that, just the newest
+          quarter each time keeps it current. Standalone and Consolidated are kept entirely
+          separate and never mixed — Consolidated is what a market P/E is normally compared
+          against, since it includes subsidiaries the Standalone entity excludes.
         </p>
         <div className="reject-form" style={{ flexWrap: "wrap" }}>
           <input
@@ -410,6 +418,13 @@ function FundamentalsImport() {
             onChange={(event) => setSymbol(event.target.value.toUpperCase())}
             style={{ width: 160 }}
           />
+          <select
+            value={nature}
+            onChange={(event) => setNature(event.target.value as FundamentalsNature)}
+          >
+            <option value="standalone">Standalone</option>
+            <option value="consolidated">Consolidated</option>
+          </select>
           <input
             type="file"
             accept=".xml"
@@ -432,11 +447,14 @@ function FundamentalsImport() {
         {symbol.trim() && (
           <div style={{ marginTop: 12 }}>
             {historyLoading ? (
-              <p className="hint">Checking what&apos;s already on file for {symbol.trim()}…</p>
+              <p className="hint">
+                Checking what&apos;s already on file for {symbol.trim()} ({nature})…
+              </p>
             ) : history && history.quarters.length > 0 ? (
               <>
                 <p className="hint" style={{ marginBottom: 4 }}>
-                  Quarters already on file for {symbol.trim()}:
+                  {nature === "consolidated" ? "Consolidated" : "Standalone"} quarters already on
+                  file for {symbol.trim()}:
                 </p>
                 <ul className="reasoning">
                   {history.quarters.map((quarter) => (
@@ -465,7 +483,9 @@ function FundamentalsImport() {
                 </p>
               </>
             ) : (
-              <p className="hint">No quarters uploaded yet for {symbol.trim()}.</p>
+              <p className="hint">
+                No {nature} quarters uploaded yet for {symbol.trim()}.
+              </p>
             )}
           </div>
         )}

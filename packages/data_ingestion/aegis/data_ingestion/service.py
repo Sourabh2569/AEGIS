@@ -90,6 +90,15 @@ class InMemoryRepository:
         # possible at all -- latest_fundamentals alone only ever remembers
         # one quarter per symbol.
         self.fundamentals_history: dict[str, dict[str, dict[str, Any]]] = {}
+        # Same two structures, but for real Consolidated filings -- a
+        # genuinely separate figure from Standalone (subsidiaries'
+        # earnings sit outside the standalone parent entity), kept in
+        # entirely separate maps so the two are never silently conflated.
+        # See FundamentalsManualImportProvider's required_nature and
+        # ProviderIngestionService.ingest_fundamentals, which routes to
+        # these based on the ingesting provider's fundamentals_nature.
+        self.latest_fundamentals_consolidated: dict[str, dict[str, Any]] = {}
+        self.fundamentals_history_consolidated: dict[str, dict[str, dict[str, Any]]] = {}
 
 
 class ProviderIngestionService:
@@ -398,6 +407,25 @@ class ProviderIngestionService:
         self.repository.dataset_versions[dataset_version.id] = dataset_version
         dataset_origin = getattr(provider, "dataset_origin", "FIXTURE_DATA")
         self.repository.dataset_origins[dataset_version.id] = dataset_origin
+        # Standalone and Consolidated are genuinely separate figures for
+        # the same company and quarter (subsidiaries' earnings sit outside
+        # the standalone parent entity) -- route to entirely separate
+        # repository maps so they're never silently conflated, based on
+        # which the ingesting provider declares itself to be. Defaults to
+        # STANDALONE so every existing provider (the automated NSE
+        # pipeline, and manual-import's original configuration) keeps its
+        # exact prior behavior unchanged.
+        nature = getattr(provider, "fundamentals_nature", "STANDALONE")
+        history_by_symbol = (
+            self.repository.fundamentals_history_consolidated
+            if nature == "CONSOLIDATED"
+            else self.repository.fundamentals_history
+        )
+        latest_by_symbol = (
+            self.repository.latest_fundamentals_consolidated
+            if nature == "CONSOLIDATED"
+            else self.repository.latest_fundamentals
+        )
         for record in normalized:
             symbol = str(record.get("symbol"))
             # Real, per-record origin -- distinct sources (an automated
@@ -408,7 +436,7 @@ class ProviderIngestionService:
             # dataset_origin values despite sharing this same ingestion path.
             tagged_record = {**record, "dataset_origin": dataset_origin}
             period_to = record.get("period_to")
-            symbol_history = self.repository.fundamentals_history.setdefault(symbol, {})
+            symbol_history = history_by_symbol.setdefault(symbol, {})
             if period_to is not None:
                 symbol_history[period_to] = tagged_record
             # latest_fundamentals must reflect whichever real quarter is
@@ -424,9 +452,9 @@ class ProviderIngestionService:
             # a stale quarter after an out-of-order multi-upload.
             if symbol_history:
                 newest_period_to = max(symbol_history)
-                self.repository.latest_fundamentals[symbol] = symbol_history[newest_period_to]
+                latest_by_symbol[symbol] = symbol_history[newest_period_to]
             else:
-                self.repository.latest_fundamentals[symbol] = tagged_record
+                latest_by_symbol[symbol] = tagged_record
 
         completed = self._complete_layer_run(
             run,

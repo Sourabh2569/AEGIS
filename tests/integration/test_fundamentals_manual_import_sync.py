@@ -29,10 +29,21 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
     }
     app_main.repo.latest_fundamentals.clear()
     app_main.repo.fundamentals_history.clear()
-    monkeypatch.setattr(app_main, "fundamentals_manual_import_base_path", tmp_path)
+    app_main.repo.latest_fundamentals_consolidated.clear()
+    app_main.repo.fundamentals_history_consolidated.clear()
+    monkeypatch.setattr(app_main, "fundamentals_manual_import_base_path", tmp_path / "standalone")
+    monkeypatch.setattr(
+        app_main,
+        "fundamentals_manual_import_consolidated_base_path",
+        tmp_path / "consolidated",
+    )
+    (tmp_path / "standalone").mkdir()
+    (tmp_path / "consolidated").mkdir()
     yield TestClient(app)
     app_main.repo.latest_fundamentals.clear()
     app_main.repo.fundamentals_history.clear()
+    app_main.repo.latest_fundamentals_consolidated.clear()
+    app_main.repo.fundamentals_history_consolidated.clear()
     for attr, before_keys in before.items():
         mapping = getattr(app_main.repo, attr)
         for key in set(mapping) - before_keys:
@@ -56,7 +67,7 @@ def test_sync_requires_a_real_role(client: TestClient) -> None:
 def test_sync_real_downloaded_file_flows_through_to_the_existing_endpoint(
     client: TestClient, tmp_path: Path
 ) -> None:
-    (tmp_path / "RELIANCE.xml").write_bytes(
+    (tmp_path / "standalone" / "RELIANCE.xml").write_bytes(
         (FIXTURES_DIR / "reliance_q3_fy2025_standalone.xml").read_bytes()
     )
 
@@ -159,7 +170,7 @@ def test_upload_endpoint_saves_the_file_and_ingests_it_in_one_call(
     assert body["symbol"] == "TCS"
     assert body["accepted"] is True
     assert body["skip_reason"] is None
-    assert (tmp_path / "TCS.xml").read_bytes() == xml_bytes
+    assert (tmp_path / "standalone" / "TCS.xml").read_bytes() == xml_bytes
 
     read_response = client.get("/api/v1/instruments/TCS/fundamentals")
     assert read_response.status_code == 200
@@ -177,7 +188,7 @@ def test_upload_endpoint_reports_an_honest_skip_reason_for_a_bad_file(
     # shared object store's write-once dedup (keyed on provider+endpoint+
     # content-hash, see LocalObjectStore.put_raw_once) rejects a second
     # write of that identical empty snapshot.
-    (tmp_path / "WIPRO.xml").write_bytes(
+    (tmp_path / "standalone" / "WIPRO.xml").write_bytes(
         (FIXTURES_DIR / "wipro_q3_fy2025_standalone.xml").read_bytes()
     )
 
@@ -318,3 +329,116 @@ def test_delete_quarter_falls_back_to_the_next_most_recent_remaining_quarter(
     assert response.status_code == 200
     assert response.json()["remaining_quarters"] == ["2024-09-30"]
     assert app_main.repo.latest_fundamentals["RELIANCE"]["period_to"] == "2024-09-30"
+
+
+# A real RELIANCE filing that turned out to be genuinely Consolidated (found
+# via live use -- it was originally rejected as "not Standalone", which is
+# exactly correct behavior; it's real, valid data for the *Consolidated*
+# path this section exercises).
+CONSOLIDATED_FIXTURE = "reliance_q1_fy2027_consolidated_sebi_capmkt_taxonomy.xml"
+
+
+def test_upload_with_nature_standalone_rejects_a_real_consolidated_file(
+    client: TestClient,
+) -> None:
+    """Default nature is "standalone" -- a genuinely Consolidated file must
+    still be rejected there, exactly as before Consolidated support
+    existed at all."""
+    response = client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE"},
+        files={
+            "file": ("f.xml", (FIXTURES_DIR / CONSOLIDATED_FIXTURE).read_bytes(), "text/xml")
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["accepted"] is False
+    assert "not Standalone" in body["skip_reason"]
+
+
+def test_upload_with_nature_consolidated_accepts_the_same_real_file(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE", "nature": "consolidated"},
+        files={
+            "file": ("f.xml", (FIXTURES_DIR / CONSOLIDATED_FIXTURE).read_bytes(), "text/xml")
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["accepted"] is True
+    assert body["nature"] == "Consolidated"
+
+    # Real, entirely separate from Standalone -- the main fundamentals
+    # endpoint's top-level fields must stay untouched (nothing real was
+    # ever uploaded there in this test), while the nested "consolidated"
+    # block reflects the real upload.
+    fundamentals_response = client.get("/api/v1/instruments/RELIANCE/fundamentals")
+    body = fundamentals_response.json()
+    assert body["available"] is False
+    assert body["consolidated"]["available"] is True
+    assert body["consolidated"]["revenue_from_operations"] == "3118500000000"
+    assert body["consolidated"]["basic_eps"] == "15.48"
+
+
+def test_history_endpoint_keeps_standalone_and_consolidated_entirely_separate(
+    client: TestClient,
+) -> None:
+    client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE", "nature": "consolidated"},
+        files={
+            "file": ("f.xml", (FIXTURES_DIR / CONSOLIDATED_FIXTURE).read_bytes(), "text/xml")
+        },
+    )
+
+    standalone_history = client.get(
+        "/api/v1/fundamentals-manual-import/history/RELIANCE"
+    ).json()
+    assert standalone_history["quarters"] == []
+
+    consolidated_history = client.get(
+        "/api/v1/fundamentals-manual-import/history/RELIANCE?nature=consolidated"
+    ).json()
+    assert len(consolidated_history["quarters"]) == 1
+    assert consolidated_history["quarters"][0]["period_to"] == "2026-06-30"
+
+
+def test_delete_consolidated_quarter_does_not_touch_standalone(client: TestClient) -> None:
+    client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE"},
+        files={
+            "file": (
+                "f.xml",
+                (FIXTURES_DIR / "reliance_q3_fy2025_standalone.xml").read_bytes(),
+                "text/xml",
+            )
+        },
+    )
+    client.post(
+        "/api/v1/fundamentals-manual-import/upload",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+        data={"symbol": "RELIANCE", "nature": "consolidated"},
+        files={
+            "file": ("f.xml", (FIXTURES_DIR / CONSOLIDATED_FIXTURE).read_bytes(), "text/xml")
+        },
+    )
+
+    delete_response = client.delete(
+        "/api/v1/fundamentals-manual-import/history/RELIANCE/2026-06-30?nature=consolidated",
+        headers={"X-Aegis-Role": "DATA_STEWARD"},
+    )
+    assert delete_response.status_code == 200
+
+    body = client.get("/api/v1/instruments/RELIANCE/fundamentals").json()
+    assert body["available"] is True  # Standalone untouched
+    assert body["period_to"] == "2024-12-31"
+    assert body["consolidated"]["available"] is False  # Consolidated now empty

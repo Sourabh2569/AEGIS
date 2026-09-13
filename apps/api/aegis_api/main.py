@@ -135,6 +135,15 @@ work_dir = Path(os.environ.get("AEGIS_WORK_DIR", "work"))
 # directory is discoverable even before the first file is ever placed.
 fundamentals_manual_import_base_path = work_dir / "fundamentals_manual_import"
 fundamentals_manual_import_base_path.mkdir(parents=True, exist_ok=True)
+# Same idea, entirely separate directory, for real Consolidated filings --
+# never mixed with the Standalone one above. Added so P/E can be computed
+# against Consolidated EPS, the figure comparable to a commonly-quoted
+# market P/E (the market price reflects the whole group, including
+# subsidiaries that sit outside the standalone parent entity).
+fundamentals_manual_import_consolidated_base_path = (
+    work_dir / "fundamentals_manual_import_consolidated"
+)
+fundamentals_manual_import_consolidated_base_path.mkdir(parents=True, exist_ok=True)
 object_store = LocalObjectStore(work_dir / "object_store")
 ingestion_service = ProviderIngestionService(
     object_store=object_store,
@@ -266,6 +275,31 @@ licenses[fundamentals_manual_import_provider_record.id] = ProviderLicense(
         "NSE's Terms of Use prohibition on automated data collection (see "
         "fundamentals_nse_provider_record above) does not apply. See "
         "docs/data_activation_sprint/fundamentals_provider_decision.md."
+    ),
+    automation_rights=False,
+    backtesting_rights=True,
+    model_training_rights=False,
+    dashboard_display_rights=True,
+    data_retention_period="indefinite-local",
+    legal_review_status="APPROVED",
+)
+fundamentals_manual_import_consolidated_provider_record = DataProvider(
+    name="fundamentals_manual_import_consolidated",
+    provider_type="LOCAL_FILE_IMPORT",
+    base_url_or_reference=f"file://{work_dir / 'fundamentals_manual_import_consolidated'}",
+)
+providers[fundamentals_manual_import_consolidated_provider_record.id] = (
+    fundamentals_manual_import_consolidated_provider_record
+)
+licenses[fundamentals_manual_import_consolidated_provider_record.id] = ProviderLicense(
+    provider_id=fundamentals_manual_import_consolidated_provider_record.id,
+    license_status=ProviderLicenseStatus.APPROVED,
+    permitted_use=(
+        "Real Consolidated fundamentals from XBRL filings a human deliberately "
+        "downloaded themselves and placed locally -- same real, honest, "
+        "zero-compliance-risk path as fundamentals_manual_import_provider_record "
+        "above, kept in an entirely separate directory and repository map so "
+        "Consolidated is never conflated with Standalone."
     ),
     automation_rights=False,
     backtesting_rights=True,
@@ -1104,8 +1138,30 @@ def sync_sector_screener_data(
     )
 
 
+def _fundamentals_manual_import_config(nature: str) -> tuple[Path, str, str]:
+    """Resolves (base_path, provider_id, required_nature) for a "standalone"
+    or "consolidated" nature string -- the one place that maps the API's
+    nature parameter onto the two entirely separate manual-import
+    configurations, so every endpoint below stays consistent."""
+    normalized = nature.strip().lower()
+    if normalized == "consolidated":
+        return (
+            fundamentals_manual_import_consolidated_base_path,
+            fundamentals_manual_import_consolidated_provider_record.id,
+            "Consolidated",
+        )
+    if normalized == "standalone":
+        return (
+            fundamentals_manual_import_base_path,
+            fundamentals_manual_import_provider_record.id,
+            "Standalone",
+        )
+    raise HTTPException(status_code=422, detail='nature must be "standalone" or "consolidated".')
+
+
 @app.post("/api/v1/fundamentals-manual-import/sync")
 def sync_fundamentals_manual_import(
+    nature: str = Query(default="standalone"),
     cid: str = Depends(correlation_id),
     role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD)),
 ) -> dict[str, Any]:
@@ -1114,22 +1170,26 @@ def sync_fundamentals_manual_import(
     fundamentals_nse_provider's automated pipeline is. Drop a real filing at
     work/fundamentals_manual_import/{SYMBOL}.xml (one file per symbol,
     overwrite each quarter with the latest download) and call this endpoint
-    to parse and store it. Reuses ProviderIngestionService.ingest_fundamentals
-    unchanged -- same real provenance (raw_snapshot_hash, dataset_origin) as
-    every other real data source in AEGIS."""
+    to parse and store it -- or work/fundamentals_manual_import_consolidated/
+    with nature=consolidated for the separate Consolidated path. Reuses
+    ProviderIngestionService.ingest_fundamentals unchanged -- same real
+    provenance (raw_snapshot_hash, dataset_origin) as every other real data
+    source in AEGIS."""
+    base_path, provider_id, required_nature = _fundamentals_manual_import_config(nature)
     provider = FundamentalsManualImportProvider(
-        base_path=fundamentals_manual_import_base_path,
-        license_=licenses[fundamentals_manual_import_provider_record.id],
+        base_path=base_path,
+        license_=licenses[provider_id],
+        required_nature=required_nature,
     )
     run = ingestion_service.ingest_fundamentals(
         provider=provider,
-        provider_id=fundamentals_manual_import_provider_record.id,
+        provider_id=provider_id,
         dataset_id=fundamentals_dataset.id,
         correlation_id=cid,
     )
     return jsonable(
         {
-            "base_path": str(fundamentals_manual_import_base_path),
+            "base_path": str(base_path),
             "run": run,
         }
     )
@@ -1139,29 +1199,35 @@ def sync_fundamentals_manual_import(
 async def upload_fundamentals_manual_import(
     symbol: str = Form(...),
     file: UploadFile = File(...),
+    nature: str = Form(default="standalone"),
     cid: str = Depends(correlation_id),
     role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD)),
 ) -> dict[str, Any]:
     """Cockpit upload path for the same manual-import flow as the /sync
     endpoint above -- saves the uploaded XBRL file as
-    work/fundamentals_manual_import/{SYMBOL}.xml (overwriting any prior
-    quarter's file for that symbol) and immediately runs the same real
-    ingestion. One click in the Cockpit replaces dropping a file on disk by
-    hand and calling /sync separately; the underlying compliance story is
-    unchanged -- a human still deliberately downloaded this file themselves
-    from NSE, this just moves where they hand it to AEGIS."""
+    {base_path}/{SYMBOL}.xml (overwriting any prior quarter's file for that
+    symbol) and immediately runs the same real ingestion. nature selects
+    which of the two entirely separate configurations (Standalone, the
+    default, or Consolidated) this upload goes to -- see
+    _fundamentals_manual_import_config. One click in the Cockpit replaces
+    dropping a file on disk by hand and calling /sync separately; the
+    underlying compliance story is unchanged -- a human still deliberately
+    downloaded this file themselves from NSE, this just moves where they
+    hand it to AEGIS."""
     clean_symbol = symbol.strip().upper()
     if not clean_symbol or not re.fullmatch(r"[A-Z0-9]+", clean_symbol):
         raise HTTPException(status_code=422, detail="symbol must be a plain ticker, e.g. CIPLA.")
     contents = await file.read()
     if not contents:
         raise HTTPException(status_code=422, detail="Uploaded file is empty.")
-    destination = fundamentals_manual_import_base_path / f"{clean_symbol}.xml"
+    base_path, provider_id, required_nature = _fundamentals_manual_import_config(nature)
+    destination = base_path / f"{clean_symbol}.xml"
     destination.write_bytes(contents)
 
     provider = FundamentalsManualImportProvider(
-        base_path=fundamentals_manual_import_base_path,
-        license_=licenses[fundamentals_manual_import_provider_record.id],
+        base_path=base_path,
+        license_=licenses[provider_id],
+        required_nature=required_nature,
     )
     # A separate, pure-read fetch before the real ingestion call below --
     # ingest_fundamentals's run summary hardcodes records_rejected=0 and
@@ -1173,34 +1239,49 @@ async def upload_fundamentals_manual_import(
 
     run = ingestion_service.ingest_fundamentals(
         provider=provider,
-        provider_id=fundamentals_manual_import_provider_record.id,
+        provider_id=provider_id,
         dataset_id=fundamentals_dataset.id,
         correlation_id=cid,
     )
     return jsonable(
         {
             "symbol": clean_symbol,
+            "nature": required_nature,
             "saved_to": str(destination),
             "accepted": skip_reason is None,
             "skip_reason": skip_reason,
-            "base_path": str(fundamentals_manual_import_base_path),
+            "base_path": str(base_path),
             "run": run,
         }
     )
 
 
+def _fundamentals_history_maps(nature: str) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, dict[str, Any]]]:
+    """Resolves (history_by_symbol, latest_by_symbol) for a "standalone" or
+    "consolidated" nature string -- the read/delete-side counterpart to
+    _fundamentals_manual_import_config."""
+    _, _, required_nature = _fundamentals_manual_import_config(nature)
+    if required_nature == "Consolidated":
+        return repo.fundamentals_history_consolidated, repo.latest_fundamentals_consolidated
+    return repo.fundamentals_history, repo.latest_fundamentals
+
+
 @app.get("/api/v1/fundamentals-manual-import/history/{symbol}")
-def get_fundamentals_manual_import_history(symbol: str) -> dict[str, Any]:
-    """Every real quarter already on file for this symbol -- lets the
+def get_fundamentals_manual_import_history(
+    symbol: str, nature: str = Query(default="standalone")
+) -> dict[str, Any]:
+    """Every real quarter already on file for this symbol, for whichever of
+    Standalone (default) or Consolidated nature is asked for -- lets the
     Cockpit's upload panel show what's there before the user picks a file,
     so they don't have to guess or accidentally re-upload a quarter that's
     already in. Deliberately does not go through _resolve_symbol: manual
     import is meant to work for any real company, not just the curated
     universes main.py already knows about. Never fabricates a "not
     uploaded yet" gap into a filled one -- an empty result just means
-    nothing real has been uploaded for this symbol."""
+    nothing real has been uploaded for this symbol under this nature."""
     canonical = symbol.strip().upper()
-    history = repo.fundamentals_history.get(canonical, {})
+    history_by_symbol, _ = _fundamentals_history_maps(nature)
+    history = history_by_symbol.get(canonical, {})
     quarters = sorted(
         (
             {
@@ -1226,12 +1307,14 @@ def get_fundamentals_manual_import_history(symbol: str) -> dict[str, Any]:
 def delete_fundamentals_manual_import_quarter(
     symbol: str,
     period_to: str,
+    nature: str = Query(default="standalone"),
     cid: str = Depends(correlation_id),
     role: Role = Depends(require_role(Role.FOUNDER, Role.DATA_STEWARD)),
 ) -> dict[str, Any]:
     """Corrects a wrong upload (wrong company, wrong file, a fat-fingered
-    symbol) by removing one quarter from the live, queryable state --
-    fundamentals_history, and latest_fundamentals if this was that
+    symbol) by removing one quarter from the live, queryable state, for
+    whichever of Standalone (default) or Consolidated nature is asked for
+    -- fundamentals_history, and latest_fundamentals if this was that
     symbol's most recent one. Deliberately does NOT touch the permanent
     raw/normalized/curated object-store snapshot or its DatasetVersion --
     those stay real, immutable evidence of what was actually ingested and
@@ -1239,7 +1322,8 @@ def delete_fundamentals_manual_import_quarter(
     no-delete API); this only corrects what AEGIS currently treats as
     true today. The correction itself is audited, never silent."""
     canonical = symbol.strip().upper()
-    history = repo.fundamentals_history.get(canonical)
+    history_by_symbol, latest_by_symbol = _fundamentals_history_maps(nature)
+    history = history_by_symbol.get(canonical)
     if history is None or period_to not in history:
         raise HTTPException(
             status_code=404,
@@ -1247,17 +1331,17 @@ def delete_fundamentals_manual_import_quarter(
         )
     removed = history.pop(period_to)
     if not history:
-        del repo.fundamentals_history[canonical]
+        del history_by_symbol[canonical]
 
     # latest_fundamentals must keep reflecting whichever quarter is now
     # genuinely the most recent for this symbol -- not just "whatever was
     # ingested last", which may have been the mistaken upload just removed.
-    remaining = repo.fundamentals_history.get(canonical, {})
+    remaining = history_by_symbol.get(canonical, {})
     if remaining:
         newest_period_to = max(remaining)
-        repo.latest_fundamentals[canonical] = remaining[newest_period_to]
+        latest_by_symbol[canonical] = remaining[newest_period_to]
     else:
-        repo.latest_fundamentals.pop(canonical, None)
+        latest_by_symbol.pop(canonical, None)
 
     audit_log.record(
         event_type="FUNDAMENTALS_QUARTER_DELETED",
@@ -2707,6 +2791,39 @@ def get_instrument_ohlcv(
     }
 
 
+def _consolidated_fundamentals_block(canonical: str) -> dict[str, Any]:
+    """Real Consolidated figures for this symbol, entirely separate from
+    Standalone -- never merged, since subsidiaries' earnings sit outside
+    the standalone parent entity (see fundamentals_manual_import.py's
+    module docstring). Built so the Cockpit can compute a P/E against
+    Consolidated EPS -- the figure comparable to a commonly-quoted market
+    P/E, unlike the Standalone-only one main.py already served."""
+    record = repo.latest_fundamentals_consolidated.get(canonical)
+    history = repo.fundamentals_history_consolidated.get(canonical, {})
+    ttm_eps, ttm_eps_quarters = compute_ttm_eps(history)
+    if record is None:
+        return {
+            "available": False,
+            "real_quarters_on_file": 0,
+            "ttm_eps": None,
+            "ttm_eps_quarters": [],
+        }
+    return {
+        "available": True,
+        "dataset_origin": record.get("dataset_origin", "ACTUAL_PROVIDER_DATA"),
+        "period_from": record.get("period_from"),
+        "period_to": record.get("period_to"),
+        "filing_date": record.get("filing_date"),
+        "revenue_from_operations": record.get("revenue_from_operations"),
+        "profit_for_period": record.get("profit_for_period"),
+        "basic_eps": record.get("basic_eps"),
+        "diluted_eps": record.get("diluted_eps"),
+        "ttm_eps": ttm_eps,
+        "ttm_eps_quarters": ttm_eps_quarters,
+        "real_quarters_on_file": len(history),
+    }
+
+
 @app.get("/api/v1/instruments/{symbol}/fundamentals")
 def get_instrument_fundamentals(symbol: str) -> dict[str, Any]:
     """Real, if present -- repo.latest_fundamentals is only ever populated by
@@ -2714,14 +2831,19 @@ def get_instrument_fundamentals(symbol: str) -> dict[str, Any]:
     itself refuses to execute now that fundamentals_nse_provider_record's
     license is REJECTED (NSE's Terms of Use prohibit automated collection --
     see fundamentals_provider_decision.md). Never fabricates a value for an
-    instrument that hasn't had a real filing ingested."""
+    instrument that hasn't had a real filing ingested. Always includes a
+    "consolidated" block too (see _consolidated_fundamentals_block),
+    independent of whether Standalone is available -- the two are entirely
+    separate uploads and either can exist without the other."""
     canonical, _aegis_instrument_id = _resolve_symbol(symbol)
     record = repo.latest_fundamentals.get(canonical)
+    consolidated = _consolidated_fundamentals_block(canonical)
     if record is None:
         return {
             "symbol": canonical,
             "available": False,
             "reason": "Not available -- no verified fundamentals provider yet",
+            "consolidated": consolidated,
         }
     history = repo.fundamentals_history.get(canonical, {})
     ttm_eps, ttm_eps_quarters = compute_ttm_eps(history)
@@ -2751,6 +2873,7 @@ def get_instrument_fundamentals(symbol: str) -> dict[str, Any]:
         "ttm_eps": ttm_eps,
         "ttm_eps_quarters": ttm_eps_quarters,
         "real_quarters_on_file": len(history),
+        "consolidated": consolidated,
     }
 
 
