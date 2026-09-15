@@ -34,6 +34,11 @@ class Candidate:
     profit_for_period: Decimal | None = None
     debt_equity_ratio: Decimal | None = None
     ttm_eps: Decimal | None = None
+    # The next-most-recent real quarter's profit, when a second real
+    # point-in-time-visible quarter exists -- lets a strategy judge a real
+    # trend (is profit improving or deteriorating), not just a single
+    # snapshot. None whenever fewer than two real quarters are visible yet.
+    profit_for_period_prior_quarter: Decimal | None = None
 
 
 class StrategyContract:
@@ -511,3 +516,290 @@ class QualityMomentumStrategyV3(StrategyContract):
         if candidate.atr_14 is None:
             raise ValueError("QualityMomentumStrategyV3 requires ATR_14.")
         return candidate.close - (Decimal(2) * candidate.atr_14)
+
+
+MAXIMUM_ABSOLUTE_PE_RATIO = Decimal("75")
+MAXIMUM_QOQ_PROFIT_DECLINE = Decimal("0.5")
+
+
+class HealthGatedMomentumStrategyV1(StrategyContract):
+    """A genuinely different architecture from every strategy above: those
+    are all pure relative rankers -- "which of these candidates is best" --
+    so a single candidate's fundamentals can only ever matter as a
+    disqualifier or a tiebreak against peers, never as a real judgment
+    about that one stock's own condition. This strategy is deliberately
+    two layers, in this order:
+
+    Layer 1 (_is_healthy): an ABSOLUTE, self-referential health check --
+    "is this stock, by itself, in good shape right now" -- using no peer
+    comparison at all. Technical health reuses TrendFollowingBaselineStrategyV0's
+    own validated core (close > SMA_50 > SMA_200, positive 60-day momentum,
+    a real liquidity floor) plus a not-in-severe-decline-from-its-own-real-
+    high check. Fundamentals health reuses the real net-loss/excess-leverage
+    disqualifiers already validated in V1/V2/V3, plus two genuinely new
+    absolute checks only possible now that real multi-quarter data exists:
+    a real quarter-over-quarter profit trend (not just a single snapshot --
+    is the business getting worse, not just "was it profitable last
+    quarter"), and a sanity ceiling on P/E computed from real TTM EPS.
+    Every fundamentals check is graceful, never a hard requirement -- a
+    stock with no real filing yet (still the large majority of the
+    universe) is judged on technical health alone, exactly like V0 always
+    was; nothing is excluded for missing data, only ever for a real,
+    known red flag.
+
+    Layer 2 (_score), only ever applied to stocks that already passed
+    Layer 1: the comparison across survivors. This reuses
+    QualityMomentumStrategyV3's exact, real-evidence-validated ranking --
+    momentum weighted by proximity to the real trailing 252-day high --
+    rather than inventing a new, untested ranking scheme on top of an
+    already-new health gate. One genuinely new idea evaluated at a time.
+
+    The not-in-severe-decline check and the two new fundamentals checks
+    are well-motivated by the "absolute health" framing this strategy
+    exists to test, but -- unlike the momentum-ranking factors in V1/V2/V3
+    -- have NOT yet been isolated and backtested individually. Treat this
+    whole strategy the same way V1/V2/V3 were treated: real evidence from
+    a real backtest decides whether it's worth keeping, not this docstring.
+    """
+
+    strategy_name = "HealthGatedMomentumStrategyV1"
+    strategy_version = "V1"
+
+    def rank_candidates(self, candidates: list[Candidate]) -> list[Candidate]:
+        healthy = [candidate for candidate in candidates if self._is_healthy(candidate)]
+        scored = [(self._score(candidate), candidate) for candidate in healthy]
+        scored.sort(key=lambda pair: (-pair[0], pair[1].instrument_id))
+        return [candidate for _, candidate in scored]
+
+    def _is_healthy(self, candidate: Candidate) -> bool:
+        # Layer 1a -- absolute technical health.
+        if (
+            candidate.sma_50 is None
+            or candidate.sma_200 is None
+            or candidate.momentum_60 is None
+            or candidate.average_daily_value_traded_20 is None
+        ):
+            return False
+        if not (candidate.close > candidate.sma_50 > candidate.sma_200):
+            return False
+        if candidate.momentum_60 <= 0:
+            return False
+        if candidate.average_daily_value_traded_20 <= Decimal(100000):
+            return False
+        # Not in a severe decline from its own real trailing high -- graceful
+        # (skipped) until 252+ real days of history exist for this instrument.
+        if (
+            candidate.high_252 is not None
+            and candidate.high_252 > 0
+            and candidate.close < (Decimal("0.85") * candidate.high_252)
+        ):
+            return False
+
+        # Layer 1b -- absolute fundamentals health, only when a real filing
+        # actually exists; never a requirement, only ever a real red flag.
+        if candidate.fundamentals_available:
+            if candidate.profit_for_period is not None and candidate.profit_for_period < 0:
+                return False
+            if (
+                candidate.sector != FINANCIAL_SECTOR_LABEL
+                and candidate.debt_equity_ratio is not None
+                and candidate.debt_equity_ratio > MAXIMUM_NON_FINANCIAL_DEBT_EQUITY_RATIO
+            ):
+                return False
+            if (
+                candidate.ttm_eps is not None
+                and candidate.ttm_eps > 0
+                and candidate.close > 0
+                and (candidate.close / candidate.ttm_eps) > MAXIMUM_ABSOLUTE_PE_RATIO
+            ):
+                return False
+            if (
+                candidate.profit_for_period is not None
+                and candidate.profit_for_period_prior_quarter is not None
+                and candidate.profit_for_period_prior_quarter > 0
+            ):
+                decline = (
+                    candidate.profit_for_period_prior_quarter - candidate.profit_for_period
+                ) / candidate.profit_for_period_prior_quarter
+                if decline > MAXIMUM_QOQ_PROFIT_DECLINE:
+                    return False
+
+        return True
+
+    def _score(self, candidate: Candidate) -> Decimal:
+        """Layer 2 -- QualityMomentumStrategyV3's exact validated comparison,
+        reused unchanged rather than inventing a new ranking scheme."""
+        assert candidate.momentum_60 is not None
+        high_proximity = Decimal(1)
+        if candidate.high_252 is not None and candidate.high_252 > 0:
+            high_proximity = candidate.close / candidate.high_252
+        return candidate.momentum_60 * high_proximity
+
+    def propose_target_weights(
+        self, ranked: list[Candidate], maximum_position_count: int
+    ) -> dict[str, Decimal]:
+        selected = ranked[:maximum_position_count]
+        if not selected:
+            return {}
+        weight = Decimal("0.80") / Decimal(len(selected))
+        return {candidate.instrument_id: weight for candidate in selected}
+
+    def invalidation_price(self, candidate: Candidate) -> Decimal:
+        if candidate.atr_14 is None:
+            raise ValueError("HealthGatedMomentumStrategyV1 requires ATR_14.")
+        return candidate.close - (Decimal(2) * candidate.atr_14)
+
+
+class DiversifiedRiskOverlayStrategyV1(StrategyContract):
+    """Every strategy above -- V0 through HealthGatedMomentumStrategyV1 --
+    shares one structural trait: it requires a confirmed uptrend (close >
+    SMA_50 > SMA_200, positive momentum) just to participate at all, and
+    concentrates into a handful of positions (top 8) when it does. A real,
+    isolated comparison this session found that trait itself was the
+    problem: EqualWeightUniverseBenchmarkStrategyV0 -- which has no trend
+    requirement and holds the entire real eligible universe, always --
+    beat every one of those selective, sometimes-in-cash strategies, and
+    was the only one to clearly beat a plain fixed deposit over the same
+    real 10-year window. Being selective about *when* to be invested cost
+    more in missed compounding than it saved in avoided drawdowns.
+
+    This strategy tests the natural next question: can real risk signals
+    still add value *without* reintroducing that trend-gate/concentration
+    trait? It stays deliberately close to EqualWeight's own winning shape --
+    broad, always-invested, equal-weighted -- and uses technicals and
+    fundamentals only to EXCLUDE instruments in real, absolute trouble,
+    never to require an uptrend to participate and never to concentrate
+    into a small "best of" subset. A stock doesn't have to be rising to
+    stay in; it only has to not be in genuine trouble.
+
+    Excluded only for a real red flag, each independently, always graceful
+    when data doesn't exist yet (never punished for missing data):
+    - a real net loss or excessive non-financial leverage, when a real
+      filing has been ingested (the same disqualifiers validated in
+      V1/V2/V3/HealthGatedMomentumStrategyV1);
+    - a severe real decline from its own trailing 252-day high (more than
+      15% off), the one technical signal from HealthGatedMomentumStrategyV1
+      that showed real, explicable value in this session's testing.
+
+    No momentum requirement, no trend requirement, no position-count cap,
+    no per-position stop -- deliberately, matching EqualWeight's own
+    already-validated shape as closely as possible so this real backtest
+    answers one question cleanly: does excluding genuine red flags improve
+    on plain equal-weighting, or does even that much selectivity cost more
+    than it protects.
+    """
+
+    strategy_name = "DiversifiedRiskOverlayStrategyV1"
+    strategy_version = "V1"
+
+    def rank_candidates(self, candidates: list[Candidate]) -> list[Candidate]:
+        self.validate_inputs(candidates)
+        survivors = [candidate for candidate in candidates if self._has_no_red_flag(candidate)]
+        return sorted(survivors, key=lambda item: item.instrument_id)
+
+    def _has_no_red_flag(self, candidate: Candidate) -> bool:
+        if (
+            candidate.high_252 is not None
+            and candidate.high_252 > 0
+            and candidate.close < (Decimal("0.85") * candidate.high_252)
+        ):
+            return False
+        if candidate.fundamentals_available:
+            if candidate.profit_for_period is not None and candidate.profit_for_period < 0:
+                return False
+            if (
+                candidate.sector != FINANCIAL_SECTOR_LABEL
+                and candidate.debt_equity_ratio is not None
+                and candidate.debt_equity_ratio > MAXIMUM_NON_FINANCIAL_DEBT_EQUITY_RATIO
+            ):
+                return False
+        return True
+
+    def propose_target_weights(
+        self, ranked: list[Candidate], maximum_position_count: int
+    ) -> dict[str, Decimal]:
+        # Deliberately ignores maximum_position_count -- same real reasoning
+        # as EqualWeightUniverseBenchmarkStrategyV0: a cap here would
+        # silently reintroduce the concentration this strategy exists to
+        # avoid, capping "the whole healthy universe" down to an arbitrary
+        # subset by nothing more than which id happens to sort first.
+        if not ranked:
+            return {}
+        weight = Decimal("0.80") / Decimal(len(ranked))
+        return {candidate.instrument_id: weight for candidate in ranked}
+
+
+class DiversifiedRiskOverlayStrategyV2(StrategyContract):
+    """V1's own isolated diagnostic found that hard-excluding anything more
+    than 15% below its own real 252-day high destroyed most of the return
+    (52.53% vs EqualWeight's 216.29%, on the exact same real data) without
+    a matching risk benefit -- because a stock off its high is frequently a
+    genuine recovery in progress, not just a decliner, and a blunt yes/no
+    cutoff can't tell those apart without a trend signal alongside it
+    (which is exactly why the same rule worked well inside
+    HealthGatedMomentumStrategyV1's trend-gated design, but actively hurt
+    here, where there's no trend context at all).
+
+    V2 tests the natural next idea instead of abandoning the signal
+    entirely: keep every instrument in -- never hard-exclude for being off
+    its high -- but WEIGHT it by real proximity to that high. A stock
+    sitting right at a new high gets a full share; one further below it
+    gets proportionally less, never zero, so a genuine recovery still
+    participates instead of being locked out entirely. Real red flags (a
+    real net loss, or excessive non-financial leverage, when a filing has
+    actually been ingested) remain hard exclusions -- those are genuine,
+    binary problems, not a judgment call about where a stock sits in its
+    own price cycle, which proximity-to-high inherently is.
+    """
+
+    strategy_name = "DiversifiedRiskOverlayStrategyV2"
+    strategy_version = "V2"
+
+    def rank_candidates(self, candidates: list[Candidate]) -> list[Candidate]:
+        self.validate_inputs(candidates)
+        survivors = [candidate for candidate in candidates if self._passes_fundamentals(candidate)]
+        return sorted(survivors, key=lambda item: item.instrument_id)
+
+    def _passes_fundamentals(self, candidate: Candidate) -> bool:
+        if not candidate.fundamentals_available:
+            return True
+        if candidate.profit_for_period is not None and candidate.profit_for_period < 0:
+            return False
+        if (
+            candidate.sector != FINANCIAL_SECTOR_LABEL
+            and candidate.debt_equity_ratio is not None
+            and candidate.debt_equity_ratio > MAXIMUM_NON_FINANCIAL_DEBT_EQUITY_RATIO
+        ):
+            return False
+        return True
+
+    def _proximity_weight(self, candidate: Candidate) -> Decimal:
+        """1.0 (neutral -- neither rewarded nor penalized) until 252+ real
+        days of history exist; otherwise close/high_252, always in (0, 1]
+        since high_252 is itself the real max of a window that includes
+        close -- a genuine new high scores exactly 1.0, never higher."""
+        if candidate.high_252 is not None and candidate.high_252 > 0 and candidate.close > 0:
+            return candidate.close / candidate.high_252
+        return Decimal(1)
+
+    def propose_target_weights(
+        self, ranked: list[Candidate], maximum_position_count: int
+    ) -> dict[str, Decimal]:
+        # Same deliberate no-cap reasoning as V1 -- every fundamentals-clean
+        # instrument stays in, sized by proximity rather than excluded.
+        if not ranked:
+            return {}
+        proximity_weights = {
+            candidate.instrument_id: self._proximity_weight(candidate) for candidate in ranked
+        }
+        total_weight = sum(proximity_weights.values())
+        if total_weight <= 0:
+            # Not reachable in practice (close/high_252 is always in (0, 1]
+            # for real prices) -- fail closed to equal weight rather than
+            # divide by zero if it ever somehow were.
+            equal_weight = Decimal("0.80") / Decimal(len(ranked))
+            return {candidate.instrument_id: equal_weight for candidate in ranked}
+        return {
+            instrument_id: (Decimal("0.80") * weight / total_weight)
+            for instrument_id, weight in proximity_weights.items()
+        }

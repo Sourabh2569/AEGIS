@@ -78,7 +78,10 @@ from aegis.shared.money import money
 from aegis.shared.time import utc_now
 from aegis.strategies.baselines import (
     BuyAndHoldBenchmarkStrategyV0,
+    DiversifiedRiskOverlayStrategyV1,
+    DiversifiedRiskOverlayStrategyV2,
     EqualWeightUniverseBenchmarkStrategyV0,
+    HealthGatedMomentumStrategyV1,
     QualityMomentumStrategyV1,
     QualityMomentumStrategyV2,
     QualityMomentumStrategyV3,
@@ -2519,6 +2522,9 @@ def get_strategies() -> list[dict[str, Any]]:
         {"strategy_id": "QualityMomentumStrategyV1", "status": "RESEARCH_ONLY"},
         {"strategy_id": "QualityMomentumStrategyV2", "status": "RESEARCH_ONLY"},
         {"strategy_id": "QualityMomentumStrategyV3", "status": "RESEARCH_ONLY"},
+        {"strategy_id": "HealthGatedMomentumStrategyV1", "status": "RESEARCH_ONLY"},
+        {"strategy_id": "DiversifiedRiskOverlayStrategyV1", "status": "RESEARCH_ONLY"},
+        {"strategy_id": "DiversifiedRiskOverlayStrategyV2", "status": "RESEARCH_ONLY"},
     ]
 
 
@@ -2632,12 +2638,24 @@ def run_real_momentum_backtest(
     quality_momentum_v3_report = jsonable(
         runner.run(QualityMomentumStrategyV3(), "Real Nifty 50 Quality Momentum V3")
     )
+    health_gated_momentum_report = jsonable(
+        runner.run(HealthGatedMomentumStrategyV1(), "Real Nifty 50 Health-Gated Momentum V1")
+    )
+    diversified_risk_overlay_report = jsonable(
+        runner.run(DiversifiedRiskOverlayStrategyV1(), "Real Nifty 50 Diversified Risk Overlay V1")
+    )
+    diversified_risk_overlay_v2_report = jsonable(
+        runner.run(DiversifiedRiskOverlayStrategyV2(), "Real Nifty 50 Diversified Risk Overlay V2")
+    )
     _record_momentum_report(momentum_report)
     _record_momentum_report(benchmark_report)
     _record_momentum_report(buy_and_hold_report)
     _record_momentum_report(quality_momentum_report)
     _record_momentum_report(quality_momentum_v2_report)
     _record_momentum_report(quality_momentum_v3_report)
+    _record_momentum_report(health_gated_momentum_report)
+    _record_momentum_report(diversified_risk_overlay_report)
+    _record_momentum_report(diversified_risk_overlay_v2_report)
     audit_log.record(
         event_type="REAL_MOMENTUM_BACKTEST_COMPLETED",
         entity_type="ResearchBacktest",
@@ -2660,6 +2678,9 @@ def run_real_momentum_backtest(
         "quality_momentum": quality_momentum_report,
         "quality_momentum_v2": quality_momentum_v2_report,
         "quality_momentum_v3": quality_momentum_v3_report,
+        "health_gated_momentum": health_gated_momentum_report,
+        "diversified_risk_overlay": diversified_risk_overlay_report,
+        "diversified_risk_overlay_v2": diversified_risk_overlay_v2_report,
     }
 
 
@@ -2673,6 +2694,9 @@ STRATEGY_LEADERBOARD_IDS = (
     "QualityMomentumStrategyV1",
     "QualityMomentumStrategyV2",
     "QualityMomentumStrategyV3",
+    "HealthGatedMomentumStrategyV1",
+    "DiversifiedRiskOverlayStrategyV1",
+    "DiversifiedRiskOverlayStrategyV2",
     "EqualWeightUniverseBenchmarkStrategyV0",
     "BuyAndHoldBenchmarkStrategyV0",
 )
@@ -2773,6 +2797,71 @@ def _strategy_rule_descriptions() -> dict[str, dict[str, Any]]:
             "sizing": f"top {max_positions} ranked instruments, 80% of equity split equally",
             "stop": "close - 2 x ATR_14",
             "max_positions": max_positions,
+        },
+        "HealthGatedMomentumStrategyV1": {
+            "eligibility": (
+                "Two layers, in order. Layer 1 (absolute, no peer comparison): close > SMA_50 > "
+                "SMA_200, positive 60-day momentum, minimum 20-day average value traded "
+                "₹100,000, and close within 15% of its own real trailing 252-day high (graceful "
+                "until 252+ real days exist). When a real filing has been ingested: a real net "
+                "loss, excessive non-financial leverage (>2.0x debt-to-equity), a real quarter-"
+                "over-quarter profit decline of more than 50%, or a P/E above 75x (from real "
+                "trailing-twelve-month EPS) each independently fail the health check. No "
+                "candidate is excluded for simply having no fundamentals data on file yet."
+            ),
+            "selection": (
+                "Layer 2, applied only to instruments that passed Layer 1: ranked by 60-day "
+                "momentum multiplied by proximity to the real trailing 252-day high -- the same "
+                "validated comparison QualityMomentumStrategyV3 uses, reused rather than a new "
+                "untested ranking scheme"
+            ),
+            "sizing": f"top {max_positions} ranked instruments, 80% of equity split equally",
+            "stop": "close - 2 x ATR_14",
+            "max_positions": max_positions,
+        },
+        "DiversifiedRiskOverlayStrategyV1": {
+            "eligibility": (
+                "any instrument with at least 200 real trading days of history -- no trend or "
+                "momentum requirement at all, deliberately. Excluded only for a real red flag: "
+                "close more than 15% below its own real trailing 252-day high, or -- when a "
+                "real filing has been ingested -- a real net loss or (for non-financial-sector "
+                "instruments) a debt-to-equity ratio above 2.0x. No candidate is excluded for "
+                "simply having no fundamentals data on file yet, and none is excluded for "
+                "merely not being in an uptrend"
+            ),
+            "selection": (
+                "every surviving instrument, uncapped -- deliberately matching "
+                "EqualWeightUniverseBenchmarkStrategyV0's own un-concentrated shape; excluding "
+                "real red flags is the only selectivity this strategy applies"
+            ),
+            "sizing": "80% of equity split equally across every surviving instrument",
+            "stop": "not applicable -- this strategy carries no per-position stop; a stock "
+            "that deteriorates into a real red flag is excluded at the next rebalance instead",
+            "max_positions": len(sector_by_instrument_id),
+        },
+        "DiversifiedRiskOverlayStrategyV2": {
+            "eligibility": (
+                "any instrument with at least 200 real trading days of history -- no trend or "
+                "momentum requirement. Excluded only for a real red flag when a filing has "
+                "actually been ingested: a real net loss, or (for non-financial-sector "
+                "instruments) a debt-to-equity ratio above 2.0x. Unlike V1, proximity to its "
+                "own real trailing 252-day high is never a hard exclusion here -- a real, "
+                "isolated test found that hard-excluding stocks off their high destroyed most "
+                "of the return without a matching risk benefit, since a stock off its high is "
+                "often a genuine recovery, not just a decliner"
+            ),
+            "selection": (
+                "every fundamentals-clean instrument stays in, uncapped -- weighted by real "
+                "proximity to its own trailing 252-day high (close / 252-day high) rather than "
+                "excluded for it; a stock at a genuine new high gets a full share, one further "
+                "below it gets proportionally less, never zero; neutral (equal) weight until "
+                "252+ real days of history exist"
+            ),
+            "sizing": "80% of equity split by real proximity-to-high weight across every "
+            "surviving instrument",
+            "stop": "not applicable -- this strategy carries no per-position stop; a stock "
+            "that develops a real red flag is excluded at the next rebalance instead",
+            "max_positions": len(sector_by_instrument_id),
         },
         "EqualWeightUniverseBenchmarkStrategyV0": {
             "eligibility": "any instrument with at least 200 real trading days of history -- no other filter",

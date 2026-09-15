@@ -32,7 +32,10 @@ from aegis.shared.money import money, quantity
 from aegis.strategies.baselines import (
     BuyAndHoldBenchmarkStrategyV0,
     Candidate,
+    DiversifiedRiskOverlayStrategyV1,
+    DiversifiedRiskOverlayStrategyV2,
     EqualWeightUniverseBenchmarkStrategyV0,
+    HealthGatedMomentumStrategyV1,
     QualityMomentumStrategyV1,
     QualityMomentumStrategyV2,
     QualityMomentumStrategyV3,
@@ -399,6 +402,7 @@ class RealMomentumResearchRunner:
         # trading symbol, hence the symbol_by_instrument lookup.
         fundamentals_available = False
         profit_for_period: Decimal | None = None
+        profit_for_period_prior_quarter: Decimal | None = None
         debt_equity_ratio: Decimal | None = None
         ttm_eps: Decimal | None = None
         symbol = self.symbol_by_instrument.get(instrument_id)
@@ -406,14 +410,19 @@ class RealMomentumResearchRunner:
             visible_history = self._point_in_time_fundamentals(symbol, as_of)
             if visible_history:
                 fundamentals_available = True
-                latest_period_to = max(visible_history)
-                latest_record = visible_history[latest_period_to]
+                sorted_periods = sorted(visible_history, reverse=True)
+                latest_record = visible_history[sorted_periods[0]]
                 raw_profit = latest_record.get("profit_for_period")
                 if raw_profit is not None:
                     profit_for_period = Decimal(str(raw_profit))
                 raw_debt_equity = latest_record.get("debt_equity_ratio")
                 if raw_debt_equity is not None:
                     debt_equity_ratio = Decimal(str(raw_debt_equity))
+                if len(sorted_periods) >= 2:
+                    prior_record = visible_history[sorted_periods[1]]
+                    raw_prior_profit = prior_record.get("profit_for_period")
+                    if raw_prior_profit is not None:
+                        profit_for_period_prior_quarter = Decimal(str(raw_prior_profit))
                 ttm_eps_str, _ = compute_ttm_eps(visible_history)
                 if ttm_eps_str is not None:
                     ttm_eps = Decimal(ttm_eps_str)
@@ -439,6 +448,7 @@ class RealMomentumResearchRunner:
             profit_for_period=profit_for_period,
             debt_equity_ratio=debt_equity_ratio,
             ttm_eps=ttm_eps,
+            profit_for_period_prior_quarter=profit_for_period_prior_quarter,
         )
 
     def build_candidates(self, as_of: date) -> list[Candidate]:
@@ -609,6 +619,9 @@ PAPER_STRATEGY_REGISTRY: dict[str, StrategyContract] = {
     "QualityMomentumStrategyV1": QualityMomentumStrategyV1(),
     "QualityMomentumStrategyV2": QualityMomentumStrategyV2(),
     "QualityMomentumStrategyV3": QualityMomentumStrategyV3(),
+    "HealthGatedMomentumStrategyV1": HealthGatedMomentumStrategyV1(),
+    "DiversifiedRiskOverlayStrategyV1": DiversifiedRiskOverlayStrategyV1(),
+    "DiversifiedRiskOverlayStrategyV2": DiversifiedRiskOverlayStrategyV2(),
 }
 
 

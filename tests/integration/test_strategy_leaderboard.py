@@ -29,6 +29,9 @@ ALL_STRATEGY_IDS = {
     "QualityMomentumStrategyV1",
     "QualityMomentumStrategyV2",
     "QualityMomentumStrategyV3",
+    "HealthGatedMomentumStrategyV1",
+    "DiversifiedRiskOverlayStrategyV1",
+    "DiversifiedRiskOverlayStrategyV2",
     "EqualWeightUniverseBenchmarkStrategyV0",
     "BuyAndHoldBenchmarkStrategyV0",
 }
