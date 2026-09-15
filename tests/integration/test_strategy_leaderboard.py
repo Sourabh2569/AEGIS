@@ -18,9 +18,17 @@ from fastapi.testclient import TestClient
 
 INSTRUMENT_A = "AEGIS-IN-000001"  # RELIANCE
 INSTRUMENT_B = "AEGIS-IN-000002"  # TCS
-SEEDED_DAYS = 260
+# 260 was enough for TrendFollowingBaselineStrategyV0's 200-day minimum, but
+# QualityMomentumStrategyV1's falling-knife guard needs a real trailing
+# 252-day high -- 260 left only ~8 real trading days of margin, none of
+# which land on a monthly rebalance date, so V1 legitimately never traded.
+# 340 gives it several genuine post-252-day rebalances to actually act on.
+SEEDED_DAYS = 340
 ALL_STRATEGY_IDS = {
     "TrendFollowingBaselineStrategyV0",
+    "QualityMomentumStrategyV1",
+    "QualityMomentumStrategyV2",
+    "QualityMomentumStrategyV3",
     "EqualWeightUniverseBenchmarkStrategyV0",
     "BuyAndHoldBenchmarkStrategyV0",
 }

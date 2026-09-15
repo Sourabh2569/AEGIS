@@ -81,6 +81,9 @@ def test_running_a_real_backtest_persists_reports_to_the_durable_store(
     persisted = app_main.momentum_report_store.load_all()
     assert {report["strategy_name"] for report in persisted} == {
         "TrendFollowingBaselineStrategyV0",
+        "QualityMomentumStrategyV1",
+        "QualityMomentumStrategyV2",
+        "QualityMomentumStrategyV3",
         "EqualWeightUniverseBenchmarkStrategyV0",
         "BuyAndHoldBenchmarkStrategyV0",
     }
@@ -97,4 +100,4 @@ def test_reports_persisted_by_the_api_survive_a_fresh_store_instance(
     db_path = app_main.momentum_report_store.db_path
 
     reloaded = SqliteMomentumReportStore(db_path)
-    assert len(reloaded.load_all()) == 3
+    assert len(reloaded.load_all()) == 6

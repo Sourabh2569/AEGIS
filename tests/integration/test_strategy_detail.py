@@ -105,8 +105,12 @@ def test_detail_has_rules_for_all_three_strategies_before_any_backtest(
 def test_detail_max_positions_reflects_each_strategys_real_construction(
     seeded_client: TestClient,
 ) -> None:
-    # TrendFollowing/EqualWeight share the platform's real risk-profile cap;
-    # BuyAndHold's own construction always holds exactly one instrument.
+    # TrendFollowing is capped by the platform's real risk-profile position
+    # limit. EqualWeight is deliberately uncapped -- it's meant to represent
+    # the whole real eligible universe, not a risk-managed subset -- so its
+    # own real ceiling is the size of the curated universe, not the risk
+    # profile's cap. BuyAndHold's own construction always holds exactly one
+    # instrument.
     trend_response = seeded_client.get("/api/v1/strategies/TrendFollowingBaselineStrategyV0/detail")
     equal_weight_response = seeded_client.get(
         "/api/v1/strategies/EqualWeightUniverseBenchmarkStrategyV0/detail"
@@ -115,8 +119,9 @@ def test_detail_max_positions_reflects_each_strategys_real_construction(
         "/api/v1/strategies/BuyAndHoldBenchmarkStrategyV0/detail"
     )
     trend_max = trend_response.json()["rules"]["max_positions"]
-    assert trend_max == equal_weight_response.json()["rules"]["max_positions"]
+    equal_weight_max = equal_weight_response.json()["rules"]["max_positions"]
     assert trend_max > 1
+    assert equal_weight_max > trend_max
     assert buy_and_hold_response.json()["rules"]["max_positions"] == 1
 
 

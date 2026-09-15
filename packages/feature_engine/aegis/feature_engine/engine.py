@@ -89,6 +89,12 @@ def sma(values: list[Decimal], lookback: int) -> Decimal | None:
     return money(sum(values[-lookback:]) / Decimal(lookback))
 
 
+def rolling_high(values: list[Decimal], lookback: int) -> Decimal | None:
+    if len(values) < lookback:
+        return None
+    return money(max(values[-lookback:]))
+
+
 def ema(values: list[Decimal], lookback: int) -> Decimal | None:
     if len(values) < lookback:
         return None

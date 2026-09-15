@@ -79,6 +79,9 @@ from aegis.shared.time import utc_now
 from aegis.strategies.baselines import (
     BuyAndHoldBenchmarkStrategyV0,
     EqualWeightUniverseBenchmarkStrategyV0,
+    QualityMomentumStrategyV1,
+    QualityMomentumStrategyV2,
+    QualityMomentumStrategyV3,
     TrendFollowingBaselineStrategyV0,
 )
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
@@ -455,7 +458,12 @@ sector_by_instrument_id: dict[str, str] = {
 symbol_by_instrument_id: dict[str, str] = {
     metadata.aegis_instrument_id: symbol for symbol, metadata in CURATED_INSTRUMENT_METADATA.items()
 }
-paper_strategy_resolver = build_paper_strategy_resolver(object_store.root, sector_by_instrument_id)
+paper_strategy_resolver = build_paper_strategy_resolver(
+    object_store.root,
+    sector_by_instrument_id,
+    symbol_by_instrument=symbol_by_instrument_id,
+    fundamentals_history_by_symbol=repo.fundamentals_history,
+)
 paper_orchestrator = PaperTradingOrchestrator(
     paper_repo,
     audit_log,
@@ -2508,6 +2516,9 @@ def get_strategies() -> list[dict[str, Any]]:
         {"strategy_id": "BuyAndHoldBenchmarkStrategyV0", "status": "RESEARCH_ONLY"},
         {"strategy_id": "EqualWeightUniverseBenchmarkStrategyV0", "status": "RESEARCH_ONLY"},
         {"strategy_id": "TrendFollowingBaselineStrategyV0", "status": "RESEARCH_ONLY"},
+        {"strategy_id": "QualityMomentumStrategyV1", "status": "RESEARCH_ONLY"},
+        {"strategy_id": "QualityMomentumStrategyV2", "status": "RESEARCH_ONLY"},
+        {"strategy_id": "QualityMomentumStrategyV3", "status": "RESEARCH_ONLY"},
     ]
 
 
@@ -2597,7 +2608,12 @@ def run_real_momentum_backtest(
                 "remediation": "Run a provider sync (POST /api/v1/data-source/live-readonly/sync) first.",
             },
         )
-    runner = RealMomentumResearchRunner(capture, sector_by_instrument_id)
+    runner = RealMomentumResearchRunner(
+        capture,
+        sector_by_instrument_id,
+        symbol_by_instrument=symbol_by_instrument_id,
+        fundamentals_history_by_symbol=repo.fundamentals_history,
+    )
     momentum_report = jsonable(
         runner.run(TrendFollowingBaselineStrategyV0(), "Real Nifty 50 Trend-Following Momentum")
     )
@@ -2607,9 +2623,21 @@ def run_real_momentum_backtest(
     buy_and_hold_report = jsonable(
         runner.run(BuyAndHoldBenchmarkStrategyV0(), "Real Nifty 50 Buy-and-Hold Benchmark")
     )
+    quality_momentum_report = jsonable(
+        runner.run(QualityMomentumStrategyV1(), "Real Nifty 50 Quality Momentum V1")
+    )
+    quality_momentum_v2_report = jsonable(
+        runner.run(QualityMomentumStrategyV2(), "Real Nifty 50 Quality Momentum V2")
+    )
+    quality_momentum_v3_report = jsonable(
+        runner.run(QualityMomentumStrategyV3(), "Real Nifty 50 Quality Momentum V3")
+    )
     _record_momentum_report(momentum_report)
     _record_momentum_report(benchmark_report)
     _record_momentum_report(buy_and_hold_report)
+    _record_momentum_report(quality_momentum_report)
+    _record_momentum_report(quality_momentum_v2_report)
+    _record_momentum_report(quality_momentum_v3_report)
     audit_log.record(
         event_type="REAL_MOMENTUM_BACKTEST_COMPLETED",
         entity_type="ResearchBacktest",
@@ -2629,6 +2657,9 @@ def run_real_momentum_backtest(
         "momentum": momentum_report,
         "benchmark": benchmark_report,
         "buy_and_hold": buy_and_hold_report,
+        "quality_momentum": quality_momentum_report,
+        "quality_momentum_v2": quality_momentum_v2_report,
+        "quality_momentum_v3": quality_momentum_v3_report,
     }
 
 
@@ -2639,6 +2670,9 @@ def get_real_momentum_reports() -> list[dict[str, Any]]:
 
 STRATEGY_LEADERBOARD_IDS = (
     "TrendFollowingBaselineStrategyV0",
+    "QualityMomentumStrategyV1",
+    "QualityMomentumStrategyV2",
+    "QualityMomentumStrategyV3",
     "EqualWeightUniverseBenchmarkStrategyV0",
     "BuyAndHoldBenchmarkStrategyV0",
 )
@@ -2675,12 +2709,82 @@ def _strategy_rule_descriptions() -> dict[str, dict[str, Any]]:
             "stop": "close - 2 x ATR_14",
             "max_positions": max_positions,
         },
+        "QualityMomentumStrategyV1": {
+            "eligibility": (
+                "close > SMA_50 > SMA_100 > SMA_200; 20/60/120-day momentum all positive; "
+                "20-day average value traded above ₹100,000 and not below 70% of its own "
+                "60-day average; close within 15% of its real trailing 252-day high; close "
+                "no more than 25% above SMA_50. When a real filing has been ingested for the "
+                "instrument: a reported net loss disqualifies it, and (for non-financial-"
+                "sector instruments only) a debt-to-equity ratio above 2.0x disqualifies it. "
+                "No candidate is excluded for simply having no fundamentals data on file yet."
+            ),
+            "selection": (
+                "eligible instruments ranked by a volatility-adjusted blended momentum score "
+                "(25% 20-day + 50% 60-day + 25% 120-day momentum, divided by 60-day realized "
+                "volatility); when a real trailing-twelve-month EPS exists, a modest earnings-"
+                "yield tiebreak nudges cheaper-relative-to-earnings names higher"
+            ),
+            "sizing": f"top {max_positions} ranked instruments, 80% of equity split equally",
+            "stop": "close - 2 x ATR_14",
+            "max_positions": max_positions,
+        },
+        "QualityMomentumStrategyV2": {
+            "eligibility": (
+                "Identical to TrendFollowingBaselineStrategyV0's own gate -- close > SMA_50 > "
+                "SMA_200, 60-day momentum > 0, minimum 20-day average value traded ₹100,000 -- "
+                "plus the same fundamentals disqualifiers as V1 (a real net loss, or for "
+                "non-financial-sector instruments a debt-to-equity ratio above 2.0x, when a "
+                "real filing has been ingested). Nothing new is a hard requirement here -- V1's "
+                "extra filters (three-SMA trend, three-horizon agreement, liquidity trend, "
+                "falling-knife, overextension) are demoted to scored ranking factors below, "
+                "since real backtesting showed those hard filters excluded real winners."
+            ),
+            "selection": (
+                "eligible instruments ranked by a composite score: a weighted blend of "
+                "whichever 20/60/120-day momentum horizons are real (never requiring all "
+                "three), divided by 60-day realized volatility; multiplied by a trend-strength "
+                "factor (distance above SMA_200, unbounded, not capped); multiplied by "
+                "proximity to the real trailing 252-day high (a smooth 0-1 ratio, not a hard "
+                "cutoff, and neutral until 252+ real days of history exist); and, when a real "
+                "trailing-twelve-month EPS exists, a modest earnings-yield tiebreak"
+            ),
+            "sizing": f"top {max_positions} ranked instruments, 80% of equity split equally",
+            "stop": "close - 2 x ATR_14",
+            "max_positions": max_positions,
+        },
+        "QualityMomentumStrategyV3": {
+            "eligibility": (
+                "Identical to TrendFollowingBaselineStrategyV0's own gate -- close > SMA_50 > "
+                "SMA_200, 60-day momentum > 0, minimum 20-day average value traded ₹100,000 -- "
+                "plus the same fundamentals disqualifiers as V1/V2 (a real net loss, or for "
+                "non-financial-sector instruments a debt-to-equity ratio above 2.0x, when a "
+                "real filing has been ingested)."
+            ),
+            "selection": (
+                "eligible instruments ranked by 60-day momentum multiplied by proximity to the "
+                "real trailing 252-day high (close / 252-day high, 1.0 at a genuine new high, "
+                "less the further below it; neutral multiplier of 1.0 until 252+ real days of "
+                "history exist), then by descending distance above SMA_200. This is the one "
+                "ranking change from a real, isolated diagnostic that showed real improvement "
+                "over V0 (volatility-adjustment and trend-strength weighting were both tested "
+                "the same way and dropped -- they measurably hurt real backtest performance)"
+            ),
+            "sizing": f"top {max_positions} ranked instruments, 80% of equity split equally",
+            "stop": "close - 2 x ATR_14",
+            "max_positions": max_positions,
+        },
         "EqualWeightUniverseBenchmarkStrategyV0": {
             "eligibility": "any instrument with at least 200 real trading days of history -- no other filter",
-            "selection": f"every eligible instrument, capped at {max_positions} positions",
-            "sizing": "80% of equity split equally across the selected instruments",
+            "selection": (
+                "every eligible instrument, uncapped -- this benchmark's whole point is to "
+                "represent the real, un-concentrated universe (a fixed cap would silently "
+                "always pick the same handful of instruments by internal id, never actually "
+                "representing the universe; a real bug, fixed)"
+            ),
+            "sizing": "80% of equity split equally across every eligible instrument",
             "stop": "not applicable -- this strategy carries no per-position stop",
-            "max_positions": max_positions,
+            "max_positions": len(sector_by_instrument_id),
         },
         "BuyAndHoldBenchmarkStrategyV0": {
             "eligibility": "any instrument with at least 200 real trading days of history -- no other filter",

@@ -10,13 +10,22 @@ from pathlib import Path
 from typing import Any
 
 from aegis.backtesting.accounting import drawdown, high_water_mark
-from aegis.feature_engine.engine import atr, price_to_ma_distance, rolling_return, sma
+from aegis.feature_engine.engine import (
+    atr,
+    daily_return,
+    price_to_ma_distance,
+    rolling_high,
+    rolling_return,
+    rolling_volatility,
+    sma,
+)
 from aegis.portfolio.sprint2 import (
     CostModel,
     CostSchedule,
     FixedBpsSlippageModelV0,
     ResearchPortfolio,
 )
+from aegis.provider_adapters.fundamentals_nse_provider import compute_ttm_eps
 from aegis.research_registry.sprint2 import RESEARCH_LABELS
 from aegis.risk.engine import PositionSizingEngine, RiskProfileVersion
 from aegis.shared.money import money, quantity
@@ -24,6 +33,9 @@ from aegis.strategies.baselines import (
     BuyAndHoldBenchmarkStrategyV0,
     Candidate,
     EqualWeightUniverseBenchmarkStrategyV0,
+    QualityMomentumStrategyV1,
+    QualityMomentumStrategyV2,
+    QualityMomentumStrategyV3,
     StrategyContract,
     TrendFollowingBaselineStrategyV0,
 )
@@ -43,6 +55,15 @@ REAL_COST_SCHEDULE = CostSchedule(
 SLIPPAGE_MODEL = FixedBpsSlippageModelV0(buy_slippage_bps=Decimal(5), sell_slippage_bps=Decimal(5))
 STARTING_CASH = Decimal(1_000_000)
 MINIMUM_HISTORY_DAYS = 200
+# QualityMomentumStrategyV1's falling-knife guard needs a real trailing
+# 252-day high; this is the window _build_candidate slices to compute it
+# (plus its own multi-horizon momentum/volatility fields) when enough real
+# history exists. It does NOT change MINIMUM_HISTORY_DAYS, the actual gate
+# on whether a Candidate is returned at all -- TrendFollowingBaselineStrategyV0
+# still gets a Candidate at 200 real days, exactly as before; the new fields
+# below simply stay None (and QualityMomentumStrategyV1 excludes the
+# candidate) until 252+ real days genuinely exist for that instrument.
+EXTENDED_HISTORY_DAYS = 260
 
 
 @dataclass(frozen=True)
@@ -140,9 +161,36 @@ class RealMomentumResearchRunner:
     transaction costs/slippage, and the platform's own conservative risk caps
     (PositionSizingEngine / RiskProfileVersion) rather than ad hoc limits."""
 
-    def __init__(self, capture: RealBarCapture, sector_by_instrument: dict[str, str]) -> None:
+    def __init__(
+        self,
+        capture: RealBarCapture,
+        sector_by_instrument: dict[str, str],
+        *,
+        symbol_by_instrument: dict[str, str] | None = None,
+        fundamentals_history_by_symbol: dict[str, dict[str, dict[str, Any]]] | None = None,
+    ) -> None:
         self.capture = capture
         self.sector_by_instrument = sector_by_instrument
+        # Both fundamentals-related maps are optional and default to empty --
+        # every existing call site (every endpoint that only needs
+        # TrendFollowingBaselineStrategyV0/benchmarks, plus the paper-trading
+        # worker) keeps working unchanged. Real Standalone fundamentals only
+        # (the same maps GET /api/v1/instruments/{symbol}/fundamentals reads,
+        # never the _consolidated twins) -- a strategy judging the operating
+        # company's own health, not a group-level figure.
+        #
+        # Deliberately no separate "latest_fundamentals_by_symbol" snapshot --
+        # an earlier version of this took one, which was a real point-in-time
+        # bug: "latest" meant latest as of *today* (whenever the backtest
+        # happens to run), not latest as of the historical as_of date being
+        # evaluated. A rebalance decision simulated for, say, March 2018 was
+        # silently able to see a company's most recently uploaded real filing
+        # even if that filing was for a quarter years in the strategy's own
+        # future -- lookahead bias. _point_in_time_fundamentals() below is
+        # the fix: every lookup filters fundamentals_history_by_symbol to
+        # only the quarters whose real filing_date is on or before as_of.
+        self.symbol_by_instrument = symbol_by_instrument or {}
+        self.fundamentals_history_by_symbol = fundamentals_history_by_symbol or {}
         self.profile = RiskProfileVersion()
         self.risk_engine = PositionSizingEngine()
         self.cost_model = CostModel()
@@ -280,26 +328,96 @@ class RealMomentumResearchRunner:
                 result.append(current)
         return result
 
+    def _point_in_time_fundamentals(
+        self, symbol: str, as_of: date
+    ) -> dict[str, dict[str, Any]]:
+        """Every real quarter on file for `symbol` whose real filing_date
+        (the actual board-approval/disclosure date from the filing itself,
+        never fabricated) is on or before `as_of` -- i.e. exactly what the
+        market could genuinely have known on that historical date. A quarter
+        filed after as_of is invisible here, no matter how long it's been
+        sitting in the live system by the time this backtest actually runs.
+        Records with no real filing_date, or one that fails to parse, are
+        excluded rather than guessed at -- fail closed, not fabricated."""
+        history = self.fundamentals_history_by_symbol.get(symbol, {})
+        visible: dict[str, dict[str, Any]] = {}
+        for period_to, record in history.items():
+            raw_filing_date = record.get("filing_date")
+            if not raw_filing_date:
+                continue
+            try:
+                filing_date = date.fromisoformat(raw_filing_date)
+            except ValueError:
+                continue
+            if filing_date <= as_of:
+                visible[period_to] = record
+        return visible
+
     def _build_candidate(self, instrument_id: str, as_of: date) -> Candidate | None:
         bar_dates = self._dates_by_instrument.get(instrument_id, [])
         idx = bisect.bisect_right(bar_dates, as_of)
         if idx < MINIMUM_HISTORY_DAYS:
             return None
-        # Every metric below only ever looks at a trailing window of at most
-        # MINIMUM_HISTORY_DAYS (sma_200 is the largest). Slicing to that
-        # window instead of the full since-inception history avoids
-        # re-converting thousands of bars to Decimal on every call.
-        bars = self.capture.bars_by_instrument[instrument_id][idx - MINIMUM_HISTORY_DAYS : idx]
+        # Slice as wide as EXTENDED_HISTORY_DAYS when that much real history
+        # exists (needed for high_252/momentum_120/realized_volatility_60),
+        # but never past idx=0 -- max(0, ...) avoids a negative start index,
+        # which Python would silently (and wrongly) interpret as slicing
+        # from the end of the list rather than "not enough history yet".
+        bars = self.capture.bars_by_instrument[instrument_id][
+            max(0, idx - EXTENDED_HISTORY_DAYS) : idx
+        ]
         closes = [Decimal(str(bar["close"])) for bar in bars]
         highs = [Decimal(str(bar["high"])) for bar in bars]
         lows = [Decimal(str(bar["low"])) for bar in bars]
         volumes = [Decimal(str(bar["volume"])) for bar in bars]
         sma_50 = sma(closes, 50)
+        sma_100 = sma(closes, 100)
         sma_200 = sma(closes, 200)
+        momentum_20 = rolling_return(closes[-21:]) if len(closes) >= 21 else None
         momentum_60 = rolling_return(closes[-61:]) if len(closes) >= 61 else None
+        momentum_120 = rolling_return(closes[-121:]) if len(closes) >= 121 else None
         atr_14 = atr(highs, lows, closes, 14)
-        adv_20 = sma([close * volume for close, volume in zip(closes, volumes)], 20)
+        dollar_volumes = [close * volume for close, volume in zip(closes, volumes)]
+        adv_20 = sma(dollar_volumes, 20)
+        adv_60 = sma(dollar_volumes, 60)
+        high_252 = rolling_high(closes, 252)
+        daily_returns = [
+            value
+            for value in (
+                daily_return(previous, current) for previous, current in zip(closes, closes[1:])
+            )
+            if value is not None
+        ]
+        realized_volatility_60 = rolling_volatility(daily_returns, 60)
         sector = self.sector_by_instrument.get(instrument_id, "UNKNOWN")
+
+        # Fundamentals are looked up read-only against already-ingested data
+        # (repo.fundamentals_history, passed in by the caller) -- never
+        # fetched, never fabricated, and never a quarter filed after as_of
+        # (see _point_in_time_fundamentals). instrument_id here is the
+        # internal aegis_instrument_id; fundamentals are keyed by the real
+        # trading symbol, hence the symbol_by_instrument lookup.
+        fundamentals_available = False
+        profit_for_period: Decimal | None = None
+        debt_equity_ratio: Decimal | None = None
+        ttm_eps: Decimal | None = None
+        symbol = self.symbol_by_instrument.get(instrument_id)
+        if symbol is not None:
+            visible_history = self._point_in_time_fundamentals(symbol, as_of)
+            if visible_history:
+                fundamentals_available = True
+                latest_period_to = max(visible_history)
+                latest_record = visible_history[latest_period_to]
+                raw_profit = latest_record.get("profit_for_period")
+                if raw_profit is not None:
+                    profit_for_period = Decimal(str(raw_profit))
+                raw_debt_equity = latest_record.get("debt_equity_ratio")
+                if raw_debt_equity is not None:
+                    debt_equity_ratio = Decimal(str(raw_debt_equity))
+                ttm_eps_str, _ = compute_ttm_eps(visible_history)
+                if ttm_eps_str is not None:
+                    ttm_eps = Decimal(ttm_eps_str)
+
         return Candidate(
             instrument_id=instrument_id,
             sector=sector,
@@ -311,6 +429,16 @@ class RealMomentumResearchRunner:
             sma_200=sma_200,
             atr_14=atr_14,
             average_daily_value_traded_20=adv_20,
+            momentum_20=momentum_20,
+            momentum_120=momentum_120,
+            sma_100=sma_100,
+            realized_volatility_60=realized_volatility_60,
+            high_252=high_252,
+            average_daily_value_traded_60=adv_60,
+            fundamentals_available=fundamentals_available,
+            profit_for_period=profit_for_period,
+            debt_equity_ratio=debt_equity_ratio,
+            ttm_eps=ttm_eps,
         )
 
     def build_candidates(self, as_of: date) -> list[Candidate]:
@@ -478,16 +606,28 @@ PAPER_STRATEGY_REGISTRY: dict[str, StrategyContract] = {
     "EqualWeightUniverseBenchmarkStrategyV0": EqualWeightUniverseBenchmarkStrategyV0(),
     "TrendFollowingBaselineStrategyV0": TrendFollowingBaselineStrategyV0(),
     "BuyAndHoldBenchmarkStrategyV0": BuyAndHoldBenchmarkStrategyV0(),
+    "QualityMomentumStrategyV1": QualityMomentumStrategyV1(),
+    "QualityMomentumStrategyV2": QualityMomentumStrategyV2(),
+    "QualityMomentumStrategyV3": QualityMomentumStrategyV3(),
 }
 
 
 def build_paper_strategy_resolver(
-    object_store_root: Path, sector_by_instrument: dict[str, str]
+    object_store_root: Path,
+    sector_by_instrument: dict[str, str],
+    *,
+    symbol_by_instrument: dict[str, str] | None = None,
+    fundamentals_history_by_symbol: dict[str, dict[str, dict[str, Any]]] | None = None,
 ) -> Callable[[str, date], tuple[dict[str, Decimal], dict[str, Decimal]] | None]:
     """Builds the callable paper trading injects to turn a strategy_id label
     into a real trading decision. Returns None (never fabricates a signal)
     when no real historical capture exists yet or strategy_id isn't a
-    strategy this platform actually implements."""
+    strategy this platform actually implements. fundamentals_history_by_symbol
+    is optional (default empty) so existing callers keep working unchanged;
+    pass the caller's real repo.fundamentals_history to let
+    QualityMomentumStrategyV1/V2/V3's fundamentals checks see real data
+    (filtered point-in-time by each real quarter's own filing_date, never a
+    quarter that hadn't been filed yet as of the date being decided)."""
 
     def resolve(
         strategy_id: str, as_of: date
@@ -498,7 +638,12 @@ def build_paper_strategy_resolver(
         capture = load_real_eod_bars(object_store_root)
         if capture is None:
             return None
-        runner = RealMomentumResearchRunner(capture, sector_by_instrument)
+        runner = RealMomentumResearchRunner(
+            capture,
+            sector_by_instrument,
+            symbol_by_instrument=symbol_by_instrument,
+            fundamentals_history_by_symbol=fundamentals_history_by_symbol,
+        )
         candidates = runner.build_candidates(as_of)
         if not candidates:
             return None
