@@ -20,6 +20,10 @@
   --neutral: #6b7280;
   --neutral-soft: #eef0f3;
 
+  --live-warning: #b3261e;
+  --live-warning-soft: #fbe9e7;
+  --live-warning-text: #ffffff;
+
   --font-ui: var(--font-ui-loaded), -apple-system, "Segoe UI", sans-serif;
   --font-mono: var(--font-mono-loaded), ui-monospace, "SF Mono", Menlo, monospace;
 }
@@ -1157,6 +1161,72 @@ main.content {
 .status-pill.status-neutral {
   color: var(--neutral);
   background: var(--neutral-soft);
+}
+
+/* ---------- Live trading (real money) ---------- */
+
+.live-warning-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--live-warning);
+  color: var(--live-warning-text);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  margin-bottom: 16px;
+}
+.live-warning-banner .sub {
+  font-weight: 500;
+  opacity: 0.9;
+  font-size: 12px;
+}
+
+.tier-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.tier-pill.PILOT {
+  color: var(--hold);
+  background: var(--hold-soft);
+}
+.tier-pill.FULL {
+  color: var(--buy);
+  background: var(--buy-soft);
+}
+
+.founder-gate {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--neutral-soft);
+  color: var(--text-soft);
+  font-size: 12.5px;
+}
+
+.typed-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--live-warning);
+  border-radius: 8px;
+  background: var(--live-warning-soft);
+  margin-top: 10px;
+}
+.typed-confirm input {
+  width: 100%;
+}
+.typed-confirm-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .chart-legend {

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { login, setToken } from "../api-client";
+import { login, setRole, setToken } from "../api-client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,6 +18,7 @@ export default function LoginPage() {
     try {
       const result = await login(username, password);
       setToken(result.access_token);
+      setRole(result.role);
       router.replace("/overview");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");

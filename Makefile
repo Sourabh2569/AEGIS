@@ -1,10 +1,10 @@
 .PHONY: test run-api lint format typecheck mock-ingest csv-ingest sprint3-operational-hardening
 
 test:
-	PYTHONPATH=apps/api:packages/shared:packages/domain:packages/configuration:packages/audit:packages/auth:packages/data_quality:packages/data_activation:packages/provider_adapters:packages/data_ingestion:packages/instrument_master:packages/corporate_actions:packages/research_registry:packages/research_activation:packages/backtesting:packages/feature_engine:packages/risk:packages/strategies:packages/portfolio:packages/paper_trading pytest
+	PYTHONPATH=apps/api:packages/shared:packages/domain:packages/configuration:packages/audit:packages/auth:packages/data_quality:packages/data_activation:packages/provider_adapters:packages/data_ingestion:packages/instrument_master:packages/corporate_actions:packages/research_registry:packages/research_activation:packages/backtesting:packages/feature_engine:packages/risk:packages/strategies:packages/portfolio:packages/paper_trading:packages/live_trading pytest
 
 run-api:
-	PYTHONPATH=apps/api:packages/shared:packages/domain:packages/configuration:packages/audit:packages/auth:packages/data_quality:packages/data_activation:packages/provider_adapters:packages/data_ingestion:packages/instrument_master:packages/corporate_actions:packages/research_registry:packages/research_activation:packages/backtesting:packages/feature_engine:packages/risk:packages/strategies:packages/portfolio:packages/paper_trading uvicorn apps.api.aegis_api.main:app --host 127.0.0.1 --port 8000
+	PYTHONPATH=apps/api:packages/shared:packages/domain:packages/configuration:packages/audit:packages/auth:packages/data_quality:packages/data_activation:packages/provider_adapters:packages/data_ingestion:packages/instrument_master:packages/corporate_actions:packages/research_registry:packages/research_activation:packages/backtesting:packages/feature_engine:packages/risk:packages/strategies:packages/portfolio:packages/paper_trading:packages/live_trading uvicorn apps.api.aegis_api.main:app --host 127.0.0.1 --port 8000
 
 lint:
 	ruff check apps packages tests

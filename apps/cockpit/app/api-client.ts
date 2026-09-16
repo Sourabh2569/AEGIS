@@ -1,5 +1,10 @@
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 const TOKEN_KEY = "aegis_cockpit_token";
+// Scoped to the live-trading page only (see /live-trading) -- the role
+// returned by login is otherwise discarded app-wide, since no other page
+// needs client-side role gating. Backend require_role remains the real
+// enforcement everywhere; this is a UX nicety, not a security boundary.
+const ROLE_KEY = "aegis_cockpit_role";
 
 export type LoginResponse = {
   access_token: string;
@@ -17,8 +22,18 @@ export function setToken(token: string): void {
   window.localStorage.setItem(TOKEN_KEY, token);
 }
 
+export function getRole(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(ROLE_KEY);
+}
+
+export function setRole(role: string): void {
+  window.localStorage.setItem(ROLE_KEY, role);
+}
+
 export function clearToken(): void {
   window.localStorage.removeItem(TOKEN_KEY);
+  window.localStorage.removeItem(ROLE_KEY);
 }
 
 export async function login(username: string, password: string): Promise<LoginResponse> {

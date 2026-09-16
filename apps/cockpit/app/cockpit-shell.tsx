@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Compass, LineChart, TrendingUp, Zap, Briefcase, LogOut, Factory, ShieldOff } from "lucide-react";
+import { Compass, LineChart, TrendingUp, Zap, Briefcase, LogOut, Factory, ShieldOff, Radio } from "lucide-react";
 import { clearToken } from "./api-client";
 import RequireAuth from "./require-auth";
 
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: "/strategies", label: "Strategies", icon: TrendingUp, match: (path: string) => path.startsWith("/strategies") },
   { href: "/actionables", label: "Actionables", icon: Zap, match: (path: string) => path.startsWith("/actionables") },
   { href: "/portfolio", label: "Portfolio", icon: Briefcase, match: (path: string) => path.startsWith("/portfolio") },
+  { href: "/live-trading", label: "Live Trading", icon: Radio, match: (path: string) => path.startsWith("/live-trading") },
   { href: "/sector-screener", label: "Sector Screener", icon: Factory, match: (path: string) => path.startsWith("/sector-screener") },
   { href: "/operations", label: "Operations", icon: ShieldOff, match: (path: string) => path.startsWith("/operations") },
 ];

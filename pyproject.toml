@@ -58,6 +58,7 @@ pythonpath = [
   "packages/strategies",
   "packages/portfolio",
   "packages/paper_trading",
+  "packages/live_trading",
 ]
 
 [tool.ruff]

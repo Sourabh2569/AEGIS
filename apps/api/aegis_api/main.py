@@ -48,6 +48,25 @@ from aegis.domain.models import (
     ValidationStatus,
 )
 from aegis.instrument_master.service import InstrumentMasterService
+from aegis.live_trading.domain import (
+    LIVE_LABELS,
+    LiveIntentStatus,
+    LivePortfolio,
+    LivePortfolioConfiguration,
+    LivePortfolioStatus,
+    LiveStrategyConfiguration,
+)
+from aegis.live_trading.persistence import SqliteLiveTradingRepository
+from aegis.live_trading.preflight import ExecutionPreflightGate
+from aegis.live_trading.reconciliation import LiveReconciliationService
+from aegis.live_trading.services import (
+    GRADUATION_CLEAN_FILL_THRESHOLD,
+    LiveApprovalService,
+    LiveDecisionCycleService,
+    LiveExecutionGateway,
+    LiveOrderStatusMonitor,
+    graduate_live_portfolio,
+)
 from aegis.paper_trading.domain import PAPER_LABELS, IncidentType, PaperPortfolioStatus
 from aegis.paper_trading.persistence import SqlitePaperTradingRepository
 from aegis.paper_trading.queue import PaperSessionJob, SqlitePaperSessionQueue
@@ -63,6 +82,7 @@ from aegis.provider_adapters.fundamentals_nse_provider import (
     NseFundamentalsProvider,
     compute_ttm_eps,
 )
+from aegis.provider_adapters.kite_connect_order_adapter import KiteConnectOrderAdapter
 from aegis.provider_adapters.kite_connect_provider import (
     CURATED_INSTRUMENT_METADATA,
     KiteConnectMarketDataProvider,
@@ -474,6 +494,79 @@ paper_orchestrator = PaperTradingOrchestrator(
     sector_by_instrument=sector_by_instrument_id,
     strategy_target_resolver=paper_strategy_resolver,
 )
+
+# --- Live trading (real broker orders) -- see docs/architecture/007/009/011
+# and the approved plan this was built from. Categorically unreachable at
+# runtime: settings.validate_startup() (called at module import above)
+# already refused to boot if LIVE_EXECUTION_ENABLED, BROKER_ORDER_ACCESS, or
+# LIVE_BROKER_CONNECTION_ENABLED were ever true, and KiteConnectOrderAdapter
+# independently re-checks both flags on every real call. Deliberately its
+# own sqlite file and repository -- never structurally co-mingled with
+# paper_repo above.
+live_store_path = work_dir / "live_trading.sqlite"
+live_store_path.parent.mkdir(parents=True, exist_ok=True)
+live_repo = SqliteLiveTradingRepository(live_store_path)
+# Kill switches are the one piece of state deliberately shared BY REFERENCE
+# with paper trading -- a kill switch is control-plane state, not trading
+# domain state, and GLOBAL_TRADING_KILL_SWITCH/DATA_PROVIDER_KILL_SWITCH
+# must stop both simultaneously. This is also why the existing
+# /api/v1/kill-switches/{id}/activate|deactivate endpoints below are reused
+# as-is for live trading rather than duplicated: ExecutionPreflightGate
+# reads live_repo.kill_switches fresh on every check, so a switch activated
+# through the paper endpoint is immediately visible to live preflight too.
+live_repo.kill_switches = paper_repo.kill_switches
+live_order_adapter = KiteConnectOrderAdapter(
+    client=None,
+    live_execution_enabled=settings.live_execution_enabled,
+    broker_order_access_setting=settings.broker_order_access,
+    configured=False,
+)
+live_preflight_gate = ExecutionPreflightGate(
+    repository=live_repo, calendar=paper_calendar, order_adapter=live_order_adapter
+)
+live_execution_gateway = LiveExecutionGateway(
+    repository=live_repo,
+    preflight=live_preflight_gate,
+    order_adapter=live_order_adapter,
+    audit_log=audit_log,
+)
+live_order_status_monitor = LiveOrderStatusMonitor(
+    repository=live_repo, order_adapter=live_order_adapter, audit_log=audit_log
+)
+live_approval_service = LiveApprovalService(live_repo, audit_log)
+# Reuses the exact same stateless resolver instance paper trading already
+# built above -- (strategy_id, as_of) -> real target weights is identical
+# real-data logic regardless of which repository the resulting intents land in.
+live_decision_cycle_service = LiveDecisionCycleService(
+    repository=live_repo,
+    audit_log=audit_log,
+    calendar=paper_calendar,
+    sector_by_instrument=sector_by_instrument_id,
+    strategy_target_resolver=paper_strategy_resolver,
+)
+
+
+def _live_observed_nav_calculator(positions: dict[str, Any], margins: dict[str, Any]) -> Decimal:
+    # Honest placeholder: Kite Connect's real positions()/margins() response
+    # shape for an order-placement-capable account has never been verified
+    # (only data-only Kite access exists today). Wiring a real calculation
+    # here is real Gate 6/7 work for the founder once real broker
+    # credentials exist -- until then reconciliation must fail closed
+    # (LiveReconciliationService's own except-clause converts this into a
+    # RED reconciliation, never a crash), not guess at a made-up field name.
+    raise NotImplementedError(
+        "Kite Connect's real positions()/margins() schema is not yet verified "
+        "against a live order-placement account."
+    )
+
+
+live_reconciliation_service = LiveReconciliationService(
+    repository=live_repo,
+    order_adapter=live_order_adapter,
+    audit_log=audit_log,
+    observed_nav_calculator=_live_observed_nav_calculator,
+)
+
 research_activation_manifests: dict[str, dict[str, Any]] = {}
 actual_feature_runs: dict[str, dict[str, Any]] = {}
 actual_experiments: dict[str, dict[str, Any]] = {}
@@ -3815,6 +3908,26 @@ def get_live_readiness_evidence() -> dict[str, Any]:
             ),
             "portfolios": portfolios_evidence,
         },
+        "gate_8_controlled_live_pilot": {
+            "live_portfolio_count": len(live_repo.portfolios),
+            "total_real_orders_submitted": len(live_repo.orders),
+            "total_real_fills": len(live_repo.fills),
+            "total_live_incidents": len(live_repo.incidents),
+            "furthest_clean_fill_count": max(
+                (p.clean_fill_count for p in live_repo.portfolios.values()), default=0
+            ),
+            "graduation_threshold": GRADUATION_CLEAN_FILL_THRESHOLD,
+            "detail": (
+                "Live trading pipeline (domain, preflight, execution gateway, "
+                "order status monitor, reconciliation, graduation, approvals) is "
+                "built and unit-tested end-to-end against fakes -- no real Kite "
+                "order-placement credentials exist yet. LIVE_EXECUTION_ENABLED / "
+                "BROKER_ORDER_ACCESS / LIVE_BROKER_CONNECTION_ENABLED remain "
+                "hard-blocked by Settings.validate_startup(); this gate does not "
+                "advance Gate 6 (SEBI/Zerodha compliance) or Gate 7 (dated "
+                "governance sign-off), which remain the founder's own work."
+            ),
+        },
     }
 
 
@@ -4119,6 +4232,381 @@ def paper_orders() -> list[dict[str, Any]]:
 @app.get("/api/v1/paper-fills")
 def paper_fills() -> list[dict[str, Any]]:
     return [jsonable(item) for item in paper_repo.fills.values()]
+
+
+# --- Live trading (real broker orders) -------------------------------------
+# Every endpoint below is gated FOUNDER-only by default (real money, solo
+# operator) except plain reads, which any authenticated role may see --
+# closing the gap this plan explicitly called out where several existing
+# paper endpoints above have no role gate at all. Kill switches are
+# deliberately NOT duplicated here: /api/v1/kill-switches/{id}/activate and
+# /deactivate above already operate on paper_repo.kill_switches, which IS
+# live_repo.kill_switches (same dict, by reference -- see the singleton
+# wiring above), so activating one there is immediately visible to
+# ExecutionPreflightGate's live checks too.
+
+LIVE_RISK_PROFILE = RiskProfileVersion()
+
+
+def _live_deployed_notional(live_portfolio_id: str, reference_prices: dict[str, Decimal]) -> Decimal:
+    ledger = live_repo.research_portfolios[live_portfolio_id]
+    return money(
+        sum(
+            (qty * reference_prices.get(inst, Decimal(0)) for inst, qty in ledger.positions.items()),
+            Decimal(0),
+        )
+    )
+
+
+def _live_portfolio_nav(live_portfolio_id: str, reference_prices: dict[str, Decimal]) -> Decimal:
+    ledger = live_repo.research_portfolios[live_portfolio_id]
+    return money(
+        ledger.cash
+        + ledger.unsettled_receivables
+        + _live_deployed_notional(live_portfolio_id, reference_prices)
+    )
+
+
+@app.get("/api/v1/live-portfolios")
+def list_live_portfolios() -> list[dict[str, Any]]:
+    return [
+        jsonable(portfolio) | {"labels": list(LIVE_LABELS)}
+        for portfolio in live_repo.portfolios.values()
+    ]
+
+
+@app.post("/api/v1/live-portfolios")
+def create_live_portfolio(
+    payload: dict[str, Any], role: Role = Depends(require_role(Role.FOUNDER))
+) -> dict[str, Any]:
+    starting_capital = Decimal(str(payload["starting_capital"]))
+    portfolio = LivePortfolio(
+        name=payload["name"],
+        description=payload.get("description", "Real-money gated pilot portfolio."),
+        starting_capital=starting_capital,
+        pilot_capital_cap=Decimal(str(payload.get("pilot_capital_cap", payload["starting_capital"]))),
+        risk_profile_version_id=LIVE_RISK_PROFILE.profile_version,
+        portfolio_configuration_version="LIVE_PILOT_CONFIG_V0",
+        created_by=role.value,
+        status=LivePortfolioStatus.SETUP_PENDING,
+    )
+    config = LivePortfolioConfiguration(
+        live_portfolio_id=portfolio.live_portfolio_id,
+        version="LIVE_PILOT_CONFIG_V0",
+        risk_profile_version_id=LIVE_RISK_PROFILE.profile_version,
+        minimum_cash_weight=LIVE_RISK_PROFILE.minimum_cash_weight_normal,
+        maximum_gross_equity_exposure=LIVE_RISK_PROFILE.maximum_gross_equity_exposure_normal,
+        maximum_position_count=LIVE_RISK_PROFILE.maximum_position_count,
+        settlement_model_version="T_PLUS_1_REAL_BROKER_SETTLEMENT_V0",
+        cost_schedule_version="REAL_BROKER_REPORTED_V0",
+        execution_model_version="REAL_BROKER_MARKET_ORDER_V0",
+        market_calendar_policy="GOVERNED_FORWARD_CALENDAR",
+        valuation_policy="EOD_MARK_TO_MARKET",
+        corporate_action_policy="FREEZE_ON_UNSUPPORTED",
+        created_by=role.value,
+    ).freeze()
+    live_repo.add_portfolio(portfolio, config)
+    return jsonable(portfolio) | {"labels": list(LIVE_LABELS)}
+
+
+@app.get("/api/v1/live-portfolios/{live_portfolio_id}")
+def get_live_portfolio(live_portfolio_id: str) -> dict[str, Any]:
+    return jsonable(live_repo.portfolios[live_portfolio_id]) | {"labels": list(LIVE_LABELS)}
+
+
+@app.post("/api/v1/live-portfolios/{live_portfolio_id}/activate")
+def activate_live_portfolio(
+    live_portfolio_id: str,
+    payload: dict[str, Any] | None = None,
+    role: Role = Depends(require_role(Role.FOUNDER)),
+) -> dict[str, Any]:
+    payload = payload or {}
+    strategy_id = payload.get("strategy_id", "DiversifiedRiskOverlayStrategyV2")
+    portfolio = live_repo.portfolios[live_portfolio_id]
+    strategy_config = LiveStrategyConfiguration(
+        live_portfolio_id=live_portfolio_id,
+        strategy_id=strategy_id,
+        strategy_version_id=f"{strategy_id}:V0",
+        risk_profile_version_id=LIVE_RISK_PROFILE.profile_version,
+        universe_definition_version="AEGIS_LIVE_PILOT_UNIVERSE_V0",
+        cost_schedule_version="REAL_BROKER_REPORTED_V0",
+        settlement_model_version="T_PLUS_1_REAL_BROKER_SETTLEMENT_V0",
+        execution_model_version="REAL_BROKER_MARKET_ORDER_V0",
+        rebalancing_frequency="MONTHLY",
+        decision_time_policy="POST_CLOSE_FORWARD_ONLY",
+        execution_time_policy="NEXT_ELIGIBLE_SESSION_OPEN",
+        position_sizing_policy="AEGIS_CONSERVATIVE_V0",
+        live_start_date=utc_now().date(),
+    )
+    activated_config = strategy_config.freeze().activate(role.value)
+    live_repo.save_strategy_config(activated_config)
+    live_repo.save_portfolio(portfolio.activate())
+    return jsonable(live_repo.portfolios[live_portfolio_id]) | {"labels": list(LIVE_LABELS)}
+
+
+@app.post("/api/v1/live-portfolios/{live_portfolio_id}/pause")
+def pause_live_portfolio(
+    live_portfolio_id: str, role: Role = Depends(require_role(Role.FOUNDER, Role.RISK_REVIEWER))
+) -> dict[str, Any]:
+    portfolio = live_repo.portfolios[live_portfolio_id].pause("PAUSED_BY_USER")
+    live_repo.save_portfolio(portfolio)
+    return jsonable(portfolio)
+
+
+@app.post("/api/v1/live-portfolios/{live_portfolio_id}/resume")
+def resume_live_portfolio(
+    live_portfolio_id: str, role: Role = Depends(require_role(Role.FOUNDER))
+) -> dict[str, Any]:
+    try:
+        resumed = live_repo.portfolios[live_portfolio_id].resume()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    live_repo.save_portfolio(resumed)
+    return jsonable(resumed)
+
+
+@app.post("/api/v1/live-portfolios/{live_portfolio_id}/freeze")
+def freeze_live_portfolio(
+    live_portfolio_id: str, role: Role = Depends(require_role(Role.FOUNDER, Role.RISK_REVIEWER))
+) -> dict[str, Any]:
+    portfolio = live_repo.portfolios[live_portfolio_id].freeze("FROZEN_BY_USER")
+    live_repo.save_portfolio(portfolio)
+    return jsonable(portfolio)
+
+
+@app.get("/api/v1/live-portfolios/{live_portfolio_id}/summary")
+def live_portfolio_summary(live_portfolio_id: str) -> dict[str, Any]:
+    portfolio = live_repo.portfolios[live_portfolio_id]
+    ledger = live_repo.research_portfolios[live_portfolio_id]
+    return {
+        "portfolio": jsonable(portfolio),
+        "cash": str(ledger.cash),
+        "unsettled_receivables": str(ledger.unsettled_receivables),
+        "positions": {inst: str(qty) for inst, qty in ledger.positions.items() if qty != 0},
+        "open_incidents": [
+            jsonable(incident)
+            for incident in live_repo.incidents.values()
+            if incident.live_portfolio_id == live_portfolio_id and incident.status == "OPEN"
+        ],
+        "labels": list(LIVE_LABELS),
+    }
+
+
+@app.get("/api/v1/live-portfolios/{live_portfolio_id}/pilot-status")
+def live_pilot_status(live_portfolio_id: str) -> dict[str, Any]:
+    portfolio = live_repo.portfolios[live_portfolio_id]
+    return {
+        "live_portfolio_id": live_portfolio_id,
+        "capital_tier": portfolio.capital_tier.value,
+        "clean_fill_count": portfolio.clean_fill_count,
+        "graduation_threshold": GRADUATION_CLEAN_FILL_THRESHOLD,
+        "threshold_met": portfolio.clean_fill_count >= GRADUATION_CLEAN_FILL_THRESHOLD,
+        "pilot_capital_cap": str(portfolio.pilot_capital_cap),
+    }
+
+
+@app.post("/api/v1/live-portfolios/{live_portfolio_id}/graduate")
+def graduate_live_portfolio_endpoint(
+    live_portfolio_id: str,
+    payload: dict[str, Any],
+    role: Role = Depends(require_role(Role.FOUNDER)),
+) -> dict[str, Any]:
+    try:
+        graduated = graduate_live_portfolio(
+            repository=live_repo,
+            live_portfolio_id=live_portfolio_id,
+            reason=payload.get("reason", ""),
+            confirmed_new_capital_amount=Decimal(str(payload["confirmed_new_capital_amount"])),
+            graduated_by=role.value,
+            audit_log=audit_log,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": str(exc)}) from exc
+    return jsonable(graduated)
+
+
+@app.post("/api/v1/live-portfolios/{live_portfolio_id}/reconcile-now")
+def reconcile_live_portfolio(
+    live_portfolio_id: str,
+    payload: dict[str, Any] | None = None,
+    role: Role = Depends(require_role(Role.FOUNDER, Role.RISK_REVIEWER)),
+) -> dict[str, Any]:
+    payload = payload or {}
+    if "reference_prices" in payload:
+        reference_prices = {
+            instrument_id: Decimal(str(price))
+            for instrument_id, price in payload["reference_prices"].items()
+        }
+    else:
+        reference_prices = real_reference_prices(instrument_master.known_aegis_ids())
+    expected_nav = _live_portfolio_nav(live_portfolio_id, reference_prices)
+    record = live_reconciliation_service.reconcile(
+        live_portfolio_id=live_portfolio_id, expected_nav=expected_nav
+    )
+    return jsonable(record)
+
+
+@app.get("/api/v1/live-portfolios/{live_portfolio_id}/reconciliation")
+def live_reconciliation_history(live_portfolio_id: str) -> list[dict[str, Any]]:
+    return [jsonable(item) for item in live_repo.reconciliations.get(live_portfolio_id, [])]
+
+
+@app.post("/api/v1/live-portfolios/{live_portfolio_id}/decision-cycle")
+def run_live_decision_cycle(
+    live_portfolio_id: str,
+    payload: dict[str, Any] | None = None,
+    role: Role = Depends(require_role(Role.FOUNDER)),
+) -> dict[str, Any]:
+    """The one place a real strategy signal turns into a real
+    PENDING_APPROVAL LiveOrderIntent -- never a broker call itself (see
+    execute-approved-orders below, which is strictly downstream of a human
+    approval)."""
+    payload = payload or {}
+    if "reference_prices" in payload:
+        reference_prices = {
+            instrument_id: Decimal(str(price))
+            for instrument_id, price in payload["reference_prices"].items()
+        }
+    else:
+        reference_prices = real_reference_prices(instrument_master.known_aegis_ids())
+    session_date = (
+        date.fromisoformat(payload["session_date"]) if "session_date" in payload else utc_now().date()
+    )
+    created = live_decision_cycle_service.run_decision_cycle(
+        live_portfolio_id=live_portfolio_id,
+        session_date=session_date,
+        reference_prices=reference_prices,
+    )
+    return {"created_intent_count": len(created), "intents": [jsonable(item) for item in created]}
+
+
+@app.post("/api/v1/live-portfolios/{live_portfolio_id}/execute-approved-orders")
+def execute_live_approved_orders(
+    live_portfolio_id: str,
+    payload: dict[str, Any] | None = None,
+    role: Role = Depends(require_role(Role.FOUNDER)),
+) -> list[dict[str, Any]]:
+    """The only endpoint that can trigger a real order_adapter.place_order()
+    call, and only for intents a human already approved -- see
+    LiveExecutionGateway.submit_approved_orders. Categorically inert until
+    the founder's own Gate 6/7 work lets validate_startup() boot with the
+    live flags on; until then every real call inside the adapter itself
+    still raises PermissionError."""
+    payload = payload or {}
+    if "reference_prices" in payload:
+        entry_prices = {
+            instrument_id: Decimal(str(price))
+            for instrument_id, price in payload["reference_prices"].items()
+        }
+    else:
+        entry_prices = real_reference_prices(instrument_master.known_aegis_ids())
+    existing_deployed_notional = _live_deployed_notional(live_portfolio_id, entry_prices)
+    orders = live_execution_gateway.submit_approved_orders(
+        live_portfolio_id=live_portfolio_id,
+        execution_time=utc_now(),
+        entry_prices=entry_prices,
+        symbol_by_instrument=symbol_by_instrument_id,
+        existing_deployed_notional=existing_deployed_notional,
+        kill_switches=list(live_repo.kill_switches.values()),
+    )
+    return [jsonable(order) for order in orders]
+
+
+@app.post("/api/v1/live-orders/poll")
+def poll_live_orders(
+    role: Role = Depends(require_role(Role.FOUNDER, Role.RISK_REVIEWER)),
+) -> list[dict[str, Any]]:
+    """On-demand alternative to apps/worker/live_trading_worker.py's 5s poll
+    loop -- useful from the Cockpit without needing that separate process
+    running locally, and for integration tests exercising the full
+    lifecycle in one process."""
+    return [jsonable(order) for order in live_order_status_monitor.poll_open_orders()]
+
+
+@app.get("/api/v1/live-order-intents")
+def live_order_intents() -> list[dict[str, Any]]:
+    return [jsonable(item) for item in live_repo.intents.values()]
+
+
+@app.post("/api/v1/live-order-intents/{live_order_intent_id}/approve")
+def approve_live_intent(
+    live_order_intent_id: str,
+    payload: dict[str, Any] | None = None,
+    role: Role = Depends(require_role(Role.FOUNDER)),
+) -> dict[str, Any]:
+    payload = payload or {}
+    confirmed_amount = (
+        Decimal(str(payload["confirmed_amount"])) if "confirmed_amount" in payload else None
+    )
+    try:
+        return jsonable(
+            live_approval_service.approve(
+                live_order_intent_id, role.value, confirmed_amount=confirmed_amount
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": str(exc)}) from exc
+
+
+@app.post("/api/v1/live-order-intents/{live_order_intent_id}/reject")
+def reject_live_intent(
+    live_order_intent_id: str,
+    payload: dict[str, Any],
+    role: Role = Depends(require_role(Role.FOUNDER, Role.RISK_REVIEWER)),
+) -> dict[str, Any]:
+    try:
+        return jsonable(
+            live_approval_service.reject(live_order_intent_id, role.value, payload["reason"])
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": str(exc)}) from exc
+
+
+@app.post("/api/v1/live-portfolios/{live_portfolio_id}/approve-pending-cycle")
+def approve_live_pending_cycle(
+    live_portfolio_id: str, role: Role = Depends(require_role(Role.FOUNDER))
+) -> dict[str, Any]:
+    """Batch-approval convenience for a rebalance cycle that can easily
+    propose dozens of intents at once (DiversifiedRiskOverlayStrategyV2
+    rebalances its whole ~50-position book monthly) -- still records one
+    real LiveApproval per intent underneath, never a single blanket record,
+    so the audit trail stays exactly as granular as approving one at a time."""
+    pending = [
+        intent
+        for intent in live_repo.intents.values()
+        if intent.live_portfolio_id == live_portfolio_id
+        and intent.intent_status == LiveIntentStatus.PENDING_APPROVAL
+    ]
+    approved = []
+    for intent in pending:
+        try:
+            approved.append(live_approval_service.approve(intent.live_order_intent_id, role.value))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": str(exc), "live_order_intent_id": intent.live_order_intent_id},
+            ) from exc
+    return {"approved_count": len(approved), "approvals": [jsonable(item) for item in approved]}
+
+
+@app.get("/api/v1/live-approvals")
+def live_approvals() -> list[dict[str, Any]]:
+    return [jsonable(item) for item in live_repo.approvals.values()]
+
+
+@app.get("/api/v1/live-orders")
+def live_orders() -> list[dict[str, Any]]:
+    return [jsonable(item) for item in live_repo.orders.values()]
+
+
+@app.get("/api/v1/live-fills")
+def live_fills() -> list[dict[str, Any]]:
+    return [jsonable(item) for item in live_repo.fills.values()]
+
+
+@app.get("/api/v1/live-incidents")
+def live_incidents() -> list[dict[str, Any]]:
+    return [jsonable(item) for item in live_repo.incidents.values()]
 
 
 @app.get("/api/v1/paper-incidents")

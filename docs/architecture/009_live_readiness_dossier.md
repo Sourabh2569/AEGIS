@@ -2,7 +2,7 @@
 
 Living evidence tracker for Document 007's 8 Live Readiness Gates. Not itself an authorization to go live -- Document 007 remains the constitution; this is the checkable record of where each gate actually stands, updated as real evidence accumulates.
 
-`GET /api/v1/live-readiness/evidence` and the Cockpit's Live Readiness view (`/live-readiness`) report the real, current numbers for Gates 1 and 2 automatically. The rest of this document is updated by hand as work on the other gates progresses.
+`GET /api/v1/live-readiness/evidence` and the Cockpit's Live Readiness view (`/live-readiness`) report the real, current numbers for Gates 1, 2, and (since this pass) 8 automatically. The rest of this document is updated by hand as work on the other gates progresses.
 
 ## Gate 1 -- Research integrity
 
@@ -22,6 +22,8 @@ Remaining: accumulate a real, sustained track record (real duration, real rebala
 
 Remaining: decide and (if needed) implement whether lifecycle-level `PAUSED` needs to flow into risk assessments directly; consider renaming `EMERGENCY_EXIT` to `EMERGENCY_REVIEW` for terminology consistency with this document (a cosmetic rename touching tested code -- low priority, not blocking).
 
+**Update (this pass):** `packages/live_trading/` reuses `PositionSizingEngine`/`RiskProfileVersion` unmodified for real position sizing (`LiveDecisionCycleService`) -- the same risk model that governs paper trading now also governs every proposed real order, with zero strategy-specific or execution-path-specific carve-outs. `LivePortfolio` mirrors `PaperPortfolioStatus`'s drawdown ladder exactly (`ACTIVE`/`CAUTION`/`DEFENSIVE`/`CAPITAL_PRESERVATION`/`FROZEN`/`PAUSED`). This is real evidence the risk model generalizes beyond the paper-trading path it was originally built for, not a new or different risk framework for real money.
+
 ## Gate 4 -- Security readiness
 
 **Status: strong foundation, one closed gap this pass.** Real JWT auth, bcrypt password hashing, per-username login rate limiting, no plaintext credentials in the auth path, a secrets-pattern CI check (`check_no_secrets.py`), and CVE remediation history (postcss, vitest/esbuild/vite dependency chain). This pass added `pip-audit` to CI for Python dependency vulnerability scanning -- one real finding surfaced immediately (`PYSEC-2020-25` in `autobahn`, pinned by `kiteconnect` for its unused WebSocket ticker component) and is tracked as an accepted, documented risk in `.github/workflows/ci.yml` pending revisit before any phase that would use real-time order-status streaming.
@@ -37,6 +39,8 @@ Remaining: `check_no_secrets.py` is a narrow regex (GitHub/AWS tokens, PEM keys)
 - **The one thing that isn't fixed and can't be yet**: reconciliation itself is never triggered in production, and even if it were, it's self-referential (no independent broker-reported data source to compare against) -- blocked on Phase 2's broker adapter. Building a "Reconcile Now" button today would be decorative, not real safety, so it wasn't built.
 
 Remaining: a real reconciliation trigger + independent data source (Phase 2); monitoring/alerting (currently none -- issues are found by manually opening the Cockpit); role/reason gating on incident resolution (noted as an adjacent gap in the runbook, not yet fixed); wiring the 4 newly-cataloged kill-switch types into real scope-matching once their corresponding systems exist.
+
+**Update (this pass):** the previously-noted blockers for real reconciliation and the 4 dormant kill-switch types are now built, exactly as `packages/live_trading/`, not `paper_trading` (paper's own reconciliation stays self-referential, unchanged, per the note above). `LiveReconciliationService.reconcile()` genuinely calls a broker adapter's `get_positions()`/`get_margins()` for an independent comparison against the internal ledger, freezing the portfolio and creating a `LiveIncident` on a RED result (`packages/live_trading/aegis/live_trading/reconciliation.py`). `ExecutionPreflightGate` and `LiveExecutionGateway` check all 9 `KillSwitchType`s, including the 4 that were previously cataloged but never wired (`BROKER_ADAPTER_KILL_SWITCH`, `RISK_ENGINE_KILL_SWITCH`, `COMPLIANCE_HOLD_KILL_SWITCH`, `SECURITY_INCIDENT_KILL_SWITCH`) -- `COMPLIANCE_HOLD_KILL_SWITCH` is now a real, independent lever the founder can flip on at deploy time regardless of `validate_startup()`. Kill switches are shared by reference between `paper_repo` and `live_repo` (`apps/api/aegis_api/main.py`), so the existing `/api/v1/kill-switches/{id}/activate|deactivate` endpoints already cover live trading -- no separate endpoint was needed. This is still entirely inert in production: `LiveReconciliationService`'s `observed_nav_calculator` deliberately raises `NotImplementedError` (Kite Connect's real `positions()`/`margins()` schema has never been verified against a live order-placement account), and no real broker credentials exist to call it with regardless.
 
 ## Gate 6 -- Legal and compliance readiness
 
@@ -69,7 +73,11 @@ Remaining: everything -- no real sign-off has been attempted, and one shouldn't 
 
 ## Gate 8 -- Controlled live pilot readiness
 
-Out of scope until Gates 1-7 are passed. Not evaluated here.
+**Status: pipeline built and unit/integration-tested against fakes; categorically inert in production.** `packages/live_trading/` implements the full path from a real strategy signal to a real (never-yet-placed) broker order: domain model (`LivePortfolio` with a `PILOT`/`FULL` capital tier and a founder-set `pilot_capital_cap`), `LiveDecisionCycleService` (turns real target weights into sized `LiveOrderIntent`s via the shared risk engine), `LiveApprovalService` (human approval, audited on both approve *and* reject -- fixing an asymmetry paper trading has), `ExecutionPreflightGate` (8 checks: kill switches, portfolio status, market hours, approval validity, pilot capital cap, broker health, idempotency, minimum trade notional), `LiveExecutionGateway` (the only code path allowed to call `order_adapter.place_order()`), `LiveOrderStatusMonitor` (polls real order status, records fills from the broker's own reported price/quantity only), and `graduate_live_portfolio()` (the *only* path from `PILOT` to `FULL` capital, `Role.FOUNDER`-only, requires 20 real clean fills, a reason, and a confirmed amount -- never automatic, per Document 007's prohibition on automating capital allocation). Full API surface under `/api/v1/live-portfolios/...` and `/api/v1/live-order-intents/...`; Cockpit UI at `/live-trading` with a persistent "LIVE -- REAL MONEY" banner, batch cycle-approval, and typed-confirmation approve/graduate controls. Real counts (order/fill/incident totals, furthest clean-fill count reached) are live via `GET /api/v1/live-readiness/evidence`'s `gate_8_controlled_live_pilot` section.
+
+**This is still categorically unreachable at runtime.** `Settings.validate_startup()` unconditionally refuses to boot if `LIVE_EXECUTION_ENABLED`, `BROKER_ORDER_ACCESS`, or `LIVE_BROKER_CONNECTION_ENABLED` are ever true; `KiteConnectOrderAdapter` independently re-checks both flags (plus an `automation_rights=False`, `PENDING_GATE_6_AND_GATE_7` provider license) on every real call. No real Kite order-placement credentials exist -- only data-only market-data access. Every test in this pipeline runs against a fake/scripted broker adapter.
+
+Remaining: everything that requires the founder's own work at Gates 6 and 7 (this pass does not advance either); real credentials and a verified real `positions()`/`margins()` response schema before `LiveReconciliationService` can do anything but raise `NotImplementedError`; the pilot has never run against real money for even a single order.
 
 ## Roadmap position
 
