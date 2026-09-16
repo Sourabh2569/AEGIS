@@ -20,7 +20,16 @@ class FakeKiteOrderClient:
         self._margins: dict[str, Any] = {}
 
     def place_order(
-        self, variety, exchange, tradingsymbol, transaction_type, quantity, product, order_type, tag, **kwargs
+        self,
+        variety,
+        exchange,
+        tradingsymbol,
+        transaction_type,
+        quantity,
+        product,
+        order_type,
+        tag,
+        **kwargs,
     ) -> str:
         order_id = f"BROKER-{len(self.placed_orders) + 1}"
         self.placed_orders.append(
@@ -78,8 +87,12 @@ def test_place_order_rejected_when_live_execution_disabled() -> None:
     )
     with pytest.raises(PermissionError, match="LIVE_EXECUTION_ENABLED"):
         adapter.place_order(
-            tradingsymbol="RELIANCE", exchange="NSE", transaction_type="BUY",
-            quantity=1, order_tag="TEST", correlation_id="c1",
+            tradingsymbol="RELIANCE",
+            exchange="NSE",
+            transaction_type="BUY",
+            quantity=1,
+            order_tag="TEST",
+            correlation_id="c1",
         )
 
 
@@ -93,8 +106,12 @@ def test_place_order_rejected_when_broker_order_access_disabled() -> None:
     )
     with pytest.raises(PermissionError, match="BROKER_ORDER_ACCESS"):
         adapter.place_order(
-            tradingsymbol="RELIANCE", exchange="NSE", transaction_type="BUY",
-            quantity=1, order_tag="TEST", correlation_id="c1",
+            tradingsymbol="RELIANCE",
+            exchange="NSE",
+            transaction_type="BUY",
+            quantity=1,
+            order_tag="TEST",
+            correlation_id="c1",
         )
 
 
@@ -108,8 +125,12 @@ def test_place_order_rejected_when_license_not_approved() -> None:
     )
     with pytest.raises(PermissionError, match="PENDING"):
         adapter.place_order(
-            tradingsymbol="RELIANCE", exchange="NSE", transaction_type="BUY",
-            quantity=1, order_tag="TEST", correlation_id="c1",
+            tradingsymbol="RELIANCE",
+            exchange="NSE",
+            transaction_type="BUY",
+            quantity=1,
+            order_tag="TEST",
+            correlation_id="c1",
         )
 
 
@@ -123,8 +144,12 @@ def test_place_order_rejected_when_not_configured() -> None:
     )
     with pytest.raises(PermissionError, match="not configured"):
         adapter.place_order(
-            tradingsymbol="RELIANCE", exchange="NSE", transaction_type="BUY",
-            quantity=1, order_tag="TEST", correlation_id="c1",
+            tradingsymbol="RELIANCE",
+            exchange="NSE",
+            transaction_type="BUY",
+            quantity=1,
+            order_tag="TEST",
+            correlation_id="c1",
         )
 
 
@@ -138,8 +163,12 @@ def test_place_order_requires_a_non_empty_tag_even_when_everything_else_allows_i
     )
     with pytest.raises(ValueError, match="order_tag"):
         adapter.place_order(
-            tradingsymbol="RELIANCE", exchange="NSE", transaction_type="BUY",
-            quantity=1, order_tag="", correlation_id="c1",
+            tradingsymbol="RELIANCE",
+            exchange="NSE",
+            transaction_type="BUY",
+            quantity=1,
+            order_tag="",
+            correlation_id="c1",
         )
 
 
@@ -153,8 +182,12 @@ def test_place_order_calls_fake_client_with_required_tag_when_fully_allowed() ->
         license_=_approved_license(),
     )
     order_id = adapter.place_order(
-        tradingsymbol="RELIANCE", exchange="NSE", transaction_type="BUY",
-        quantity=5, order_tag="AEGIS-PILOT-1", correlation_id="c1",
+        tradingsymbol="RELIANCE",
+        exchange="NSE",
+        transaction_type="BUY",
+        quantity=5,
+        order_tag="AEGIS-PILOT-1",
+        correlation_id="c1",
     )
     assert order_id == "BROKER-1"
     assert len(client.placed_orders) == 1
@@ -243,5 +276,3 @@ def test_get_health_status_is_healthy_only_when_everything_lines_up() -> None:
     health = adapter.get_health_status()
     assert health.healthy is True
     assert health.order_access is True
-
-

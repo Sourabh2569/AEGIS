@@ -83,7 +83,7 @@ def test_a_realistic_multi_position_decision_cycle_creates_approvable_intents(
 
     def fake_resolver(strategy_id: str, as_of):
         instrument_ids = [f"AEGIS-IN-{i:06d}" for i in range(1, 51)]
-        weight = Decimal("1") / Decimal(50)
+        weight = Decimal(1) / Decimal(50)
         return {inst: weight for inst in instrument_ids}, {}
 
     app_main.live_decision_cycle_service.strategy_target_resolver = fake_resolver

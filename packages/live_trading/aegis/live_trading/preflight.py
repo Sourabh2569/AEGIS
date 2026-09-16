@@ -68,10 +68,9 @@ class ExecutionPreflightGate:
         def run(name: str, fn: Any) -> None:
             try:
                 ok = bool(fn())
-            except Exception:
-                # Fail closed: any exception while evaluating a check is
-                # itself a failure of that check, never allowed to
-                # propagate and skip the remaining checks.
+            except Exception:  # noqa: BLE001 -- fail closed: any exception while
+                # evaluating a check is itself a failure of that check, never
+                # allowed to propagate and skip the remaining checks.
                 ok = False
             results[name] = ok
             if not ok:
@@ -97,8 +96,7 @@ class ExecutionPreflightGate:
                 self.order_adapter.name,
             }
             return not any(
-                switch.is_active and switch.scope_id in relevant_scopes
-                for switch in kill_switches
+                switch.is_active and switch.scope_id in relevant_scopes for switch in kill_switches
             )
 
         def check_portfolio_status() -> bool:

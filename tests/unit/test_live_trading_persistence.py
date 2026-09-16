@@ -23,15 +23,15 @@ from aegis.shared.time import utc_now
 
 
 def _portfolio(**overrides) -> LivePortfolio:
-    kwargs = dict(
-        name="Pilot",
-        description="test pilot",
-        starting_capital=Decimal(400000),
-        pilot_capital_cap=Decimal(400000),
-        risk_profile_version_id="v1",
-        portfolio_configuration_version="v1",
-        created_by="founder",
-    )
+    kwargs = {
+        "name": "Pilot",
+        "description": "test pilot",
+        "starting_capital": Decimal(400000),
+        "pilot_capital_cap": Decimal(400000),
+        "risk_profile_version_id": "v1",
+        "portfolio_configuration_version": "v1",
+        "created_by": "founder",
+    }
     kwargs.update(overrides)
     return LivePortfolio(**kwargs)
 
@@ -186,14 +186,16 @@ def test_a_real_process_restart_still_sees_everything_a_prior_process_wrote(
 
     assert second_process.portfolios[portfolio.live_portfolio_id].clean_fill_count == 7
     assert second_process.intents[intent.live_order_intent_id].instrument_id == "AEGIS-IN-000001"
-    assert (
-        second_process.approvals[intent.live_order_intent_id].confirmed_amount_nullable
-        == Decimal("1234.56")
-    )
+    assert second_process.approvals[
+        intent.live_order_intent_id
+    ].confirmed_amount_nullable == Decimal("1234.56")
     assert second_process.orders[order.live_order_id].broker_order_id_nullable == "BROKER-ORDER-999"
     assert second_process.fills[fill.live_fill_id].fill_price == Decimal("1234.5600")
     assert second_process.fills[fill.live_fill_id].broker_fill_reference == "BROKER-FILL-1"
-    assert second_process.incidents[incident.id].incident_type == LiveIncidentType.RECONCILIATION_INCIDENT
+    assert (
+        second_process.incidents[incident.id].incident_type
+        == LiveIncidentType.RECONCILIATION_INCIDENT
+    )
     assert second_process.reconciliations[portfolio.live_portfolio_id][0].status == "RED"
     assert second_process.preflights[preflight.id].passed is True
     # research_portfolios is never persisted directly -- it must be

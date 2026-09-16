@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from datetime import date as date_
 from datetime import time as time_
 from decimal import Decimal
-from typing import Any, Callable
+from typing import Any
 
 from aegis.live_trading.domain import (
     LiveApproval,
@@ -22,8 +23,8 @@ from aegis.live_trading.domain import (
     LivePortfolioConfiguration,
     LivePortfolioStatus,
     LiveReconciliationRecord,
-    LiveStrategyConfiguration,
     LiveStrategyConfigStatus,
+    LiveStrategyConfiguration,
     default_live_approval_expiry,
 )
 from aegis.live_trading.preflight import ExecutionPreflightGate
@@ -63,9 +64,7 @@ class LiveTradingRepository:
         # only reads it to size new intents against real current holdings.
         self.research_portfolios: dict[str, ResearchPortfolio] = {}
 
-    def add_portfolio(
-        self, portfolio: LivePortfolio, config: LivePortfolioConfiguration
-    ) -> None:
+    def add_portfolio(self, portfolio: LivePortfolio, config: LivePortfolioConfiguration) -> None:
         self.portfolios[portfolio.live_portfolio_id] = portfolio
         self.portfolio_configs[portfolio.live_portfolio_id] = config
         self.research_portfolios[portfolio.live_portfolio_id] = ResearchPortfolio(
@@ -163,7 +162,8 @@ class LiveApprovalService:
             live_strategy_config_id=intent.live_strategy_config_id,
             reason="Approved for real broker execution.",
             expiry_time=max(
-                default_live_approval_expiry(now), intent.eligible_execution_time + timedelta(hours=1)
+                default_live_approval_expiry(now),
+                intent.eligible_execution_time + timedelta(hours=1),
             ),
             confirmed_amount_nullable=confirmed_amount,
         )
@@ -359,7 +359,9 @@ class LiveExecutionGateway:
             )
             self.repository.save_order(order)
             orders.append(order)
-            running_deployed_notional = money(running_deployed_notional + requested_quantity * entry_price)
+            running_deployed_notional = money(
+                running_deployed_notional + requested_quantity * entry_price
+            )
 
             self.audit_log.record(
                 event_type="LIVE_ORDER_SUBMITTED",
@@ -389,7 +391,9 @@ class LiveOrderStatusMonitor:
     price/quantity -- never approximated or backfilled from an interim
     partial-fill snapshot."""
 
-    def __init__(self, *, repository: LiveTradingRepository, order_adapter: Any, audit_log: Any) -> None:
+    def __init__(
+        self, *, repository: LiveTradingRepository, order_adapter: Any, audit_log: Any
+    ) -> None:
         self.repository = repository
         self.order_adapter = order_adapter
         self.audit_log = audit_log
@@ -400,16 +404,16 @@ class LiveOrderStatusMonitor:
         for order in self.repository.open_orders():
             if order.broker_order_id_nullable is None:
                 continue
-            status = self.order_adapter.get_order_status(broker_order_id=order.broker_order_id_nullable)
+            status = self.order_adapter.get_order_status(
+                broker_order_id=order.broker_order_id_nullable
+            )
 
             if status.status == "COMPLETE":
                 updated.append(self._record_fill(order, status))
             elif status.status == "REJECTED":
                 updated.append(self._record_rejection(order, status))
             elif status.status == "CANCELLED":
-                self.repository.save_order(
-                    order := _with_status(order, LiveOrderStatus.CANCELLED)
-                )
+                self.repository.save_order(order := _with_status(order, LiveOrderStatus.CANCELLED))
                 updated.append(order)
             elif status.filled_quantity > 0 and status.filled_quantity < order.requested_quantity:
                 partially_filled = _with_status(
@@ -445,9 +449,7 @@ class LiveOrderStatusMonitor:
         # this codebase already established for paper fills.
         side_sign = Decimal(1) if is_sell else Decimal(-1)
         fill_time = utc_now()
-        settlement_date = (
-            (fill_time + timedelta(days=1)).date() if is_sell else fill_time.date()
-        )
+        settlement_date = (fill_time + timedelta(days=1)).date() if is_sell else fill_time.date()
         fill = LiveFill(
             live_order_id=order.live_order_id,
             live_portfolio_id=order.live_portfolio_id,
@@ -483,7 +485,9 @@ class LiveOrderStatusMonitor:
                     order.instrument_id, real_quantity, real_price, fill.cost_total, settlement_date
                 )
             else:
-                research_portfolio.buy(order.instrument_id, real_quantity, real_price, fill.cost_total)
+                research_portfolio.buy(
+                    order.instrument_id, real_quantity, real_price, fill.cost_total
+                )
         except ValueError as exc:
             self.repository.save_incident(
                 LiveIncident(
@@ -522,7 +526,9 @@ class LiveOrderStatusMonitor:
 
     def _record_rejection(self, order: LiveOrder, status: Any) -> LiveOrder:
         rejected_order = _with_status(
-            order, LiveOrderStatus.REJECTED_BY_BROKER, rejection_reason_nullable=status.rejection_reason
+            order,
+            LiveOrderStatus.REJECTED_BY_BROKER,
+            rejection_reason_nullable=status.rejection_reason,
         )
         self.repository.save_order(rejected_order)
 

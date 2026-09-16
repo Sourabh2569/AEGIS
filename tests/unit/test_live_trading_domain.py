@@ -19,15 +19,15 @@ from aegis.shared.time import utc_now
 
 
 def _portfolio(**overrides) -> LivePortfolio:
-    kwargs = dict(
-        name="Pilot",
-        description="test pilot",
-        starting_capital=Decimal(400000),
-        pilot_capital_cap=Decimal(400000),
-        risk_profile_version_id="v1",
-        portfolio_configuration_version="v1",
-        created_by="founder",
-    )
+    kwargs = {
+        "name": "Pilot",
+        "description": "test pilot",
+        "starting_capital": Decimal(400000),
+        "pilot_capital_cap": Decimal(400000),
+        "risk_profile_version_id": "v1",
+        "portfolio_configuration_version": "v1",
+        "created_by": "founder",
+    }
     kwargs.update(overrides)
     return LivePortfolio(**kwargs)
 

@@ -176,9 +176,7 @@ class SqliteLiveTradingRepository(LiveTradingRepository):
                 (entity_id, live_portfolio_id, to_json(item), datetime.now(UTC).isoformat()),
             )
 
-    def add_portfolio(
-        self, portfolio: LivePortfolio, config: LivePortfolioConfiguration
-    ) -> None:
+    def add_portfolio(self, portfolio: LivePortfolio, config: LivePortfolioConfiguration) -> None:
         super().add_portfolio(portfolio, config)
         self.persist()
 

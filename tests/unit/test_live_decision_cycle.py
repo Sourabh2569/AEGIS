@@ -22,35 +22,54 @@ CALENDAR = PaperTradingCalendarService(sessions=[SESSION_DATE, NEXT_SESSION_DATE
 
 
 def _portfolio(**overrides) -> LivePortfolio:
-    kwargs = dict(
-        name="Pilot", description="test", starting_capital=Decimal(400000),
-        pilot_capital_cap=Decimal(400000), risk_profile_version_id="v1",
-        portfolio_configuration_version="v1", created_by="founder",
-        status=LivePortfolioStatus.ACTIVE,
-    )
+    kwargs = {
+        "name": "Pilot",
+        "description": "test",
+        "starting_capital": Decimal(400000),
+        "pilot_capital_cap": Decimal(400000),
+        "risk_profile_version_id": "v1",
+        "portfolio_configuration_version": "v1",
+        "created_by": "founder",
+        "status": LivePortfolioStatus.ACTIVE,
+    }
     kwargs.update(overrides)
     return LivePortfolio(**kwargs)
 
 
 def _config(portfolio: LivePortfolio) -> LivePortfolioConfiguration:
     return LivePortfolioConfiguration(
-        live_portfolio_id=portfolio.live_portfolio_id, version="v1", risk_profile_version_id="v1",
-        minimum_cash_weight=Decimal("0.20"), maximum_gross_equity_exposure=Decimal("0.80"),
-        maximum_position_count=50, settlement_model_version="v1", cost_schedule_version="v1",
-        execution_model_version="v1", market_calendar_policy="NSE_STANDARD", valuation_policy="CLOSE",
-        corporate_action_policy="FREEZE_ON_UNSUPPORTED", created_by="founder",
+        live_portfolio_id=portfolio.live_portfolio_id,
+        version="v1",
+        risk_profile_version_id="v1",
+        minimum_cash_weight=Decimal("0.20"),
+        maximum_gross_equity_exposure=Decimal("0.80"),
+        maximum_position_count=50,
+        settlement_model_version="v1",
+        cost_schedule_version="v1",
+        execution_model_version="v1",
+        market_calendar_policy="NSE_STANDARD",
+        valuation_policy="CLOSE",
+        corporate_action_policy="FREEZE_ON_UNSUPPORTED",
+        created_by="founder",
     )
 
 
 def _make_strategy_config(portfolio: LivePortfolio, strategy_id: str) -> LiveStrategyConfiguration:
     return LiveStrategyConfiguration(
-        live_portfolio_id=portfolio.live_portfolio_id, strategy_id=strategy_id,
-        strategy_version_id=f"{strategy_id}:V0", risk_profile_version_id="v1",
-        universe_definition_version="v1", cost_schedule_version="v1",
-        settlement_model_version="v1", execution_model_version="v1",
-        rebalancing_frequency="MONTHLY", decision_time_policy="POST_CLOSE_FORWARD_ONLY",
-        execution_time_policy="NEXT_ELIGIBLE_SESSION_OPEN", position_sizing_policy="AEGIS_CONSERVATIVE_V0",
-        live_start_date=SESSION_DATE, status=LiveStrategyConfigStatus.ACTIVE,
+        live_portfolio_id=portfolio.live_portfolio_id,
+        strategy_id=strategy_id,
+        strategy_version_id=f"{strategy_id}:V0",
+        risk_profile_version_id="v1",
+        universe_definition_version="v1",
+        cost_schedule_version="v1",
+        settlement_model_version="v1",
+        execution_model_version="v1",
+        rebalancing_frequency="MONTHLY",
+        decision_time_policy="POST_CLOSE_FORWARD_ONLY",
+        execution_time_policy="NEXT_ELIGIBLE_SESSION_OPEN",
+        position_sizing_policy="AEGIS_CONSERVATIVE_V0",
+        live_start_date=SESSION_DATE,
+        status=LiveStrategyConfigStatus.ACTIVE,
     )
 
 
@@ -64,18 +83,20 @@ def _setup(tmp_path, strategy_id="DiversifiedRiskOverlayStrategyV2", **portfolio
 
 
 def test_no_resolver_produces_no_intents(tmp_path) -> None:
-    repo, portfolio, config = _setup(tmp_path)
+    repo, portfolio, _config = _setup(tmp_path)
     service = LiveDecisionCycleService(
         repository=repo, audit_log=AuditLog(), calendar=CALENDAR, strategy_target_resolver=None
     )
     created = service.run_decision_cycle(
-        live_portfolio_id=portfolio.live_portfolio_id, session_date=SESSION_DATE, reference_prices={}
+        live_portfolio_id=portfolio.live_portfolio_id,
+        session_date=SESSION_DATE,
+        reference_prices={},
     )
     assert created == []
 
 
 def test_frozen_portfolio_produces_no_intents(tmp_path) -> None:
-    repo, portfolio, config = _setup(tmp_path, status=LivePortfolioStatus.FROZEN)
+    repo, portfolio, _config = _setup(tmp_path, status=LivePortfolioStatus.FROZEN)
     resolver_calls = []
 
     def resolver(strategy_id, as_of):
@@ -86,8 +107,9 @@ def test_frozen_portfolio_produces_no_intents(tmp_path) -> None:
         repository=repo, audit_log=AuditLog(), calendar=CALENDAR, strategy_target_resolver=resolver
     )
     created = service.run_decision_cycle(
-        live_portfolio_id=portfolio.live_portfolio_id, session_date=SESSION_DATE,
-        reference_prices={"AEGIS-IN-000001": Decimal("100")},
+        live_portfolio_id=portfolio.live_portfolio_id,
+        session_date=SESSION_DATE,
+        reference_prices={"AEGIS-IN-000001": Decimal(100)},
     )
     assert created == []
     assert resolver_calls == []
@@ -103,8 +125,9 @@ def test_real_target_weight_creates_a_sized_buy_intent(tmp_path) -> None:
         repository=repo, audit_log=AuditLog(), calendar=CALENDAR, strategy_target_resolver=resolver
     )
     created = service.run_decision_cycle(
-        live_portfolio_id=portfolio.live_portfolio_id, session_date=SESSION_DATE,
-        reference_prices={"AEGIS-IN-000001": Decimal("1000")},
+        live_portfolio_id=portfolio.live_portfolio_id,
+        session_date=SESSION_DATE,
+        reference_prices={"AEGIS-IN-000001": Decimal(1000)},
     )
 
     assert len(created) == 1
@@ -120,9 +143,9 @@ def test_real_target_weight_creates_a_sized_buy_intent(tmp_path) -> None:
 def test_a_realistic_fifty_position_universe_sizes_every_candidate(tmp_path) -> None:
     """Matches DiversifiedRiskOverlayStrategyV2's real shape: the whole
     eligible universe gets a nonzero target weight in one cycle."""
-    repo, portfolio, config = _setup(tmp_path)
+    repo, portfolio, _config = _setup(tmp_path)
     instrument_ids = [f"AEGIS-IN-{i:06d}" for i in range(1, 51)]
-    weight = Decimal("1") / Decimal(50)
+    weight = Decimal(1) / Decimal(50)
     reference_prices = {inst: Decimal(100 + i) for i, inst in enumerate(instrument_ids)}
 
     def resolver(strategy_id, as_of):
@@ -132,7 +155,8 @@ def test_a_realistic_fifty_position_universe_sizes_every_candidate(tmp_path) -> 
         repository=repo, audit_log=AuditLog(), calendar=CALENDAR, strategy_target_resolver=resolver
     )
     created = service.run_decision_cycle(
-        live_portfolio_id=portfolio.live_portfolio_id, session_date=SESSION_DATE,
+        live_portfolio_id=portfolio.live_portfolio_id,
+        session_date=SESSION_DATE,
         reference_prices=reference_prices,
     )
 
@@ -142,7 +166,7 @@ def test_a_realistic_fifty_position_universe_sizes_every_candidate(tmp_path) -> 
 
 
 def test_rerunning_the_same_session_date_does_not_duplicate_intents(tmp_path) -> None:
-    repo, portfolio, config = _setup(tmp_path)
+    repo, portfolio, _config = _setup(tmp_path)
 
     def resolver(strategy_id, as_of):
         return {"AEGIS-IN-000001": Decimal("0.5")}, {}
@@ -151,12 +175,14 @@ def test_rerunning_the_same_session_date_does_not_duplicate_intents(tmp_path) ->
         repository=repo, audit_log=AuditLog(), calendar=CALENDAR, strategy_target_resolver=resolver
     )
     first = service.run_decision_cycle(
-        live_portfolio_id=portfolio.live_portfolio_id, session_date=SESSION_DATE,
-        reference_prices={"AEGIS-IN-000001": Decimal("1000")},
+        live_portfolio_id=portfolio.live_portfolio_id,
+        session_date=SESSION_DATE,
+        reference_prices={"AEGIS-IN-000001": Decimal(1000)},
     )
     second = service.run_decision_cycle(
-        live_portfolio_id=portfolio.live_portfolio_id, session_date=SESSION_DATE,
-        reference_prices={"AEGIS-IN-000001": Decimal("1000")},
+        live_portfolio_id=portfolio.live_portfolio_id,
+        session_date=SESSION_DATE,
+        reference_prices={"AEGIS-IN-000001": Decimal(1000)},
     )
     assert len(first) == 1
     assert len(second) == 0

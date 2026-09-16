@@ -5,9 +5,7 @@ from dataclasses import fields, is_dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any, TypeVar, cast
-
-T = TypeVar("T")
+from typing import Any, cast
 
 
 def encode_value(value: Any) -> Any:
@@ -46,7 +44,7 @@ def to_json(value: Any) -> str:
     return json.dumps(encode_value(value), sort_keys=True)
 
 
-def from_json(payload: str, cls: type[T]) -> T:
+def from_json[T](payload: str, cls: type[T]) -> T:
     raw = json.loads(payload)
     kwargs = {}
     dataclass_type = cast(Any, cls)
